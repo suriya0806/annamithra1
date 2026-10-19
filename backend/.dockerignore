@@ -1,0 +1,23 @@
+# Local build artifacts
+target/
+*.jar
+*.war
+*.class
+
+# Version control and environment
+.git/
+.gitignore
+.dockerignore
+.env*
+
+# IDE and OS files
+.vscode/
+.idea/
+*.iml
+.DS_Store
+Thumbs.db
+
+# Test scripts and temporary logs
+test_*.mjs
+*.log
+scratch/
