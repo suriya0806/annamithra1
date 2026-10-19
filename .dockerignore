@@ -1,0 +1,27 @@
+# Exclude frontend from backend Docker build context
+frontend/
+
+# Local build artifacts
+backend/target/
+target/
+*.jar
+*.war
+*.class
+
+# Version control and environment
+.git/
+.gitignore
+.dockerignore
+.env*
+
+# IDE and OS files
+.vscode/
+.idea/
+*.iml
+.DS_Store
+Thumbs.db
+
+# Test scripts and temporary logs
+backend/test_*.mjs
+*.log
+scratch/

@@ -1,6 +1,7 @@
 # ==============================================================================
 # Multi-stage Dockerfile for Annamithra Spring Boot Backend
 # Optimized for Render deployment with Eclipse Temurin JDK/JRE 17
+# Build Context: Repository Root (Render Dockerfile Path: backend/Dockerfile)
 # ==============================================================================
 
 # Stage 1: Build the application using Maven and JDK 17
@@ -8,12 +9,12 @@ FROM maven:3.9.9-eclipse-temurin-17-alpine AS builder
 
 WORKDIR /build
 
-# Cache Maven dependencies layer
-COPY pom.xml .
+# Cache Maven dependencies layer from backend folder
+COPY backend/pom.xml .
 RUN mvn dependency:go-offline -B || true
 
-# Copy application source code and package the Spring Boot executable JAR
-COPY src ./src
+# Copy backend source code and package the Spring Boot executable JAR
+COPY backend/src ./src
 RUN mvn clean package -DskipTests -B
 
 # Stage 2: Production runtime image with lightweight JRE 17
