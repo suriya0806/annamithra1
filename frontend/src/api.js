@@ -27,7 +27,38 @@ export const clearStoredAuth = () => {
   localStorage.removeItem(USER_KEY);
 };
 
+// Base URL for the Spring Boot backend on Render
+// Configured via Vite environment variable VITE_API_BASE_URL (e.g. https://annamithra-api.onrender.com)
+// In local development without this variable, defaults to '' to leverage the Vite dev server proxy
+const RAW_API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || '').trim();
+const CLEAN_BASE_URL = RAW_API_BASE_URL.replace(/\/+$/, '');
+
+export function getFullUrl(endpoint) {
+  if (!endpoint) return '';
+
+  // Return full URL if already absolute
+  if (/^https?:\/\//i.test(endpoint)) {
+    return endpoint;
+  }
+
+  // Ensure leading slash
+  const path = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
+
+  if (!CLEAN_BASE_URL) {
+    // Relative path for local development proxy
+    return path;
+  }
+
+  // Prevent accidental /api duplication if base URL already ends with /api
+  if (CLEAN_BASE_URL.endsWith('/api') && path.startsWith('/api/')) {
+    return `${CLEAN_BASE_URL}${path.substring(4)}`;
+  }
+
+  return `${CLEAN_BASE_URL}${path}`;
+}
+
 async function request(endpoint, options = {}) {
+  const url = getFullUrl(endpoint);
   const { token } = getStoredAuth();
   const headers = {
     'Content-Type': 'application/json',
@@ -35,7 +66,7 @@ async function request(endpoint, options = {}) {
     ...(options.headers || {})
   };
 
-  const response = await fetch(endpoint, {
+  const response = await fetch(url, {
     ...options,
     headers
   });
