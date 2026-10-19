@@ -9,9 +9,11 @@ target/
 *.war
 *.class
 
-# Vite build output
+# Vite build output and cache
 dist/
 **/dist/
+.vite/
+**/.vite/
 
 # Logs
 *.log
