@@ -15,8 +15,8 @@ function AppContent() {
   const { t, translateRole } = useLanguage();
   const [auth, setAuth] = useState(() => getStoredAuth());
   const [role, setRole] = useState('Organisation Admin');
-  const [username, setUsername] = useState('admin@saravanas');
-  const [password, setPassword] = useState('1234');
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
   const [activeTab, setActiveTab] = useState(() => {
     const stored = getStoredAuth();
     if (stored?.user?.role === 'Store Manager') return 'branch-requests';
@@ -64,18 +64,12 @@ function AppContent() {
     }
   };
 
-  // Quick fill development credentials
-  const fillDevCreds = (u, p, r) => {
-    setUsername(u);
-    setPassword(p);
-    setRole(r);
-    setAlert(null);
-  };
-
   // Handle Logout
   const handleLogout = () => {
     api.logout();
     setAuth({ token: null, user: null });
+    setUsername('');
+    setPassword('');
     setAlert(null);
   };
 
@@ -111,23 +105,7 @@ function AppContent() {
             {t('Role')}
             <select
               value={role}
-              onChange={e => {
-                const newRole = e.target.value;
-                setRole(newRole);
-                if (newRole === 'Master Admin') {
-                  setUsername('master@admin');
-                  setPassword('1234');
-                } else if (newRole === 'Organisation Admin') {
-                  setUsername('admin@saravanas');
-                  setPassword('1234');
-                } else if (newRole === 'Store Manager') {
-                  setUsername('store@manager');
-                  setPassword('1234');
-                } else if (newRole === 'Branch Manager') {
-                  setUsername('Branch1');
-                  setPassword('1234');
-                }
-              }}
+              onChange={e => setRole(e.target.value)}
             >
               <option value="Master Admin">{translateRole('Master Admin')}</option>
               <option value="Organisation Admin">{translateRole('Organisation Admin')}</option>
@@ -160,47 +138,6 @@ function AppContent() {
           <button className="primary" type="submit" disabled={submitting} style={{ marginTop: 6 }}>
             {submitting ? t('Authenticating...') : `${t('Sign In')} (${translateRole(role)})`}
           </button>
-
-          <div className="dev-creds-box">
-            <div className="dev-creds-title">
-              <span>{t('Quick Development Logins')}</span>
-              <span className="muted" style={{ fontSize: 10 }}>{t('Click to fill')}</span>
-            </div>
-            <div className="dev-chip-list">
-              <button
-                type="button"
-                className="dev-chip"
-                onClick={() => fillDevCreds('master@admin', '1234', 'Master Admin')}
-              >
-                <span><b>{translateRole('Master Admin')}</b> <code>master@admin</code></span>
-                <span>PW: <code>1234</code></span>
-              </button>
-              <button
-                type="button"
-                className="dev-chip"
-                onClick={() => fillDevCreds('admin@saravanas', '1234', 'Organisation Admin')}
-              >
-                <span><b>{translateRole('Organisation Admin')}</b> <code>admin@saravanas</code></span>
-                <span>PW: <code>1234</code></span>
-              </button>
-              <button
-                type="button"
-                className="dev-chip"
-                onClick={() => fillDevCreds('store@manager', '1234', 'Store Manager')}
-              >
-                <span><b>{translateRole('Store Manager')}</b> <code>store@manager</code></span>
-                <span>PW: <code>1234</code></span>
-              </button>
-              <button
-                type="button"
-                className="dev-chip"
-                onClick={() => fillDevCreds('Branch1', '1234', 'Branch Manager')}
-              >
-                <span><b>{translateRole('Branch Manager')} 1</b> <code>Branch1</code></span>
-                <span>PW: <code>1234</code></span>
-              </button>
-            </div>
-          </div>
 
             {/* Supabase backend connection remains active in background */}
         </form>
