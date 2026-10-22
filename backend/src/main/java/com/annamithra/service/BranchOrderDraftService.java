@@ -16,15 +16,19 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
 
+import com.annamithra.dto.MultiItemBranchRequest;
+
 @Service
 @SuppressWarnings("null")
 public class BranchOrderDraftService {
     private final BranchOrderDraftRepository draftRepo;
     private final ObjectMapper objectMapper;
+    private final BranchRequestService requestService;
 
-    public BranchOrderDraftService(BranchOrderDraftRepository draftRepo, ObjectMapper objectMapper) {
+    public BranchOrderDraftService(BranchOrderDraftRepository draftRepo, ObjectMapper objectMapper, BranchRequestService requestService) {
         this.draftRepo = draftRepo;
         this.objectMapper = objectMapper;
+        this.requestService = requestService;
     }
 
     @Transactional
@@ -126,10 +130,42 @@ public class BranchOrderDraftService {
             .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Draft not found with ID: " + id));
 
         validateDraftAccess(draft, branchName, orgId);
+
+        List<DraftItemLine> items = deserializeItems(draft.itemsJson);
+        if (items.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Cannot move draft to order: draft contains no items");
+        }
+
+        // Build MultiItemBranchRequest and submit as active order in the system
+        MultiItemBranchRequest orderReq = new MultiItemBranchRequest();
+        orderReq.items = new ArrayList<>();
+        for (DraftItemLine item : items) {
+            if (item.requestedQuantity <= 0) continue;
+            MultiItemBranchRequest.ItemLine line = new MultiItemBranchRequest.ItemLine();
+            line.itemName = item.itemName != null ? item.itemName.trim() : "";
+            line.unit = (item.unit != null && !item.unit.isBlank()) ? item.unit.trim().toUpperCase() : "KG";
+
+            String cat = item.category != null ? item.category.trim() : "Groceries";
+            boolean valid = BranchRequestService.ALLOWED_CATEGORIES.stream()
+                .anyMatch(c -> c.equalsIgnoreCase(cat));
+            line.category = valid ? cat : "Groceries";
+
+            line.requestedQuantity = item.requestedQuantity;
+            line.isNewItem = item.isNewItem;
+            orderReq.items.add(line);
+        }
+
+        if (orderReq.items.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Cannot move draft to order: all items have 0 quantity");
+        }
+
+        // Submit the branch request so that the order is actually created in the database!
+        requestService.submitBranchRequest(orderReq, draft.branchName, draft.branchId, orgId);
+
         draft.status = "MOVED_TO_ORDER";
         draft.updatedAt = LocalDateTime.now();
         BranchOrderDraft saved = draftRepo.save(draft);
-        return toResponse(saved);
+        return toResponse(saved, items);
     }
 
     private void validateDraftAccess(BranchOrderDraft draft, String branchName, Long orgId) {
@@ -154,7 +190,19 @@ public class BranchOrderDraftService {
             if (line.requestedQuantity <= 0) continue;
 
             String unit = line.unit != null && !line.unit.isBlank() ? line.unit.trim().toUpperCase() : "KG";
-            String category = line.category != null && !line.category.isBlank() ? line.category.trim() : "General";
+
+            String category = "Groceries";
+            if (line.category != null && !line.category.isBlank()) {
+                String cTrim = line.category.trim();
+                boolean matches = BranchRequestService.ALLOWED_CATEGORIES.stream()
+                    .anyMatch(c -> c.equalsIgnoreCase(cTrim));
+                if (matches) {
+                    category = BranchRequestService.ALLOWED_CATEGORIES.stream()
+                        .filter(c -> c.equalsIgnoreCase(cTrim))
+                        .findFirst()
+                        .orElse("Groceries");
+                }
+            }
 
             result.add(new DraftItemLine(itemName, unit, category, line.requestedQuantity, line.isNewItem));
         }

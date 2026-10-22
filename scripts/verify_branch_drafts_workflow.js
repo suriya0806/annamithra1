@@ -167,6 +167,21 @@ async function runTests() {
     throw new Error(`Expected status MOVED_TO_ORDER, got ${moveRes.data.status}`);
   }
 
+  // Verify that moving the draft actually created submitted BranchRequest items in the database
+  const requestsAfterMoveRes = await request({
+    hostname: 'localhost',
+    port: 8080,
+    path: '/api/branch-requests/my-branch',
+    method: 'GET',
+    headers: authHeaders
+  });
+  const afterMoveCount = Array.isArray(requestsAfterMoveRes.data) ? requestsAfterMoveRes.data.length : 0;
+  console.log(`Submitted requests count after moving draft to order: ${afterMoveCount} (initial was ${initialOrderCount})`);
+  if (afterMoveCount <= initialOrderCount) {
+    throw new Error(`Expected new submitted orders created in branch_requests after moving draft, but count did not increase!`);
+  }
+  console.log(`✓ Confirmed: Moving draft to order successfully created ${afterMoveCount - initialOrderCount} new BranchRequest items in database!`);
+
   // 6. Test branch isolation / permissions
   console.log('\n6. Testing branch isolation permissions...');
   // Attempt to fetch with another branch's param or invalid id

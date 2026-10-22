@@ -128,6 +128,10 @@ export function BranchPortal({ user, activeTab, onSelectTab }) {
   const [deleteConfirmDraft, setDeleteConfirmDraft] = useState(null);
   const [deletingDraft, setDeletingDraft] = useState(false);
 
+  // Move Draft to Order Confirmation Modal state
+  const [confirmMoveDraft, setConfirmMoveDraft] = useState(null);
+  const [movingDraft, setMovingDraft] = useState(false);
+
   // Save as Draft Modal / Prompt state
   const [showSaveDraftModal, setShowSaveDraftModal] = useState(false);
   const [newDraftNameInput, setNewDraftNameInput] = useState('');
@@ -297,62 +301,105 @@ export function BranchPortal({ user, activeTab, onSelectTab }) {
     }
   };
 
-  // Move Draft to Order List
-  const handleMoveDraftToOrderList = async (draftToMove) => {
+  // Prompt confirmation to convert draft into active order
+  const handlePromptMoveDraftToOrder = (draftToMove) => {
     const draft = draftToMove || viewingDraft;
     if (!draft || !draft.items || draft.items.length === 0) {
       showAlert('error', language === 'ta' ? 'நகர்த்துவதற்கு இந்த வரைவில் பொருட்கள் இல்லை.' : 'No items in this draft to move.');
       return;
     }
+    setConfirmMoveDraft(draft);
+  };
+
+  // Execute Move Draft to Order: calls backend to create actual BranchRequest records in DB!
+  const handleExecuteMoveDraftToOrder = async () => {
+    if (!confirmMoveDraft) return;
+    const draft = confirmMoveDraft;
+    if (!draft || !draft.items || draft.items.length === 0) {
+      showAlert('error', language === 'ta' ? 'இந்த வரைவில் பொருட்கள் எதுவும் இல்லை.' : 'No items in this draft to order.');
+      setConfirmMoveDraft(null);
+      return;
+    }
 
     try {
-      const itemsToTransfer = draft.items;
-      setOrderItemsList(prev => {
-        const nextList = [...prev];
-        itemsToTransfer.forEach(draftItem => {
-          const matchIdx = nextList.findIndex(
-            x => x.itemName.trim().toLowerCase() === draftItem.itemName.trim().toLowerCase() &&
-                 (x.category || '').trim().toLowerCase() === (draftItem.category || '').trim().toLowerCase()
-          );
-          if (matchIdx >= 0) {
-            // Avoid duplicate lines; preserve draft requested quantity
-            nextList[matchIdx] = {
-              ...nextList[matchIdx],
-              requestedQuantity: draftItem.requestedQuantity || nextList[matchIdx].requestedQuantity,
-              unit: draftItem.unit || nextList[matchIdx].unit
-            };
-          } else {
-            nextList.push({
-              id: Date.now() + Math.random(),
-              itemName: draftItem.itemName,
-              unit: draftItem.unit || 'KG',
-              requestedQuantity: draftItem.requestedQuantity,
-              category: draftItem.category || 'General',
-              isNewItem: draftItem.isNewItem || false
-            });
-          }
-        });
-        return nextList;
-      });
+      setMovingDraft(true);
 
-      // Update draft status in database
+      // 1. Submit draft as actual order through backend (creates BranchRequest records & marks MOVED_TO_ORDER)
       await api.markBranchDraftMoved(draft.id);
+
+      // 2. Reload saved drafts to update status badge
       await loadSavedDrafts();
+
+      // 3. Reload branch requests so new order appears in History and Today's requests
+      await loadMyRequests('', true);
 
       if (viewingDraft && viewingDraft.id === draft.id) {
         handleCloseDraftReview();
       }
 
-      showAlert('success', language === 'ta'
-        ? `✓ வரைவு "${draft.draftName}"-ல் இருந்து ${draft.items.length} பொருட்கள் ஆர்டர் பட்டியலுக்கு வெற்றிகரமாக மாற்றப்பட்டன!`
-        : `✓ Transferred ${draft.items.length} item(s) from draft "${draft.draftName}" into your Order List! Review them and send order when ready.`);
+      setConfirmMoveDraft(null);
 
+      showAlert('success', language === 'ta'
+        ? `✓ வரைவு "${draft.draftName}"-ல் இருந்து ${draft.items.length} பொருட்கள் வெற்றிகரமாக ஆர்டர் செய்யப்பட்டு சேமிப்பக மேலாளருக்கு அனுப்பப்பட்டன!`
+        : `✓ Order successfully placed with ${draft.items.length} item(s) from draft "${draft.draftName}"! Sent to Store Manager.`);
+
+      // 4. Switch to History tab so user immediately sees their placed order
       if (typeof onSelectTab === 'function') {
-        onSelectTab('order-items');
+        onSelectTab('history');
       }
     } catch (err) {
-      console.error('Failed to move draft to order list', err);
-      showAlert('error', err.message || 'Failed to move draft to order list');
+      console.error('Failed to move draft to order', err);
+      showAlert('error', err.message || 'Failed to move draft to order');
+    } finally {
+      setMovingDraft(false);
+    }
+  };
+
+  // Load draft items into active Order Items form (for adding more items or editing before sending)
+  const handleLoadDraftIntoOrderForm = (draftToLoad) => {
+    const draft = draftToLoad || viewingDraft;
+    if (!draft || !draft.items || draft.items.length === 0) {
+      showAlert('error', language === 'ta' ? 'படிவத்தில் ஏற்ற வரைவில் பொருட்கள் இல்லை.' : 'No items in this draft to load.');
+      return;
+    }
+
+    setOrderItemsList(prev => {
+      const nextList = [...prev];
+      draft.items.forEach(draftItem => {
+        const matchIdx = nextList.findIndex(
+          x => x.itemName.trim().toLowerCase() === draftItem.itemName.trim().toLowerCase() &&
+               (x.category || '').trim().toLowerCase() === (draftItem.category || '').trim().toLowerCase()
+        );
+        if (matchIdx >= 0) {
+          nextList[matchIdx] = {
+            ...nextList[matchIdx],
+            requestedQuantity: draftItem.requestedQuantity || nextList[matchIdx].requestedQuantity,
+            unit: draftItem.unit || nextList[matchIdx].unit
+          };
+        } else {
+          nextList.push({
+            id: Date.now() + Math.random(),
+            itemName: draftItem.itemName,
+            unit: draftItem.unit || 'KG',
+            requestedQuantity: draftItem.requestedQuantity,
+            category: draftItem.category || 'Groceries',
+            isNewItem: draftItem.isNewItem || false
+          });
+        }
+      });
+      return nextList;
+    });
+
+    if (viewingDraft && viewingDraft.id === draft.id) {
+      handleCloseDraftReview();
+    }
+
+    showAlert('success', language === 'ta'
+      ? `✓ வரைவு "${draft.draftName}"-ல் இருந்து ${draft.items.length} பொருட்கள் ஆர்டர் படிவத்தில் ஏற்றப்பட்டன! கூடுதல் பொருட்களை சேர்த்து ஆர்டரை அனுப்பவும்.`
+      : `✓ Loaded ${draft.items.length} item(s) from draft "${draft.draftName}" into your order form. Review them and click Send Order.`);
+
+    if (typeof onSelectTab === 'function') {
+      onSelectTab('order-items');
     }
   };
 
@@ -1893,12 +1940,12 @@ export function BranchPortal({ user, activeTab, onSelectTab }) {
                           </button>
                         </div>
 
-                        <div style={{ display: 'flex', gap: 6 }}>
+                        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                           <button
                             type="button"
                             className="primary small"
                             id={`btn-move-draft-${draft.id}`}
-                            onClick={() => handleMoveDraftToOrderList(draft)}
+                            onClick={() => handlePromptMoveDraftToOrder(draft)}
                             style={{
                               height: 30,
                               padding: '0 10px',
@@ -1907,9 +1954,20 @@ export function BranchPortal({ user, activeTab, onSelectTab }) {
                               background: isMoved ? '#4b5563' : 'var(--primary-dark-green)',
                               color: '#ffffff'
                             }}
-                            title={language === 'ta' ? 'இந்த வரைவை பொருட்கள் ஆர்டர் பட்டியலுக்கு மாற்றவும்' : 'Transfer draft items into Order List'}
+                            title={language === 'ta' ? 'இந்த வரைவை நேரடி ஆர்டராக மாற்றி சேமிப்பக மேலாளருக்கு அனுப்பவும்' : 'Submit this draft as an active order to Store Manager'}
                           >
-                            <span>📥</span> {language === 'ta' ? 'பட்டியலுக்கு நகர்த்து' : 'Move to Order List'}
+                            <span>📥</span> {language === 'ta' ? 'ஆர்டர் செய் (Move to Order)' : 'Move to Order'}
+                          </button>
+
+                          <button
+                            type="button"
+                            className="secondary small"
+                            id={`btn-load-draft-${draft.id}`}
+                            onClick={() => handleLoadDraftIntoOrderForm(draft)}
+                            style={{ height: 30, padding: '0 8px', fontSize: 12 }}
+                            title={language === 'ta' ? 'படிவத்தில் ஏற்றவும் (கூடுதல் பொருட்களை சேர்த்து அனுப்ப)' : 'Load items into order form to add more items before sending'}
+                          >
+                            <span>📝</span> {language === 'ta' ? 'படிவத்தில் ஏற்று' : 'Load into Form'}
                           </button>
 
                           <button
@@ -3095,13 +3153,36 @@ export function BranchPortal({ user, activeTab, onSelectTab }) {
 
                 <button
                   type="button"
+                  className="secondary"
+                  onClick={() => handleLoadDraftIntoOrderForm(viewingDraft)}
+                  disabled={savingEditDraft || editDraftItems.length === 0}
+                  id="btn-load-draft-from-modal"
+                  style={{ height: 36, padding: '0 14px', fontWeight: 600, borderRadius: 6 }}
+                  title={language === 'ta' ? 'படிவத்தில் ஏற்றவும் (கூடுதல் பொருட்களை சேர்க்க)' : 'Load items into order form to add more items before sending'}
+                >
+                  <span>📝</span> {language === 'ta' ? 'படிவத்தில் ஏற்று' : 'Load into Form'}
+                </button>
+
+                <button
+                  type="button"
                   className="primary"
-                  onClick={() => handleMoveDraftToOrderList(viewingDraft)}
+                  onClick={async () => {
+                    if (viewingDraft) {
+                      await handleSaveEditDraftChanges();
+                      handlePromptMoveDraftToOrder({
+                        ...viewingDraft,
+                        draftName: editDraftName,
+                        items: editDraftItems,
+                        itemCount: editDraftItems.length,
+                        totalQuantity: editDraftItems.reduce((acc, it) => acc + (it.requestedQuantity || 0), 0)
+                      });
+                    }
+                  }}
                   disabled={savingEditDraft || editDraftItems.length === 0}
                   id="btn-move-draft-from-modal"
                   style={{ height: 36, padding: '0 18px', fontWeight: 700, borderRadius: 6, background: 'var(--primary-dark-green)', color: '#ffffff' }}
                 >
-                  <span>📥</span> {language === 'ta' ? 'பட்டியலுக்கு நகர்த்து' : 'Move to Order List'}
+                  <span>📥</span> {language === 'ta' ? 'ஆர்டர் செய் (Move to Order)' : 'Make Order (Move to Order)'}
                 </button>
               </div>
             </div>
@@ -3148,6 +3229,81 @@ export function BranchPortal({ user, activeTab, onSelectTab }) {
                 style={{ height: 34, padding: '0 16px', fontWeight: 700 }}
               >
                 {deletingDraft ? (language === 'ta' ? 'நீக்குகிறது...' : 'Deleting...') : (language === 'ta' ? 'நீக்கு' : 'Delete Draft')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Confirm Move to Order Modal */}
+      {confirmMoveDraft && (
+        <div className="modal-overlay" onClick={() => !movingDraft && setConfirmMoveDraft(null)} style={{ zIndex: 1260 }}>
+          <div
+            className="modal-content"
+            style={{ maxWidth: 480, padding: '22px 24px', borderRadius: 8 }}
+            onClick={e => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+          >
+            <div className="modal-header" style={{ marginBottom: 14 }}>
+              <h3 style={{ margin: 0, color: 'var(--primary-dark-green)', fontSize: 18, display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span>📥</span> {language === 'ta' ? 'வரைவை ஆர்டராக மாற்றி அனுப்புதல்' : 'Confirm Order Submission'}
+              </h3>
+              <button
+                type="button"
+                className="close-btn"
+                onClick={() => setConfirmMoveDraft(null)}
+                disabled={movingDraft}
+              >
+                ✕
+              </button>
+            </div>
+
+            <p style={{ margin: '0 0 12px', fontSize: 14, color: '#374151', lineHeight: 1.5 }}>
+              {language === 'ta' ? (
+                <>
+                  வரைவு <b>"{confirmMoveDraft.draftName}"</b>-ல் உள்ள <b>{confirmMoveDraft.itemCount || confirmMoveDraft.items?.length}</b> பொருட்களை உடனடியாக ஆர்டராக மாற்றி சேமிப்பக மேலாளருக்கு அனுப்ப விரும்புகிறீர்களா?
+                </>
+              ) : (
+                <>
+                  Are you sure you want to submit draft <b>"{confirmMoveDraft.draftName}"</b> with <b>{confirmMoveDraft.itemCount || confirmMoveDraft.items?.length} item(s)</b> (Total Qty: <b>{confirmMoveDraft.totalQuantity}</b>) as an active order to the Store Manager?
+                </>
+              )}
+            </p>
+
+            <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 6, padding: '10px 14px', marginBottom: 16, fontSize: 13, color: '#166534' }}>
+              ℹ️ {language === 'ta'
+                ? 'இந்த ஆர்டர் சேமிப்பக மேலாளரின் அனுப்புதல் பக்கத்திலும் உங்கள் வரலாறு பக்கத்திலும் உடனடியாக தோன்றும்.'
+                : 'This will immediately place the order with PENDING status in Store Manager\'s dispatch and your History.'}
+            </div>
+
+            <div className="form-actions" style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
+              <button
+                type="button"
+                className="secondary"
+                onClick={() => setConfirmMoveDraft(null)}
+                disabled={movingDraft}
+                style={{ height: 36, padding: '0 16px' }}
+              >
+                {t('Cancel', 'Cancel')}
+              </button>
+              <button
+                type="button"
+                className="primary"
+                id="btn-confirm-place-draft-order"
+                onClick={handleExecuteMoveDraftToOrder}
+                disabled={movingDraft}
+                style={{
+                  height: 36,
+                  padding: '0 20px',
+                  fontWeight: 700,
+                  background: 'var(--primary-dark-green)',
+                  color: '#ffffff'
+                }}
+              >
+                {movingDraft
+                  ? (language === 'ta' ? 'அனுப்புகிறது...' : 'Submitting Order...')
+                  : (language === 'ta' ? 'உறுதிசெய்து ஆர்டர் செய்' : 'Confirm & Place Order')}
               </button>
             </div>
           </div>
