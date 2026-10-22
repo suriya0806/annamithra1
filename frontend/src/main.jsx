@@ -6,6 +6,7 @@ import { LanguageProvider, useLanguage } from './i18n/LanguageContext';
 import { LanguageSelector } from './components/LanguageSelector';
 import { TopNavbar } from './components/TopNavbar';
 import { Alert } from './components/Alert';
+import { PasswordInput } from './components/PasswordInput';
 import { AdminPortal } from './portals/AdminPortal';
 import { StorePortal } from './portals/StorePortal';
 import { BranchPortal } from './portals/BranchPortal';
@@ -126,9 +127,8 @@ function AppContent() {
 
           <label>
             {t('Password')}
-            <input
+            <PasswordInput
               required
-              type="password"
               value={password}
               onChange={e => setPassword(e.target.value)}
               placeholder={t('Enter Password')}

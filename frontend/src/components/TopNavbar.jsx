@@ -38,6 +38,7 @@ export function TopNavbar({ user, activeTab, onSelectTab, onLogout }) {
       case 'Organisation Admin':
         return [
           { id: 'branches', label: t('Branches'), icon: '🌿' },
+          { id: 'accounts', label: t('Account Management'), icon: '👥' },
           { id: 'order', label: t('Order'), icon: '📋' },
           { id: 'history', label: t('History'), icon: '📜' }
         ];

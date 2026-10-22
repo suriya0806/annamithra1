@@ -24,6 +24,8 @@ public class AppUser {
     public String branchName;
     public String fullName;
     public LocalDateTime createdAt = LocalDateTime.now();
+    public LocalDateTime updatedAt = LocalDateTime.now();
+    public String updatedBy;
 
     public AppUser() {}
 

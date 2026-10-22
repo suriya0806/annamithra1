@@ -89,6 +89,11 @@ public class DataInitializer implements CommandLineRunner {
 
         // 6. Ensure legacy columns
         try {
+            jdbcTemplate.execute("ALTER TABLE app_users ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP");
+            jdbcTemplate.execute("ALTER TABLE app_users ADD COLUMN IF NOT EXISTS updated_by VARCHAR(128)");
+        } catch (Exception ignored) {}
+
+        try {
             jdbcTemplate.execute("ALTER TABLE branch_request ADD COLUMN IF NOT EXISTS dispatched integer DEFAULT 0");
             jdbcTemplate.execute("UPDATE branch_request SET dispatched = 0 WHERE dispatched IS NULL");
         } catch (Exception ignored) {}
@@ -280,6 +285,13 @@ public class DataInitializer implements CommandLineRunner {
                 }
             });
         }
+
+        branchRepo.findByOrganisationIdAndNameIgnoreCase(1L, "Main Branch").ifPresent(b2 -> {
+            if (userRepo.findByUsernameIgnoreCase("suriya").isEmpty()) {
+                String hash = PasswordUtils.hashPassword("1234");
+                userRepo.save(new AppUser("suriya", hash, "Branch Manager", 1L, b2.id, b2.name, "Main Branch Manager"));
+            }
+        });
 
         // 4. Ensure initial catalogue items for Org 1
         ensureItem("Rice", "KG", 40, 1L);

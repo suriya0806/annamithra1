@@ -329,23 +329,28 @@ label {
   flex-direction: column;
   overflow-x: hidden;
   width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
 }
 
 .topbar {
-  min-height: 56px;
+  min-height: 54px;
   background: var(--white-surface);
   border-bottom: 2px solid var(--gold);
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  padding: 6px 18px;
+  gap: 10px;
+  padding: 6px 16px;
   position: sticky;
   top: 0;
   z-index: 100;
   box-shadow: 0 2px 8px rgba(0, 59, 43, 0.04);
   box-sizing: border-box;
   width: 100%;
+  max-width: 100%;
+  min-width: 0;
 }
 
 .brand {
@@ -353,17 +358,18 @@ label {
   background: transparent;
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   padding: 2px 0;
   white-space: nowrap;
   text-align: left;
-  flex-shrink: 0;
+  flex: 0 1 auto;
+  min-width: 0;
   user-select: none;
 }
 
 .navbar-logo-img {
-  width: 38px;
-  height: 38px;
+  width: 36px;
+  height: 36px;
   border-radius: 50%;
   object-fit: cover;
   border: 1.5px solid var(--gold);
@@ -376,16 +382,21 @@ label {
 .brand div {
   display: flex;
   flex-direction: column;
+  min-width: 0;
+  overflow: hidden;
 }
 
 .brand b {
   display: block;
   font-family: var(--font-family-heading);
-  font-size: 17px;
+  font-size: 16px;
   font-weight: 700;
-  letter-spacing: 0.6px;
+  letter-spacing: 0.5px;
   color: var(--primary-dark-green);
   line-height: 1.15;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .brand small {
@@ -396,6 +407,9 @@ label {
   letter-spacing: 1px;
   margin-top: 1px;
   line-height: 1.1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .topbar nav,
@@ -588,26 +602,45 @@ label {
 .mobile-header-actions {
   display: none;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   flex-shrink: 0;
+}
+
+.lang-switcher-wrap.compact {
+  padding: 2px 3px;
+  gap: 1px;
+}
+
+.lang-switcher-wrap.compact .lang-option-btn {
+  font-size: 10.5px;
+  padding: 3px 6px;
+  line-height: 1.1;
+}
+
+.lang-switcher-wrap.compact .lang-option-divider {
+  font-size: 9px;
+  margin: 0;
 }
 
 .mobile-hamburger-btn {
   background: var(--cream-surface, #F8F3E5);
   border: 1.5px solid var(--border-color, #E5DDC9);
   color: var(--primary-dark-green, #003B2B);
-  width: 42px;
-  height: 42px;
+  width: 38px;
+  height: 38px;
+  min-height: 38px;
   border-radius: 8px;
   padding: 0;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  font-size: 20px;
+  font-size: 19px;
   line-height: 1;
   transition: all 0.15s ease;
   user-select: none;
+  touch-action: manipulation;
+  flex-shrink: 0;
 }
 
 .mobile-hamburger-btn:hover,
@@ -644,20 +677,24 @@ label {
   right: 0;
   bottom: 0;
   width: 86vw;
-  max-width: 330px;
+  max-width: 320px;
   background: var(--white-surface, #FFFFFF);
   box-shadow: -4px 0 28px rgba(0, 59, 43, 0.22);
   z-index: 1100;
   transform: translateX(100%);
-  transition: transform 0.24s cubic-bezier(0.16, 1, 0.3, 1);
+  transition: transform 0.24s cubic-bezier(0.16, 1, 0.3, 1), visibility 0.24s ease;
   display: flex;
   flex-direction: column;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
+  visibility: hidden;
+  pointer-events: none;
 }
 
 .mobile-drawer.open {
   transform: translateX(0);
+  visibility: visible;
+  pointer-events: auto;
 }
 
 /* Drawer Header */
@@ -885,18 +922,24 @@ label {
     display: flex !important;
   }
   .topbar {
-    min-height: 54px;
-    padding: 6px 12px;
+    min-height: 50px;
+    padding: 6px 10px;
+    gap: 8px;
+  }
+  .brand {
+    gap: 6px;
+    min-width: 0;
   }
   .brand b {
-    font-size: 15px;
+    font-size: 14px;
+    letter-spacing: 0.2px;
   }
   .brand-tagline {
     display: none !important;
   }
   .navbar-logo-img {
-    width: 32px;
-    height: 32px;
+    width: 28px;
+    height: 28px;
   }
 }
 
@@ -1028,20 +1071,29 @@ label {
    ========================================================================== */
 .table-wrap {
   width: 100%;
+  max-width: 100%;
+  min-width: 0;
   overflow-x: auto;
-  margin: 14px 0 20px;
+  -webkit-overflow-scrolling: touch;
+  margin: 12px 0 18px;
   border: 1px solid var(--border-color);
   border-radius: 8px;
   background: var(--white-surface);
   box-shadow: 0 1px 4px rgba(0, 59, 43, 0.02);
+  box-sizing: border-box;
 }
 
 table {
   border-collapse: collapse;
   width: 100%;
-  min-width: 600px;
+  max-width: 100%;
+  min-width: 0;
   text-align: left;
   background: var(--white-surface);
+}
+
+.table-wrap > table {
+  min-width: 500px;
 }
 
 th, td {
@@ -1442,10 +1494,13 @@ td input {
    ========================================================================== */
 .branch-order-grid {
   display: grid;
-  grid-template-columns: minmax(0, 4fr) minmax(0, 6fr);
-  gap: 24px;
+  grid-template-columns: minmax(0, 4.2fr) minmax(0, 5.8fr);
+  gap: 20px;
   align-items: start;
   margin-bottom: 24px;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
 }
 
 .branch-order-form-card,
@@ -1453,24 +1508,44 @@ td input {
   margin-bottom: 0;
   display: flex;
   flex-direction: column;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+
+.branch-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+  width: 100%;
 }
 
 .branch-form-fields {
   display: flex;
   flex-direction: column;
   gap: 14px;
-  margin: 12px 0 16px;
+  margin: 10px 0 16px;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
 }
 
 .branch-form-row {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 12px;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
 }
 
 .branch-request-table {
-  min-width: 440px;
   width: 100%;
+  min-width: 0;
 }
 
 .branch-request-table th,
@@ -1488,6 +1563,164 @@ td input {
 
 .branch-order-list-card .table-wrap {
   margin: 10px 0 14px;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+}
+
+/* Dual View for Requested Items */
+.desktop-table-view {
+  display: block;
+  width: 100%;
+}
+
+.mobile-card-list-view {
+  display: none;
+}
+
+/* Mobile Item Cards for small screens */
+.mobile-card-list-view {
+  flex-direction: column;
+  gap: 10px;
+  margin: 10px 0 14px;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+}
+
+.mobile-item-card {
+  background: #FCFAF3;
+  border: 1.5px solid var(--border-color);
+  border-radius: 8px;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+
+.mobile-item-card:hover {
+  border-color: var(--gold);
+}
+
+.mobile-item-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+}
+
+.mobile-item-name-group {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  flex: 1;
+}
+
+.mobile-item-title {
+  font-size: 14.5px;
+  font-weight: 700;
+  color: var(--primary-dark-green);
+  line-height: 1.25;
+  word-break: break-word;
+}
+
+.mobile-item-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  font-size: 11.5px;
+  margin-top: 2px;
+}
+
+.mobile-item-qty-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--border-color);
+  width: 100%;
+}
+
+.mobile-qty-stepper {
+  display: inline-flex;
+  align-items: center;
+  background: var(--white-surface);
+  border: 1.5px solid var(--border-color);
+  border-radius: 6px;
+  overflow: hidden;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+}
+
+.mobile-stepper-btn {
+  width: 36px;
+  height: 36px;
+  min-height: 36px !important;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: #F5EFE0;
+  color: var(--primary-dark-green);
+  font-size: 18px;
+  font-weight: 700;
+  cursor: pointer;
+  border-radius: 0;
+  user-select: none;
+  touch-action: manipulation;
+  transition: background-color 0.12s ease;
+}
+
+.mobile-stepper-btn:hover:not(:disabled) {
+  background: var(--gold-light);
+}
+
+.mobile-stepper-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.mobile-stepper-input {
+  width: 58px;
+  height: 36px;
+  min-height: 36px !important;
+  border: none !important;
+  border-left: 1px solid var(--border-color) !important;
+  border-right: 1px solid var(--border-color) !important;
+  border-radius: 0 !important;
+  text-align: center;
+  font-weight: 700;
+  font-size: 15px !important;
+  padding: 0 4px !important;
+  color: var(--primary-dark-green);
+  appearance: textfield;
+  -moz-appearance: textfield;
+}
+
+.mobile-stepper-input::-webkit-outer-spin-button,
+.mobile-stepper-input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.mobile-empty-card {
+  text-align: center;
+  padding: 24px 16px;
+  background: #FAF7F0;
+  border: 1.5px dashed var(--border-color);
+  border-radius: 8px;
+  color: var(--text-muted);
+  font-size: 13px;
+  line-height: 1.4;
 }
 
 /* Stacking for Tablet / Mobile */
@@ -1781,10 +2014,20 @@ td input {
    ========================================================================== */
 
 /* Prevent horizontal body blowout on all viewports */
-html, body, #root, .shell {
+html, body {
+  margin: 0;
+  padding: 0;
   width: 100%;
-  max-width: 100vw;
+  max-width: 100%;
+  min-width: 0;
   overflow-x: hidden;
+  box-sizing: border-box;
+}
+
+#root, .shell, main, .page {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
   box-sizing: border-box;
 }
 
@@ -1797,6 +2040,7 @@ html, body, #root, .shell {
 .table-wrap {
   width: 100%;
   max-width: 100%;
+  min-width: 0;
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
   border: 1px solid var(--border-color);
@@ -1804,6 +2048,7 @@ html, body, #root, .shell {
   background: var(--white-surface);
   box-shadow: 0 1px 4px rgba(0, 59, 43, 0.02);
   margin: 12px 0 18px;
+  box-sizing: border-box;
 }
 
 /* Custom scrollbar for tables so user knows horizontal scroll is available */
@@ -1824,13 +2069,19 @@ html, body, #root, .shell {
 /* Tablet & Mobile Breakpoint (<= 992px) */
 @media (max-width: 992px) {
   .page {
-    padding: 18px 18px 40px;
+    padding: 16px 16px 36px;
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
   }
 
   .branch-order-grid,
   .store-entry-grid {
     grid-template-columns: 1fr !important;
     gap: 18px;
+    width: 100% !important;
+    max-width: 100% !important;
+    min-width: 0 !important;
   }
 }
 
@@ -1838,9 +2089,40 @@ html, body, #root, .shell {
 @media (max-width: 768px) {
   /* Page spacing */
   .page {
-    padding: 12px 12px 36px !important;
+    padding: 10px 10px 32px !important;
     width: 100% !important;
-    max-width: 100vw !important;
+    max-width: 100% !important;
+    min-width: 0 !important;
+    box-sizing: border-box !important;
+  }
+
+  /* Grid layouts collapse to responsive flex column */
+  .branch-order-grid,
+  .store-entry-grid {
+    display: flex !important;
+    flex-direction: column !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    min-width: 0 !important;
+    gap: 16px !important;
+  }
+
+  .branch-order-form-card,
+  .branch-order-list-card,
+  .store-entry-left-card,
+  .store-entry-right-card {
+    width: 100% !important;
+    max-width: 100% !important;
+    min-width: 0 !important;
+  }
+
+  /* Dual View: Hide wide desktop table and show responsive mobile cards */
+  .desktop-table-view {
+    display: none !important;
+  }
+
+  .mobile-card-list-view {
+    display: flex !important;
   }
 
   /* Page headers stack gracefully */
@@ -1849,11 +2131,14 @@ html, body, #root, .shell {
     align-items: stretch;
     gap: 10px;
     margin-bottom: 14px;
+    width: 100%;
+    min-width: 0;
   }
 
   .page-header h2 {
-    font-size: 19px;
+    font-size: 18px;
     line-height: 1.25;
+    word-break: break-word;
   }
 
   .page-header > div:last-child {
@@ -1865,27 +2150,42 @@ html, body, #root, .shell {
 
   /* Card spacing */
   .card {
-    padding: 15px 13px !important;
-    margin-bottom: 16px !important;
+    padding: 14px 12px !important;
+    margin-bottom: 14px !important;
     border-radius: 8px;
+    width: 100% !important;
+    max-width: 100% !important;
+    min-width: 0 !important;
+    box-sizing: border-box !important;
   }
 
-  .card-header {
-    flex-direction: column;
-    align-items: stretch;
-    gap: 10px;
-    margin-bottom: 12px;
+  .card-header,
+  .branch-card-header {
+    flex-direction: column !important;
+    align-items: stretch !important;
+    gap: 10px !important;
+    margin-bottom: 12px !important;
+    width: 100% !important;
   }
 
-  .card-header > div:last-child {
+  .card-header > div:last-child,
+  .branch-card-header > div:last-child {
     display: flex;
     flex-wrap: wrap;
     gap: 6px;
     width: 100%;
   }
 
+  .card-header button,
+  .branch-card-header button {
+    width: 100%;
+    justify-content: center;
+  }
+
   .card-title {
     font-size: 15px;
+    line-height: 1.25;
+    word-break: break-word;
   }
 
   /* Form grids collapse to single column */
@@ -1893,9 +2193,13 @@ html, body, #root, .shell {
   .form-grid.cols-3,
   .form-grid.cols-4,
   .branch-form-row {
-    grid-template-columns: 1fr !important;
+    display: flex !important;
+    flex-direction: column !important;
     gap: 12px !important;
-    margin: 12px 0 !important;
+    margin: 10px 0 !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    min-width: 0 !important;
   }
 
   /* Inputs and selects sized for touch & prevent iOS zoom (16px font) */
@@ -1906,6 +2210,9 @@ html, body, #root, .shell {
     min-height: 42px !important;
     padding: 8px 12px !important;
     box-sizing: border-box !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    min-width: 0 !important;
   }
 
   /* Touch-friendly buttons */
@@ -1917,23 +2224,23 @@ html, body, #root, .shell {
   }
 
   button.small {
-    min-height: 34px;
-    padding: 6px 10px;
-    font-size: 12px;
+    min-height: 36px;
+    padding: 6px 12px;
+    font-size: 12.5px;
   }
 
-  /* Action rows stack with full-width primary button */
+  /* Action rows stack with full-width buttons */
   .form-actions {
-    flex-direction: column-reverse;
-    width: 100%;
-    gap: 8px;
-    margin-top: 14px;
+    flex-direction: column !important;
+    width: 100% !important;
+    gap: 8px !important;
+    margin-top: 14px !important;
   }
 
   .form-actions button {
-    width: 100%;
-    min-height: 44px;
-    justify-content: center;
+    width: 100% !important;
+    min-height: 42px !important;
+    justify-content: center !important;
   }
 
   /* Subnav Pills horizontal scrollbar */
@@ -1942,9 +2249,11 @@ html, body, #root, .shell {
     flex-wrap: nowrap;
     -webkit-overflow-scrolling: touch;
     padding-bottom: 6px;
-    margin-bottom: 16px;
+    margin-bottom: 14px;
     gap: 6px;
     scrollbar-width: none;
+    width: 100%;
+    min-width: 0;
   }
 
   .subnav::-webkit-scrollbar {
@@ -1953,8 +2262,8 @@ html, body, #root, .shell {
 
   .subnav-btn {
     flex-shrink: 0;
-    padding: 6px 14px;
-    font-size: 13px;
+    padding: 6px 12px;
+    font-size: 12.5px;
     white-space: nowrap;
   }
 
@@ -1964,6 +2273,8 @@ html, body, #root, .shell {
     align-items: stretch !important;
     gap: 10px !important;
     padding: 10px 12px !important;
+    width: 100% !important;
+    box-sizing: border-box !important;
   }
 
   .date-filter-bar > div {
@@ -1974,11 +2285,13 @@ html, body, #root, .shell {
   .date-filter-bar .date-input {
     flex: 1 1 120px !important;
     max-width: 100% !important;
+    min-width: 0 !important;
   }
 
   .date-filter-bar .date-select {
     flex: 1 1 130px !important;
     max-width: 100% !important;
+    min-width: 0 !important;
   }
 
   /* KPI Grid on mobile (2 columns) */
@@ -1986,22 +2299,25 @@ html, body, #root, .shell {
     grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
     gap: 10px !important;
     margin-bottom: 16px !important;
+    width: 100% !important;
+    min-width: 0 !important;
   }
 
   .kpi-card {
-    padding: 12px 14px !important;
+    padding: 12px 12px !important;
+    min-width: 0 !important;
   }
 
   .kpi-label {
-    font-size: 11px !important;
+    font-size: 10.5px !important;
   }
 
   .kpi-value {
-    font-size: 20px !important;
+    font-size: 19px !important;
   }
 
   .kpi-desc {
-    font-size: 10.5px !important;
+    font-size: 10px !important;
   }
 
   /* Table styling */
@@ -2015,50 +2331,54 @@ html, body, #root, .shell {
 
   /* Modals on mobile */
   .modal-overlay {
-    padding: 10px !important;
+    padding: 8px !important;
     align-items: center !important;
   }
 
   .modal-content,
   .order-modal-dialog {
-    width: 95vw !important;
-    max-width: 95vw !important;
-    max-height: 90vh !important;
-    padding: 16px 12px !important;
+    width: 100% !important;
+    max-width: min(540px, calc(100vw - 16px)) !important;
+    max-height: 92vh !important;
+    padding: 16px 14px !important;
     margin: auto !important;
     border-radius: 10px !important;
+    box-sizing: border-box !important;
+    overflow-y: auto !important;
   }
 
   .order-modal-header h3,
   .modal-header h3 {
-    font-size: 18px !important;
+    font-size: 17px !important;
   }
 
   .order-modal-body {
     max-height: 52vh !important;
     margin: 6px 0 12px !important;
+    overflow-y: auto !important;
   }
 
   .order-modal-footer {
-    flex-direction: row;
-    flex-wrap: wrap;
-    gap: 8px;
-    width: 100%;
+    flex-direction: column !important;
+    gap: 8px !important;
+    width: 100% !important;
   }
 
   .order-modal-footer button {
-    flex: 1 1 120px;
-    min-height: 42px;
+    width: 100% !important;
+    min-height: 42px !important;
   }
 
   /* Autocomplete Dropdown */
   .autocomplete-dropdown {
     max-height: 200px;
+    width: 100% !important;
+    box-sizing: border-box !important;
   }
 
   .autocomplete-item {
-    padding: 11px 12px;
-    font-size: 14px;
+    padding: 10px 12px;
+    font-size: 13.5px;
   }
 }
 
@@ -2067,45 +2387,37 @@ html, body, #root, .shell {
   /* Login Screen */
   .login-wrap {
     padding: 12px !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    box-sizing: border-box !important;
   }
 
   .login {
     padding: 20px 14px !important;
     width: 100% !important;
-    max-width: 390px !important;
+    max-width: 100% !important;
     margin: 8px auto !important;
+    box-sizing: border-box !important;
   }
 
   .login-logo-img {
-    width: 64px !important;
-    height: 64px !important;
+    width: 58px !important;
+    height: 58px !important;
   }
 
   .login h1 {
-    font-size: 22px !important;
+    font-size: 20px !important;
   }
 
   .tagline {
-    font-size: 9px !important;
-    letter-spacing: 1px !important;
-  }
-
-  .dev-chip {
-    flex-direction: column !important;
-    align-items: flex-start !important;
-    gap: 4px !important;
-    padding: 7px 9px !important;
-  }
-
-  .dev-chip span:last-child {
-    font-size: 10px;
-    color: var(--text-muted);
+    font-size: 8.5px !important;
+    letter-spacing: 0.8px !important;
   }
 
   /* Status Badges */
   .badge {
-    font-size: 10.5px !important;
-    padding: 2px 7px !important;
+    font-size: 10px !important;
+    padding: 2px 6px !important;
   }
 
   /* Compact Table Cells */
@@ -2124,22 +2436,39 @@ html, body, #root, .shell {
 /* Extra-Narrow Mobile Screens (<= 360px, e.g. 320px) */
 @media (max-width: 360px) {
   .topbar {
-    padding: 6px 8px !important;
+    padding: 4px 6px !important;
+    gap: 4px !important;
+    min-height: 46px !important;
+  }
+
+  .brand {
+    gap: 4px !important;
   }
 
   .brand b {
-    font-size: 13.5px !important;
+    font-size: 12.5px !important;
+    letter-spacing: 0 !important;
   }
 
   .navbar-logo-img {
-    width: 28px !important;
-    height: 28px !important;
+    width: 24px !important;
+    height: 24px !important;
+  }
+
+  .lang-switcher-wrap.compact {
+    padding: 1px 2px !important;
+  }
+
+  .lang-switcher-wrap.compact .lang-option-btn {
+    font-size: 9px !important;
+    padding: 2px 4px !important;
   }
 
   .mobile-hamburger-btn {
-    width: 38px !important;
-    height: 38px !important;
-    font-size: 18px !important;
+    width: 32px !important;
+    height: 32px !important;
+    min-height: 32px !important;
+    font-size: 16px !important;
   }
 
   .kpi-grid {
@@ -2147,16 +2476,39 @@ html, body, #root, .shell {
   }
 
   .card {
-    padding: 12px 10px !important;
+    padding: 10px 8px !important;
+  }
+
+  .page {
+    padding: 8px 6px 28px !important;
   }
 
   .page-header h2 {
-    font-size: 17px !important;
+    font-size: 16px !important;
   }
 
   .subnav-btn {
-    padding: 5px 10px !important;
-    font-size: 12px !important;
+    padding: 4px 8px !important;
+    font-size: 11.5px !important;
+  }
+
+  .mobile-item-card {
+    padding: 10px !important;
+    gap: 8px !important;
+  }
+
+  .mobile-stepper-btn {
+    width: 32px !important;
+    height: 32px !important;
+    min-height: 32px !important;
+    font-size: 16px !important;
+  }
+
+  .mobile-stepper-input {
+    width: 48px !important;
+    height: 32px !important;
+    min-height: 32px !important;
+    font-size: 14px !important;
   }
 }
 
@@ -2226,5 +2578,47 @@ html, body, #root, .shell {
   z-index: 3;
   background: var(--table-header-bg, #F5EFE0);
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+
+/* ==========================================================================
+   Password Input with Show/Hide Toggle Button
+   ========================================================================== */
+.password-input-wrapper {
+  position: relative;
+  width: 100%;
+  display: flex;
+  align-items: center;
+}
+
+.password-input-wrapper input {
+  padding-right: 42px !important;
+}
+
+.password-toggle-btn {
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  padding: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted-text, #6c757d);
+  cursor: pointer;
+  transition: color 0.15s ease, background 0.15s ease;
+  z-index: 2;
+}
+
+.password-toggle-btn:hover {
+  color: var(--primary-dark-green, #003B2B);
+  background: rgba(0, 59, 43, 0.06);
+}
+
+.password-toggle-btn:focus-visible {
+  outline: 2px solid var(--gold, #C5A059);
+  outline-offset: 1px;
 }
 

@@ -1075,7 +1075,7 @@ export function BranchPortal({ user, activeTab, onSelectTab }) {
           <div className="branch-order-grid">
             {/* Left column — Add Items Form */}
             <div className="card branch-order-form-card">
-              <div className="card-header" style={{ alignItems: 'flex-start' }}>
+              <div className="card-header branch-card-header">
                 <div>
                   <h3 className="card-title">{t('Branch Order Form: Request Items', 'கிளை ஆர்டர் படிவம்: பொருட்கள் கோரிக்கை')}</h3>
                   <p className="muted" style={{ margin: '4px 0 0' }}>
@@ -1258,7 +1258,7 @@ export function BranchPortal({ user, activeTab, onSelectTab }) {
 
             {/* Right column — Items Being Requested */}
             <div className="card branch-order-list-card">
-              <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 10 }}>
+              <div className="card-header branch-card-header">
                 <div>
                   <h3 className="card-title">{t('Items Being Requested', 'கோரப்படும் பொருட்கள்')} ({orderItemsList.length})</h3>
                   <p className="muted" style={{ margin: '4px 0 0' }}>
@@ -1275,7 +1275,7 @@ export function BranchPortal({ user, activeTab, onSelectTab }) {
                     display: 'inline-flex',
                     alignItems: 'center',
                     gap: 6,
-                    height: 32,
+                    height: 34,
                     padding: '0 12px',
                     fontWeight: 600,
                     fontSize: 12.5,
@@ -1290,7 +1290,8 @@ export function BranchPortal({ user, activeTab, onSelectTab }) {
                 </button>
               </div>
 
-              <div className="table-wrap">
+              {/* Desktop Table View (> 768px) */}
+              <div className="table-wrap desktop-table-view">
                 <table className="branch-request-table">
                   <thead>
                     <tr>
@@ -1358,7 +1359,84 @@ export function BranchPortal({ user, activeTab, onSelectTab }) {
                 </table>
               </div>
 
-              <div className="form-actions" style={{ marginTop: 16, display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+              {/* Mobile Card List View (<= 768px) */}
+              <div className="mobile-card-list-view">
+                {orderItemsList.length > 0 ? (
+                  orderItemsList.map(item => (
+                    <div key={item.id} className="mobile-item-card">
+                      <div className="mobile-item-header">
+                        <div className="mobile-item-name-group">
+                          <span className="mobile-item-title">
+                            {translateItem(item.itemName)}
+                            {item.isNewItem && (
+                              <span style={{ fontSize: 10, color: '#b45309', marginLeft: 6, fontWeight: 700 }}>
+                                [{language === 'ta' ? 'புதியது' : 'New'}]
+                              </span>
+                            )}
+                          </span>
+                          <div className="mobile-item-meta">
+                            <span className="category-badge">
+                              {translateCategory(item.category || 'General')}
+                            </span>
+                            <span className="autocomplete-unit-badge">
+                              {t('Unit')}: {translateUnit(item.unit)}
+                            </span>
+                          </div>
+                        </div>
+
+                        <button
+                          type="button"
+                          className="danger small"
+                          onClick={() => handleRemoveOrderItem(item.id)}
+                          aria-label={t('Remove')}
+                          style={{ minHeight: 34, padding: '4px 8px', flexShrink: 0 }}
+                        >
+                          🗑️ {t('Remove')}
+                        </button>
+                      </div>
+
+                      <div className="mobile-item-qty-row">
+                        <span style={{ fontWeight: 600, fontSize: 13, color: 'var(--primary-dark-green)' }}>
+                          {t('Requested Quantity')}:
+                        </span>
+                        <div className="mobile-qty-stepper">
+                          <button
+                            type="button"
+                            className="mobile-stepper-btn"
+                            disabled={Number(item.requestedQuantity) <= 1}
+                            onClick={() => handleUpdateOrderItemQty(item.id, Math.max(1, Number(item.requestedQuantity || 1) - 1))}
+                            aria-label="Decrease quantity"
+                          >
+                            −
+                          </button>
+                          <input
+                            type="number"
+                            min="1"
+                            className="mobile-stepper-input"
+                            value={item.requestedQuantity}
+                            onChange={e => handleUpdateOrderItemQty(item.id, e.target.value)}
+                            aria-label={`${item.itemName} quantity`}
+                          />
+                          <button
+                            type="button"
+                            className="mobile-stepper-btn"
+                            onClick={() => handleUpdateOrderItemQty(item.id, Number(item.requestedQuantity || 0) + 1)}
+                            aria-label="Increase quantity"
+                          >
+                            +
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  ))
+                ) : (
+                  <div className="mobile-empty-card">
+                    {t('No items added to current request list. Add items using the form above.', 'தற்போதைய கோரிக்கை பட்டியலில் பொருட்கள் எதுவும் சேர்க்கப்படவில்லை. மேலே உள்ள படிவத்தைப் பயன்படுத்தி சேர்க்கவும்.')}
+                  </div>
+                )}
+              </div>
+
+              <div className="form-actions branch-order-actions" style={{ marginTop: 16 }}>
                 <button
                   type="button"
                   className="secondary"
@@ -1894,7 +1972,7 @@ export function BranchPortal({ user, activeTab, onSelectTab }) {
                 </button>
               </div>
             ) : (
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(340px, 1fr))', gap: 16 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(100%, 280px), 1fr))', gap: 16, width: '100%', minWidth: 0 }}>
                 {savedDrafts.map(draft => {
                   const isMoved = draft.status === 'MOVED_TO_ORDER';
                   const dateStr = formatDisplayDateTime(draft.updatedAt || draft.createdAt);
@@ -2675,7 +2753,8 @@ export function BranchPortal({ user, activeTab, onSelectTab }) {
                     border: '1px solid var(--border-color)',
                     borderRadius: '6px',
                     fontSize: '13px',
-                    minWidth: '160px'
+                    minWidth: '120px',
+                    maxWidth: '100%'
                   }}
                 />
               }

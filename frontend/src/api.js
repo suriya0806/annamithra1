@@ -433,5 +433,16 @@ export const api = {
   saveStoreManager: (managerData) => request('/api/organisation/store-manager', {
     method: 'POST',
     body: JSON.stringify(managerData)
+  }),
+
+  // Organisation Admin - Account Management (Branch & Store Managers)
+  getOrganisationAccounts: () => request('/api/organisation/accounts'),
+  updateOrganisationAccount: (userId, accountData) => request(`/api/organisation/accounts/${userId}`, {
+    method: 'PUT',
+    body: JSON.stringify(accountData)
+  }),
+  assignBranchManagerAccount: (branchId, accountData) => request(`/api/organisation/branches/${branchId}/account`, {
+    method: 'POST',
+    body: JSON.stringify(accountData)
   })
 };

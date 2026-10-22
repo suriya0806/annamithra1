@@ -1976,7 +1976,8 @@ export function StorePortal({ activeTab }) {
                     border: '1px solid var(--border-color)',
                     borderRadius: '6px',
                     fontSize: '13px',
-                    minWidth: '160px'
+                    minWidth: '120px',
+                    maxWidth: '100%'
                   }}
                 />
               }

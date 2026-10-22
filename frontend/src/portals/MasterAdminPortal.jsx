@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { api } from '../api';
 import { Alert } from '../components/Alert';
+import { PasswordInput } from '../components/PasswordInput';
 import { useLanguage } from '../i18n/LanguageContext';
 
 export function MasterAdminPortal({ activeTab }) {
@@ -194,7 +195,7 @@ export function MasterAdminPortal({ activeTab }) {
 
       {/* Filter and Search Bar */}
       <div className="card" style={{ padding: '14px 18px', marginBottom: 20, display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap', background: '#fff' }}>
-        <div style={{ flex: 1, minWidth: 260 }}>
+        <div style={{ flex: '1 1 200px', minWidth: 0 }}>
           <input
             type="text"
             placeholder={t('Search organisations...')}
@@ -490,8 +491,7 @@ export function MasterAdminPortal({ activeTab }) {
                 <div style={{ marginTop: 10 }}>
                   <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 13, fontWeight: 600 }}>
                     {t('Initial Password')} *
-                    <input
-                      type="password"
+                    <PasswordInput
                       required
                       placeholder={t('Enter initial admin password')}
                       value={createForm.password}

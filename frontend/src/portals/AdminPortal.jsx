@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { api } from '../api';
 import { Alert } from '../components/Alert';
+import { PasswordInput } from '../components/PasswordInput';
 import { downloadOrderPdf, parseOrderDateTime } from '../utils/pdfGenerator';
 import DateFilterBar, { DateSectionHeader, EmptyDateMessage } from '../components/DateFilterBar';
 import { useAddItemShortcut } from '../utils/useAddItemShortcut';
@@ -15,7 +16,7 @@ import {
 
 export function AdminPortal({ activeTab }) {
   const { language, t, translateItem, translateUnit, translateStatus, translateRole } = useLanguage();
-  const [branchesSubTab, setBranchesSubTab] = useState('create-branch');
+  const [branchesSubTab, setBranchesSubTab] = useState('accounts');
   const [orderSubTab, setOrderSubTab] = useState('new-item');
 
   // Alerts
@@ -35,6 +36,16 @@ export function AdminPortal({ activeTab }) {
   });
   const [savingStoreManager, setSavingStoreManager] = useState(false);
 
+  // Account Management state
+  const [accounts, setAccounts] = useState([]);
+  const [loadingAccounts, setLoadingAccounts] = useState(false);
+  const [accountSearch, setAccountSearch] = useState('');
+  const [accountRoleFilter, setAccountRoleFilter] = useState('ALL');
+  const [editingAccount, setEditingAccount] = useState(null);
+  const [editForm, setEditForm] = useState({ username: '', password: '', fullName: '' });
+  const [savingAccount, setSavingAccount] = useState(false);
+  const [confirmDialog, setConfirmDialog] = useState(null);
+
   const loadMyOrgAndStoreManager = async () => {
     try {
       const org = await api.getMyOrganisation();
@@ -53,9 +64,113 @@ export function AdminPortal({ activeTab }) {
     } catch {}
   };
 
+  const loadAccounts = async () => {
+    try {
+      setLoadingAccounts(true);
+      const data = await api.getOrganisationAccounts();
+      if (Array.isArray(data)) {
+        setAccounts(data);
+      }
+    } catch (err) {
+      console.error('Error loading organisation accounts', err);
+      showAlert('error', err.message || t('Failed to load accounts'));
+    } finally {
+      setLoadingAccounts(false);
+    }
+  };
+
   useEffect(() => {
     loadMyOrgAndStoreManager();
+    loadAccounts();
+    loadBranchesAndMappings();
   }, []);
+
+  useEffect(() => {
+    if (activeTab === 'accounts' || branchesSubTab === 'accounts' || branchesSubTab === 'branch-manager') {
+      loadAccounts();
+    }
+  }, [activeTab, branchesSubTab]);
+
+  const handleOpenEditAccount = (acc) => {
+    setEditingAccount(acc);
+    setEditForm({
+      username: acc.username && acc.username !== 'Unassigned' ? acc.username : '',
+      fullName: acc.fullName && !acc.fullName.endsWith(' Manager') ? acc.fullName : '',
+      password: ''
+    });
+  };
+
+  const handlePromptSaveAccount = (e) => {
+    e.preventDefault();
+    if (!editForm.username.trim()) {
+      showAlert('error', t('User ID / Username is required'));
+      return;
+    }
+    if (!editingAccount.userId && !editForm.password.trim()) {
+      showAlert('error', t('Initial Password is required for new account'));
+      return;
+    }
+    if (editForm.password.trim() && editForm.password.trim().length < 4) {
+      showAlert('error', t('Password must be at least 4 characters long'));
+      return;
+    }
+
+    // Open confirmation dialog
+    setConfirmDialog({
+      title: t('Confirm Account Changes', 'கணக்கு மாற்றங்களை உறுதிப்படுத்தவும்'),
+      message: (
+        <div>
+          <p style={{ margin: '0 0 10px', fontSize: 13.5 }}>
+            {t('Are you sure you want to apply these changes to the account?', 'இந்த கணக்கில் மாற்றங்களைச் சேமிக்க நிச்சயமாக விரும்புகிறீர்களா?')}
+          </p>
+          <div style={{ background: '#f8f9fa', border: '1px solid #e9ecef', borderRadius: 6, padding: '10px 14px', fontSize: 13, lineHeight: 1.6 }}>
+            <div><b>{t('Branch Name')}:</b> {editingAccount.branchName}</div>
+            <div><b>{t('Role')}:</b> {editingAccount.role}</div>
+            <div><b>{t('User ID / Username')}:</b> <code style={{ color: 'var(--primary-dark-green)', fontWeight: 700 }}>{editForm.username.trim()}</code></div>
+            {editForm.fullName.trim() && (
+              <div><b>{t('Full Name')}:</b> {editForm.fullName.trim()}</div>
+            )}
+            {editForm.password.trim() ? (
+              <div style={{ color: '#b45309', fontWeight: 600, marginTop: 4 }}>⚠️ {t('A new password will be set. The user must sign in with this new password.')}</div>
+            ) : (
+              <div style={{ color: '#6c757d', marginTop: 4 }}>ℹ️ {t('Password remains unchanged.')}</div>
+            )}
+          </div>
+        </div>
+      ),
+      onConfirm: async () => {
+        try {
+          setSavingAccount(true);
+          let res;
+          if (editingAccount.userId) {
+            res = await api.updateOrganisationAccount(editingAccount.userId, {
+              username: editForm.username.trim(),
+              password: editForm.password.trim() || undefined,
+              fullName: editForm.fullName.trim() || undefined
+            });
+          } else if (editingAccount.branchId) {
+            res = await api.assignBranchManagerAccount(editingAccount.branchId, {
+              username: editForm.username.trim(),
+              password: editForm.password.trim(),
+              fullName: editForm.fullName.trim() || undefined
+            });
+          }
+          showAlert('success', `✓ ${t('Account')} "${res.username}" ${t('updated successfully!')}`);
+          setEditingAccount(null);
+          setConfirmDialog(null);
+          await loadAccounts();
+          await loadBranchesAndMappings();
+          if (editingAccount.role === 'Store Manager') {
+            await loadMyOrgAndStoreManager();
+          }
+        } catch (err) {
+          showAlert('error', err.message || t('Failed to update account'));
+        } finally {
+          setSavingAccount(false);
+        }
+      }
+    });
+  };
 
   const handleSaveStoreManager = async (e) => {
     e.preventDefault();
@@ -337,6 +452,321 @@ export function AdminPortal({ activeTab }) {
     }
   };
 
+  const renderAccountManagementSection = () => {
+    const filteredAccounts = accounts.filter(acc => {
+      if (accountRoleFilter !== 'ALL' && acc.role !== accountRoleFilter) return false;
+      if (!accountSearch.trim()) return true;
+      const q = accountSearch.toLowerCase();
+      return (
+        (acc.branchName && acc.branchName.toLowerCase().includes(q)) ||
+        (acc.branchLocation && acc.branchLocation.toLowerCase().includes(q)) ||
+        (acc.username && acc.username.toLowerCase().includes(q)) ||
+        (acc.fullName && acc.fullName.toLowerCase().includes(q)) ||
+        (acc.role && acc.role.toLowerCase().includes(q))
+      );
+    });
+
+    return (
+      <div className="account-management-section">
+        {/* Section Header Card */}
+        <div className="card" style={{ marginBottom: 16 }}>
+          <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
+            <div>
+              <h3 className="card-title" style={{ fontSize: 18, display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span>👥</span> {t('Account Management', 'கணக்கு மேலாண்மை')}
+              </h3>
+              <p className="muted" style={{ margin: '4px 0 0', fontSize: 13 }}>
+                {t('Manage existing Store Manager and Branch Manager accounts, update User IDs, and securely reset passwords.', 'அமைப்பின் கிளை மேலாளர்கள் மற்றும் கிடங்கு மேலாளர்களின் பயனர் ஐடிகளை நிர்வகிக்கவும், கடவுச்சொற்களை மீட்டமைக்கவும்.')}
+              </p>
+            </div>
+            <button
+              type="button"
+              className="secondary"
+              onClick={loadAccounts}
+              disabled={loadingAccounts}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, height: 36, padding: '0 12px' }}
+            >
+              <span>↻</span> {loadingAccounts ? t('Loading...') : t('Refresh')}
+            </button>
+          </div>
+
+          {/* Filter & Search Bar */}
+          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center', marginTop: 14 }}>
+            <div style={{ flex: '1 1 200px', minWidth: 0 }}>
+              <input
+                type="text"
+                placeholder={t('Search by branch, User ID, role, or location...')}
+                value={accountSearch}
+                onChange={e => setAccountSearch(e.target.value)}
+                style={{ width: '100%', height: 38, fontSize: 13 }}
+              />
+            </div>
+            <div style={{ minWidth: 150 }}>
+              <select
+                value={accountRoleFilter}
+                onChange={e => setAccountRoleFilter(e.target.value)}
+                style={{ width: '100%', height: 38, fontSize: 13 }}
+              >
+                <option value="ALL">{t('All Roles')}</option>
+                <option value="Store Manager">{t('Store Manager')}</option>
+                <option value="Branch Manager">{t('Branch Manager')}</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        {/* Branch & Manager Overview Card */}
+        <div className="card" style={{ marginBottom: 16 }}>
+          <div className="card-header">
+            <h4 className="card-title" style={{ fontSize: 15, display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span>🌿</span> {t('Branches & Assigned Managers Overview', 'கிளைகள் மற்றும் ஒதுக்கப்பட்ட மேலாளர்கள் கண்ணோட்டம்')}
+            </h4>
+            <span className="muted" style={{ fontSize: 12 }}>
+              {branches.length} {t('Branches', 'கிளைகள்')}
+            </span>
+          </div>
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th>{t('Branch Name')}</th>
+                  <th>{t('Location')}</th>
+                  <th>{t('Assigned Branch Manager')}</th>
+                  <th>{t('Assigned Store Manager')}</th>
+                  <th style={{ textAlign: 'right' }}>{t('Action')}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {branches.length > 0 ? (
+                  branches.map((b, idx) => {
+                    const bmAcc = accounts.find(a => a.branchId === b.id && a.role === 'Branch Manager') ||
+                      accounts.find(a => a.username && b.manager && a.username.toLowerCase() === b.manager.toLowerCase());
+                    const smAcc = accounts.find(a => a.role === 'Store Manager');
+
+                    return (
+                      <tr key={b.id || idx}>
+                        <td>{idx + 1}</td>
+                        <td><b>{b.name}</b></td>
+                        <td>{b.location}</td>
+                        <td>
+                          {bmAcc && bmAcc.userId ? (
+                            <code style={{ background: '#f4ebd5', padding: '3px 8px', borderRadius: 4, color: 'var(--primary-dark-green)', fontWeight: 700 }}>
+                              {bmAcc.username}
+                            </code>
+                          ) : (
+                            <span style={{ color: '#b45309', fontWeight: 600 }}>
+                              {b.manager || t('Unassigned')}
+                            </span>
+                          )}
+                        </td>
+                        <td>
+                          {smAcc ? (
+                            <code style={{ background: '#e0f2fe', padding: '3px 8px', borderRadius: 4, color: '#0369a1', fontWeight: 600 }}>
+                              {smAcc.username}
+                            </code>
+                          ) : (
+                            <span className="muted">—</span>
+                          )}
+                        </td>
+                        <td style={{ textAlign: 'right' }}>
+                          <button
+                            type="button"
+                            className="primary small"
+                            onClick={() => handleOpenEditAccount(bmAcc || {
+                              userId: null,
+                              username: b.manager || '',
+                              fullName: `${b.name} Manager`,
+                              role: 'Branch Manager',
+                              branchId: b.id,
+                              branchName: b.name,
+                              branchLocation: b.location
+                            })}
+                            style={{ minHeight: 32, padding: '4px 10px', fontSize: 12 }}
+                          >
+                            ✏️ {t('Edit / Reset')}
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })
+                ) : (
+                  <tr>
+                    <td colSpan="6" className="empty">{t('No branches found.')}</td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        {/* Detailed Accounts Table (Desktop) & Cards (Mobile) */}
+        <div className="card">
+          <div className="card-header">
+            <h4 className="card-title" style={{ fontSize: 15, display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span>🔐</span> {t('All Assigned Accounts', 'அனைத்து கணக்குகள்')} ({filteredAccounts.length})
+            </h4>
+            <span className="muted" style={{ fontSize: 12 }}>
+              {t('Click "Edit / Reset Password" to modify User ID or reset account password.')}
+            </span>
+          </div>
+
+          {/* Desktop Table (> 768px) */}
+          <div className="table-wrap desktop-table-view">
+            <table>
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th>{t('Branch / Scope')}</th>
+                  <th>{t('Role')}</th>
+                  <th>{t('User ID / Username')}</th>
+                  <th>{t('Full Name')}</th>
+                  <th>{t('Assigned Store Manager')}</th>
+                  <th>{t('Last Updated')}</th>
+                  <th style={{ textAlign: 'right' }}>{t('Action')}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredAccounts.length > 0 ? (
+                  filteredAccounts.map((acc, idx) => (
+                    <tr key={acc.userId ? `user-${acc.userId}` : `branch-${acc.branchId || idx}`}>
+                      <td>{idx + 1}</td>
+                      <td>
+                        <b>{acc.branchName}</b>
+                        {acc.branchLocation && acc.branchLocation !== '—' && (
+                          <div style={{ fontSize: 11, color: '#6c757d', marginTop: 2 }}>📍 {acc.branchLocation}</div>
+                        )}
+                      </td>
+                      <td>
+                        <span style={{
+                          background: acc.role === 'Branch Manager' ? '#e8f5e9' : '#e0f2fe',
+                          color: acc.role === 'Branch Manager' ? '#1b4332' : '#0369a1',
+                          border: `1px solid ${acc.role === 'Branch Manager' ? '#c8e6c9' : '#bae6fd'}`,
+                          padding: '3px 8px',
+                          borderRadius: 4,
+                          fontSize: 12,
+                          fontWeight: 700,
+                          display: 'inline-block'
+                        }}>
+                          {acc.role === 'Branch Manager' ? '🌿 ' : '🏪 '}
+                          {translateRole(acc.role)}
+                        </span>
+                      </td>
+                      <td>
+                        <code style={{ background: '#f4ebd5', padding: '3px 8px', borderRadius: 4, color: 'var(--primary-dark-green)', fontWeight: 700, fontSize: 13, border: '1px solid #e6d5b0' }}>
+                          {acc.username}
+                        </code>
+                      </td>
+                      <td>{acc.fullName || '—'}</td>
+                      <td>
+                        {acc.role === 'Store Manager' ? (
+                          <span className="muted">Self (Central Warehouse)</span>
+                        ) : (
+                          <code style={{ background: '#e0f2fe', padding: '2px 6px', borderRadius: 4, color: '#0369a1', fontSize: 12 }}>
+                            {acc.assignedStoreManager || 'store@manager'}
+                          </code>
+                        )}
+                      </td>
+                      <td>
+                        <span style={{ fontSize: 12, color: '#6c757d' }}>
+                          {acc.updatedAt ? formatDateTime(acc.updatedAt) : (acc.createdAt ? formatDateTime(acc.createdAt) : '—')}
+                        </span>
+                      </td>
+                      <td style={{ textAlign: 'right' }}>
+                        <button
+                          type="button"
+                          className="primary small"
+                          onClick={() => handleOpenEditAccount(acc)}
+                          style={{ minHeight: 32, padding: '4px 10px', fontSize: 12 }}
+                        >
+                          ✏️ {t('Edit / Reset Password')}
+                        </button>
+                      </td>
+                    </tr>
+                  ))
+                ) : (
+                  <tr>
+                    <td colSpan="8" className="empty">{t('No accounts found.')}</td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Mobile Cards (<= 768px) */}
+          <div className="mobile-card-list-view">
+            {filteredAccounts.length > 0 ? (
+              filteredAccounts.map((acc, idx) => (
+                <div key={acc.userId ? `m-user-${acc.userId}` : `m-branch-${acc.branchId || idx}`} className="mobile-item-card">
+                  <div className="mobile-item-header">
+                    <div>
+                      <div className="mobile-item-title" style={{ fontSize: 15, fontWeight: 700 }}>
+                        {acc.branchName}
+                      </div>
+                      <div style={{ fontSize: 12, color: '#6c757d', marginTop: 2 }}>
+                        📍 {acc.branchLocation || '—'}
+                      </div>
+                    </div>
+                    <span style={{
+                      background: acc.role === 'Branch Manager' ? '#e8f5e9' : '#e0f2fe',
+                      color: acc.role === 'Branch Manager' ? '#1b4332' : '#0369a1',
+                      border: `1px solid ${acc.role === 'Branch Manager' ? '#c8e6c9' : '#bae6fd'}`,
+                      padding: '3px 8px',
+                      borderRadius: 4,
+                      fontSize: 11.5,
+                      fontWeight: 700
+                    }}>
+                      {acc.role === 'Branch Manager' ? '🌿 ' : '🏪 '}
+                      {translateRole(acc.role)}
+                    </span>
+                  </div>
+
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6, margin: '10px 0', fontSize: 13, background: '#fdfbf7', padding: '10px 12px', borderRadius: 6, border: '1px solid #f4ebd5' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span className="muted">{t('User ID / Username')}:</span>
+                      <code style={{ background: '#f4ebd5', padding: '2px 8px', borderRadius: 4, color: 'var(--primary-dark-green)', fontWeight: 700 }}>
+                        {acc.username}
+                      </code>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span className="muted">{t('Full Name')}:</span>
+                      <b>{acc.fullName || '—'}</b>
+                    </div>
+                    {acc.role === 'Branch Manager' && (
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span className="muted">{t('Assigned Store Manager')}:</span>
+                        <code style={{ background: '#e0f2fe', padding: '2px 6px', borderRadius: 4, color: '#0369a1', fontSize: 11.5 }}>
+                          {acc.assignedStoreManager || 'store@manager'}
+                        </code>
+                      </div>
+                    )}
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 11.5 }}>
+                      <span className="muted">{t('Last Updated')}:</span>
+                      <span>{acc.updatedAt ? formatDateTime(acc.updatedAt) : (acc.createdAt ? formatDateTime(acc.createdAt) : '—')}</span>
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    className="primary small"
+                    onClick={() => handleOpenEditAccount(acc)}
+                    style={{ width: '100%', minHeight: 36, marginTop: 4, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
+                  >
+                    ✏️ {t('Edit / Reset Password')}
+                  </button>
+                </div>
+              ))
+            ) : (
+              <div className="mobile-empty-card">
+                {t('No accounts match the current filter.')}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div className="page">
       {myOrg && (
@@ -380,6 +810,16 @@ export function AdminPortal({ activeTab }) {
           <div className="subnav">
             <button
               type="button"
+              className={`subnav-btn ${branchesSubTab === 'accounts' ? 'active' : ''}`}
+              onClick={() => {
+                setBranchesSubTab('accounts');
+                loadAccounts();
+              }}
+            >
+              👥 {t('Account Management', 'கணக்கு மேலாண்மை')}
+            </button>
+            <button
+              type="button"
               className={`subnav-btn ${branchesSubTab === 'create-branch' ? 'active' : ''}`}
               onClick={() => setBranchesSubTab('create-branch')}
             >
@@ -416,6 +856,8 @@ export function AdminPortal({ activeTab }) {
               {t('Organisation Profile')}
             </button>
           </div>
+
+          {branchesSubTab === 'accounts' && renderAccountManagementSection()}
 
           {branchesSubTab === 'create-branch' && (
             <div className="card narrow">
@@ -459,9 +901,8 @@ export function AdminPortal({ activeTab }) {
 
                   <label>
                     {t('Password')} *
-                    <input
+                    <PasswordInput
                       required
-                      type="password"
                       placeholder={t('Enter Password')}
                       value={branchForm.managerPassword}
                       onChange={e => setBranchForm({ ...branchForm, managerPassword: e.target.value })}
@@ -587,8 +1028,7 @@ export function AdminPortal({ activeTab }) {
                   <label>
                     {storeManager ? t('Reset / Update Password (leave blank to keep current)') : `${t('Initial Password')} *`}
                   </label>
-                  <input
-                    type="password"
+                  <PasswordInput
                     placeholder={storeManager ? t('Enter new password or leave blank') : t('Enter password')}
                     value={storeManagerForm.password}
                     onChange={(e) => setStoreManagerForm({ ...storeManagerForm, password: e.target.value })}
@@ -650,6 +1090,15 @@ export function AdminPortal({ activeTab }) {
               )}
             </div>
           )}
+        </section>
+      )}
+
+      {/* =========================================================================
+          ACCOUNT MANAGEMENT TAB (DIRECT TOP NAV)
+          ========================================================================= */}
+      {activeTab === 'accounts' && (
+        <section>
+          {renderAccountManagementSection()}
         </section>
       )}
 
@@ -1261,7 +1710,8 @@ export function AdminPortal({ activeTab }) {
                     border: '1px solid var(--border-color)',
                     borderRadius: '6px',
                     fontSize: '13px',
-                    minWidth: '160px'
+                    minWidth: '120px',
+                    maxWidth: '100%'
                   }}
                 />
               }
@@ -1372,6 +1822,175 @@ export function AdminPortal({ activeTab }) {
           </section>
         );
       })()}
+
+      {/* =========================================================================
+          EDIT ACCOUNT / RESET PASSWORD MODAL
+          ========================================================================= */}
+      {editingAccount && (
+        <div className="modal-overlay" onClick={() => !savingAccount && setEditingAccount(null)}>
+          <div
+            className="modal-content"
+            style={{ maxWidth: 480 }}
+            onClick={e => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+          >
+            <div className="modal-header">
+              <div>
+                <h3 style={{ margin: 0, fontSize: 18, display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span>✏️</span> {t('Edit Account / Reset Password', 'கணக்கு தொகு / கடவுச்சொல் மாற்று')}
+                </h3>
+                <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>
+                  {editingAccount.branchName} • {translateRole(editingAccount.role)}
+                </div>
+              </div>
+              <button
+                type="button"
+                className="close-btn"
+                onClick={() => setEditingAccount(null)}
+                disabled={savingAccount}
+                aria-label="Close"
+              >
+                ✕
+              </button>
+            </div>
+
+            <form onSubmit={handlePromptSaveAccount}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 14, margin: '14px 0' }}>
+                <div style={{ background: 'var(--cream-surface)', border: '1px solid var(--border-color)', borderRadius: 8, padding: '10px 14px', fontSize: 13 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+                    <span className="muted">{t('Branch')}:</span>
+                    <b>{editingAccount.branchName}</b>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+                    <span className="muted">{t('Role')}:</span>
+                    <span style={{ fontWeight: 600, color: editingAccount.role === 'Branch Manager' ? 'var(--primary-dark-green)' : '#0369a1' }}>
+                      {translateRole(editingAccount.role)}
+                    </span>
+                  </div>
+                  {editingAccount.userId && (
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                      <span className="muted">{t('Current User ID')}:</span>
+                      <code>{editingAccount.username}</code>
+                    </div>
+                  )}
+                </div>
+
+                <div className="form-group">
+                  <label style={{ display: 'block', fontSize: 13, fontWeight: 600, marginBottom: 4 }}>
+                    {t('User ID / Username')} *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    placeholder={t('Enter unique User ID / Username')}
+                    value={editForm.username}
+                    onChange={e => setEditForm({ ...editForm, username: e.target.value })}
+                    style={{ width: '100%', height: 38, fontSize: 13.5 }}
+                  />
+                  <small style={{ fontSize: 11.5, color: 'var(--text-muted)', display: 'block', marginTop: 3 }}>
+                    {t('This username is used to log in. Must be unique across all accounts.')}
+                  </small>
+                </div>
+
+                <div className="form-group">
+                  <label style={{ display: 'block', fontSize: 13, fontWeight: 600, marginBottom: 4 }}>
+                    {t('Full Name')} ({t('Optional')})
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="e.g. Ramesh Kumar"
+                    value={editForm.fullName}
+                    onChange={e => setEditForm({ ...editForm, fullName: e.target.value })}
+                    style={{ width: '100%', height: 38, fontSize: 13.5 }}
+                  />
+                </div>
+
+                <div className="form-group">
+                  <label style={{ display: 'block', fontSize: 13, fontWeight: 600, marginBottom: 4 }}>
+                    {editingAccount.userId
+                      ? t('Reset / Change Password (leave blank to keep current)')
+                      : `${t('Initial Password')} *`}
+                  </label>
+                  <PasswordInput
+                    required={!editingAccount.userId}
+                    placeholder={editingAccount.userId ? t('Enter new password or leave blank') : t('Enter initial password')}
+                    value={editForm.password}
+                    onChange={e => setEditForm({ ...editForm, password: e.target.value })}
+                  />
+                  <small style={{ fontSize: 11.5, color: 'var(--text-muted)', display: 'block', marginTop: 3 }}>
+                    {editingAccount.userId
+                      ? t('Leave empty to keep current password. Passwords remain securely encrypted.')
+                      : t('Set an initial password with at least 4 characters.')}
+                  </small>
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, paddingTop: 12, borderTop: '1px solid var(--border-color)' }}>
+                <button
+                  type="button"
+                  className="secondary"
+                  onClick={() => setEditingAccount(null)}
+                  disabled={savingAccount}
+                >
+                  {t('Cancel')}
+                </button>
+                <button
+                  type="submit"
+                  className="primary"
+                  disabled={savingAccount}
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
+                >
+                  {savingAccount ? t('Saving...') : `💾 ${t('Save Changes')}`}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* =========================================================================
+          CONFIRMATION DIALOG MODAL (BEFORE SAVING CHANGES)
+          ========================================================================= */}
+      {confirmDialog && (
+        <div className="modal-overlay" style={{ zIndex: 1100 }}>
+          <div
+            className="modal-content"
+            style={{ maxWidth: 440 }}
+            onClick={e => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+          >
+            <div className="modal-header">
+              <h3 style={{ margin: 0, fontSize: 17, display: 'flex', alignItems: 'center', gap: 8, color: 'var(--primary-dark-green)' }}>
+                <span>⚠️</span> {confirmDialog.title}
+              </h3>
+            </div>
+            <div style={{ padding: '12px 0 16px' }}>
+              {confirmDialog.message}
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, paddingTop: 12, borderTop: '1px solid var(--border-color)' }}>
+              <button
+                type="button"
+                className="secondary"
+                onClick={() => setConfirmDialog(null)}
+                disabled={savingAccount}
+              >
+                {t('Cancel')}
+              </button>
+              <button
+                type="button"
+                className="primary"
+                onClick={confirmDialog.onConfirm}
+                disabled={savingAccount}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
+              >
+                {savingAccount ? t('Saving...') : `✓ ${t('Confirm & Save')}`}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
