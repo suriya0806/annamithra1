@@ -17,6 +17,7 @@ import java.util.List;
 import java.util.stream.Collectors;
 
 @Service
+@SuppressWarnings("null")
 public class BranchOrderDraftService {
     private final BranchOrderDraftRepository draftRepo;
     private final ObjectMapper objectMapper;

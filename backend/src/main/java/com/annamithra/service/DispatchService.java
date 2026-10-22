@@ -21,6 +21,7 @@ import java.time.LocalDateTime;
 import java.util.*;
 
 @Service
+@SuppressWarnings("null")
 public class DispatchService {
     private final DispatchRepository dispatchRepo;
     private final BranchRequestRepository requestRepo;
