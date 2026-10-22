@@ -87,18 +87,25 @@ public class BranchRequestService {
                 .findFirst()
                 .orElse(null);
             if (matchedCat == null) {
-                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid category '" + line.category + "' for " + line.itemName + ". Allowed categories: " + ALLOWED_CATEGORIES);
+                if (trimmedCat.equalsIgnoreCase("General") || trimmedCat.equalsIgnoreCase("Misc") || trimmedCat.equalsIgnoreCase("Other") || trimmedCat.equalsIgnoreCase("Others")) {
+                    matchedCat = "Groceries";
+                } else {
+                    throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid category '" + line.category + "' for " + line.itemName + ". Allowed categories: " + ALLOWED_CATEGORIES);
+                }
             }
 
             String itemName = line.itemName.trim();
             String unit = line.unit.trim().toUpperCase();
 
             // Ensure item is in catalogue for this organisation
-            itemRepo.findByOrganisationIdAndNameIgnoreCase(orgId, itemName).orElseGet(() -> {
+            Optional<Item> existing = (orgId != null)
+                ? itemRepo.findByOrganisationIdAndNameIgnoreCase(orgId, itemName)
+                : itemRepo.findByNameIgnoreCase(itemName);
+            if (existing.isEmpty()) {
                 Item newItem = new Item(itemName, unit, 0);
                 newItem.organisationId = orgId;
-                return itemRepo.save(newItem);
-            });
+                itemRepo.save(newItem);
+            }
 
             BranchRequest br = new BranchRequest();
             br.batchId = batchId;

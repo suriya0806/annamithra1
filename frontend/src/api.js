@@ -302,9 +302,12 @@ export const api = {
   deleteBranchDraft: (id) => request(`/api/branch-drafts/${id}`, {
     method: 'DELETE'
   }),
-  markBranchDraftMoved: (id) => request(`/api/branch-drafts/${id}/move`, {
-    method: 'POST'
-  }),
+  markBranchDraftMoved: (id, createOrder = true) => {
+    const qs = createOrder ? '' : '?createOrder=false';
+    return request(`/api/branch-drafts/${id}/move${qs}`, {
+      method: 'POST'
+    });
+  },
 
   // Dispatches & Acknowledgements
   dispatchItems: (branchName, items) => request('/api/dispatches/prepare', {

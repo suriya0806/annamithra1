@@ -56,6 +56,8 @@ export function BranchPortal({ user, activeTab, onSelectTab }) {
   const [orderItemsList, setOrderItemsList] = useState([]);
   const [submittingBranchOrder, setSubmittingBranchOrder] = useState(false);
   const [showConfirmModal, setShowConfirmModal] = useState(false);
+  const [confirmOrderError, setConfirmOrderError] = useState('');
+  const [activeDraftSourceId, setActiveDraftSourceId] = useState(null);
 
   // Add New Item Modal states
   const [showNewItemModal, setShowNewItemModal] = useState(false);
@@ -363,26 +365,34 @@ export function BranchPortal({ user, activeTab, onSelectTab }) {
       return;
     }
 
+    // Track original draft source so it can be preserved and only marked as moved after successful order submission
+    setActiveDraftSourceId(draft.id);
+
     setOrderItemsList(prev => {
       const nextList = [...prev];
       draft.items.forEach(draftItem => {
+        let itemCat = (draftItem.category || '').trim();
+        const matched = BRANCH_ORDER_CATEGORIES.find(c => c.toLowerCase() === itemCat.toLowerCase());
+        const validCategory = matched || 'Groceries';
+
         const matchIdx = nextList.findIndex(
           x => x.itemName.trim().toLowerCase() === draftItem.itemName.trim().toLowerCase() &&
-               (x.category || '').trim().toLowerCase() === (draftItem.category || '').trim().toLowerCase()
+               (x.category || '').trim().toLowerCase() === validCategory.toLowerCase()
         );
         if (matchIdx >= 0) {
           nextList[matchIdx] = {
             ...nextList[matchIdx],
-            requestedQuantity: draftItem.requestedQuantity || nextList[matchIdx].requestedQuantity,
-            unit: draftItem.unit || nextList[matchIdx].unit
+            requestedQuantity: parseInt(draftItem.requestedQuantity, 10) || nextList[matchIdx].requestedQuantity,
+            unit: (draftItem.unit || nextList[matchIdx].unit || 'KG').trim().toUpperCase(),
+            category: validCategory
           };
         } else {
           nextList.push({
             id: Date.now() + Math.random(),
-            itemName: draftItem.itemName,
-            unit: draftItem.unit || 'KG',
-            requestedQuantity: draftItem.requestedQuantity,
-            category: draftItem.category || 'Groceries',
+            itemName: draftItem.itemName.trim(),
+            unit: (draftItem.unit || 'KG').trim().toUpperCase(),
+            requestedQuantity: parseInt(draftItem.requestedQuantity, 10) || 1,
+            category: validCategory,
             isNewItem: draftItem.isNewItem || false
           });
         }
@@ -810,12 +820,23 @@ export function BranchPortal({ user, activeTab, onSelectTab }) {
       return;
     }
 
+    setConfirmOrderError('');
+
     for (const it of orderItemsList) {
-      if (!it.requestedQuantity || it.requestedQuantity <= 0) {
-        showAlert('error', `Requested quantity for "${it.itemName}" must be greater than 0.`);
+      const q = parseInt(it.requestedQuantity, 10);
+      if (isNaN(q) || q <= 0) {
+        showAlert('error', `Requested quantity for "${it.itemName}" must be a positive number greater than 0.`);
         return;
       }
-      if (!it.category) {
+      if (!it.itemName || !it.itemName.trim()) {
+        showAlert('error', 'Item name cannot be blank.');
+        return;
+      }
+      if (!it.unit || !it.unit.trim()) {
+        showAlert('error', `Unit cannot be blank for "${it.itemName}".`);
+        return;
+      }
+      if (!it.category || !it.category.trim()) {
         showAlert('error', `Category is missing for "${it.itemName}". Please select a category.`);
         return;
       }
@@ -827,6 +848,7 @@ export function BranchPortal({ user, activeTab, onSelectTab }) {
   const handleCancelConfirmModal = () => {
     if (submittingBranchOrder) return;
     setShowConfirmModal(false);
+    setConfirmOrderError('');
     // Return focus to Send Order button or previous control
     setTimeout(() => {
       sendOrderBtnRef.current?.focus();
@@ -841,15 +863,36 @@ export function BranchPortal({ user, activeTab, onSelectTab }) {
       return;
     }
 
+    setConfirmOrderError('');
+
     try {
       setSubmittingBranchOrder(true);
-      await api.submitBranchRequest(orderItemsList.map(it => ({
-        itemName: it.itemName,
-        unit: it.unit,
-        category: it.category || selectedCategory || 'General',
-        requestedQuantity: it.requestedQuantity,
-        isNewItem: it.isNewItem
-      })));
+      const payloadItems = orderItemsList.map(it => {
+        let cat = (it.category || '').trim();
+        const matched = BRANCH_ORDER_CATEGORIES.find(c => c.toLowerCase() === cat.toLowerCase());
+        const validCategory = matched || (selectedCategory && BRANCH_ORDER_CATEGORIES.includes(selectedCategory) ? selectedCategory : 'Groceries');
+
+        return {
+          itemName: it.itemName.trim(),
+          unit: (it.unit || 'KG').trim().toUpperCase(),
+          category: validCategory,
+          requestedQuantity: parseInt(it.requestedQuantity, 10) || 1,
+          isNewItem: Boolean(it.isNewItem)
+        };
+      });
+
+      await api.submitBranchRequest(payloadItems);
+
+      // If this order was loaded from a draft, mark the draft as moved in DB only after successful submission!
+      if (activeDraftSourceId) {
+        try {
+          await api.markBranchDraftMoved(activeDraftSourceId, false);
+          await loadSavedDrafts();
+        } catch (draftErr) {
+          console.warn('Could not update draft status after order submission', draftErr);
+        }
+        setActiveDraftSourceId(null);
+      }
 
       showAlert('success', `✓ Your request with ${orderItemsList.length} distinct item line(s) was sent to the Store Manager successfully!`);
       setOrderItemsList([]);
@@ -860,6 +903,9 @@ export function BranchPortal({ user, activeTab, onSelectTab }) {
         itemInputRef.current?.focus();
       }, 50);
     } catch (err) {
+      console.error('Failed to submit branch request', err);
+      // Keep modal open and display the actual backend validation message in the UI
+      setConfirmOrderError(err.message || 'Failed to submit request.');
       showAlert('error', err.message || 'Failed to submit request.');
     } finally {
       setSubmittingBranchOrder(false);
@@ -1389,6 +1435,25 @@ export function BranchPortal({ user, activeTab, onSelectTab }) {
                   </button>
                 </div>
 
+                {confirmOrderError && (
+                  <div style={{
+                    background: '#fdf2f2',
+                    border: '1px solid #f8b4b4',
+                    color: '#9b1c1c',
+                    padding: '10px 14px',
+                    borderRadius: 8,
+                    fontSize: 13,
+                    marginTop: 12,
+                    marginBottom: 12,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 8
+                  }}>
+                    <span style={{ fontSize: 16 }}>⚠️</span>
+                    <span>{confirmOrderError}</span>
+                  </div>
+                )}
+
                 <p style={{ margin: '0 0 12px', fontSize: 13.5, color: 'var(--muted)' }}>
                   {language === 'ta' ? `கிடங்கு மேலாளருக்கு அனுப்பும் முன் ${user?.branchName} கிளையின் கோரிக்கை சுருக்கத்தை சரிபார்க்கவும்:` : `Please review your order summary for branch ${user?.branchName} before sending to the Store Manager:`}
                 </p>
@@ -1423,7 +1488,7 @@ export function BranchPortal({ user, activeTab, onSelectTab }) {
                           </td>
                           <td>
                             <span style={{ background: '#e2ece9', color: '#003B2B', padding: '2px 6px', borderRadius: 4, fontSize: 11, fontWeight: 600 }}>
-                              {translateCategory(item.category || 'General')}
+                              {translateCategory(item.category || 'Groceries')}
                             </span>
                           </td>
                           <td><span className="autocomplete-unit-badge">{translateUnit(item.unit)}</span></td>

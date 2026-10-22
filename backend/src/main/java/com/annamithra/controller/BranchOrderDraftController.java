@@ -81,9 +81,10 @@ public class BranchOrderDraftController {
     @PostMapping("/{id}/move")
     public DraftResponse markMovedToOrder(
             @PathVariable Long id,
+            @RequestParam(required = false, defaultValue = "true") boolean createOrder,
             HttpServletRequest request) {
         UserSession user = security.requireRole(request, "Branch Manager", "Organisation Admin");
         Long orgId = security.requireOrganisationId(user);
-        return draftService.markMovedToOrder(id, user.branchName, orgId);
+        return draftService.markMovedToOrder(id, user.branchName, orgId, createOrder);
     }
 }
