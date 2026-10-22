@@ -1,5 +1,6 @@
 package com.annamithra.controller;
 
+import com.annamithra.dto.AcknowledgeDispatchRequest;
 import com.annamithra.dto.PrepareDispatchRequest;
 import com.annamithra.dto.ReturnDispatchRequest;
 import com.annamithra.model.Dispatch;
@@ -64,10 +65,15 @@ public class DispatchController {
 
     // Branch Manager: Acknowledge physical receipt of a delivery
     @PostMapping("/{id}/acknowledge")
-    public Dispatch acknowledgeDispatch(@PathVariable Long id, HttpServletRequest request) {
+    public Dispatch acknowledgeDispatch(
+            @PathVariable Long id,
+            @RequestBody(required = false) AcknowledgeDispatchRequest req,
+            HttpServletRequest request) {
         UserSession user = security.requireRole(request, "Branch Manager");
         Long orgId = security.requireOrganisationId(user);
-        return dispatchService.acknowledgeDispatch(id, user.branchName, user.username, orgId);
+        Integer receivedQty = (req != null) ? req.actualReceivedQty : null;
+        String remarks = (req != null) ? req.remarks : null;
+        return dispatchService.acknowledgeDispatch(id, receivedQty, remarks, user.branchName, user.username, orgId);
     }
 
     // Branch Manager: History of deliveries actually received by assigned branch

@@ -94,6 +94,10 @@ public class DataInitializer implements CommandLineRunner {
         } catch (Exception ignored) {}
 
         try {
+            jdbcTemplate.execute("ALTER TABLE branch_request ADD COLUMN IF NOT EXISTS category VARCHAR(100)");
+        } catch (Exception ignored) {}
+
+        try {
             jdbcTemplate.execute("ALTER TABLE dispatch ADD COLUMN IF NOT EXISTS unit varchar(255) DEFAULT 'KG'");
             jdbcTemplate.execute("UPDATE dispatch SET unit = 'KG' WHERE unit IS NULL");
         } catch (Exception ignored) {}
@@ -109,6 +113,19 @@ public class DataInitializer implements CommandLineRunner {
         } catch (Exception ignored) {}
 
         try {
+            jdbcTemplate.execute("ALTER TABLE dispatch ADD COLUMN IF NOT EXISTS shortage_quantity integer DEFAULT 0");
+            jdbcTemplate.execute("UPDATE dispatch SET shortage_quantity = 0 WHERE shortage_quantity IS NULL");
+        } catch (Exception ignored) {}
+
+        try {
+            jdbcTemplate.execute("ALTER TABLE dispatch ADD COLUMN IF NOT EXISTS acknowledgement_status varchar(64)");
+        } catch (Exception ignored) {}
+
+        try {
+            jdbcTemplate.execute("ALTER TABLE dispatch ADD COLUMN IF NOT EXISTS acknowledgement_remarks varchar(500)");
+        } catch (Exception ignored) {}
+
+        try {
             jdbcTemplate.execute("ALTER TABLE dispatch ADD COLUMN IF NOT EXISTS returned_quantity integer DEFAULT 0");
             jdbcTemplate.execute("UPDATE dispatch SET returned_quantity = 0 WHERE returned_quantity IS NULL");
         } catch (Exception ignored) {}
@@ -119,6 +136,10 @@ public class DataInitializer implements CommandLineRunner {
 
         try {
             jdbcTemplate.execute("ALTER TABLE dispatch ADD COLUMN IF NOT EXISTS return_reason varchar(500)");
+        } catch (Exception ignored) {}
+
+        try {
+            jdbcTemplate.execute("ALTER TABLE dispatch ADD COLUMN IF NOT EXISTS dispatched_by varchar(128)");
         } catch (Exception ignored) {}
 
         try {
@@ -171,6 +192,23 @@ public class DataInitializer implements CommandLineRunner {
                 "username VARCHAR(128) PRIMARY KEY, " +
                 "draft_json TEXT NOT NULL, " +
                 "updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP" +
+                ")");
+        } catch (Exception ignored) {}
+
+        try {
+            jdbcTemplate.execute("CREATE TABLE IF NOT EXISTS branch_order_draft (" +
+                "id BIGSERIAL PRIMARY KEY, " +
+                "organisation_id BIGINT, " +
+                "branch_id BIGINT, " +
+                "branch_name VARCHAR(128) NOT NULL, " +
+                "draft_name VARCHAR(255), " +
+                "status VARCHAR(64) DEFAULT 'DRAFT', " +
+                "item_count INTEGER DEFAULT 0, " +
+                "total_quantity INTEGER DEFAULT 0, " +
+                "items_json TEXT NOT NULL, " +
+                "created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, " +
+                "updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, " +
+                "created_by VARCHAR(128)" +
                 ")");
         } catch (Exception ignored) {}
 

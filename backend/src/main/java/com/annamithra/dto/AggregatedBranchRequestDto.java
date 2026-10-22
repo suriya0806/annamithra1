@@ -10,6 +10,7 @@ public class AggregatedBranchRequestDto {
     public String formattedDate;
     public String item;
     public String unit;
+    public String category;
     public int totalRequestedQuantity;
     public int alreadyDispatchedQuantity;
     public int confirmedReceivedQuantity;
@@ -26,11 +27,21 @@ public class AggregatedBranchRequestDto {
                                      int confirmedReceivedQuantity, int remainingToDispatch,
                                      String deliveryStatus, String deliveryStatusLabel,
                                      List<BranchRequestHistoryDto> history) {
+        this(branch, requestDate, formattedDate, item, unit, null, totalRequestedQuantity, alreadyDispatchedQuantity, confirmedReceivedQuantity, remainingToDispatch, deliveryStatus, deliveryStatusLabel, history);
+    }
+
+    public AggregatedBranchRequestDto(String branch, LocalDate requestDate, String formattedDate,
+                                     String item, String unit, String category,
+                                     int totalRequestedQuantity, int alreadyDispatchedQuantity,
+                                     int confirmedReceivedQuantity, int remainingToDispatch,
+                                     String deliveryStatus, String deliveryStatusLabel,
+                                     List<BranchRequestHistoryDto> history) {
         this.branch = branch;
         this.requestDate = requestDate;
         this.formattedDate = formattedDate;
         this.item = item;
         this.unit = unit;
+        this.category = category;
         this.totalRequestedQuantity = totalRequestedQuantity;
         this.alreadyDispatchedQuantity = alreadyDispatchedQuantity;
         this.confirmedReceivedQuantity = confirmedReceivedQuantity;

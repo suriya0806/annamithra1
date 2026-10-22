@@ -30,6 +30,20 @@ public class BranchRequestService {
     private final DispatchRepository dispatchRepo;
     private final PurchaseOrderRepository orderRepo;
 
+    public static final List<String> ALLOWED_CATEGORIES = List.of(
+        "Vegetables",
+        "Groceries",
+        "Tea/Coffee",
+        "Vada Stall",
+        "Sweet/Savouries",
+        "Dosa Kal",
+        "Chinese",
+        "Idly",
+        "Front Office",
+        "Parcel",
+        "Dishwasher"
+    );
+
     public BranchRequestService(BranchRequestRepository requestRepo, ItemRepository itemRepo,
                                 DispatchRepository dispatchRepo, PurchaseOrderRepository orderRepo) {
         this.requestRepo = requestRepo;
@@ -63,6 +77,18 @@ public class BranchRequestService {
             if (line.requestedQuantity <= 0) {
                 throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Requested quantity must be positive for " + line.itemName);
             }
+            if (line.category == null || line.category.isBlank()) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Category is required for " + line.itemName);
+            }
+
+            String trimmedCat = line.category.trim();
+            String matchedCat = ALLOWED_CATEGORIES.stream()
+                .filter(c -> c.equalsIgnoreCase(trimmedCat))
+                .findFirst()
+                .orElse(null);
+            if (matchedCat == null) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid category '" + line.category + "' for " + line.itemName + ". Allowed categories: " + ALLOWED_CATEGORIES);
+            }
 
             String itemName = line.itemName.trim();
             String unit = line.unit.trim().toUpperCase();
@@ -80,6 +106,7 @@ public class BranchRequestService {
             br.branchId = branchId;
             br.item = itemName;
             br.unit = unit;
+            br.category = matchedCat;
             br.requested = line.requestedQuantity;
             br.dispatched = 0;
             br.received = 0;
@@ -95,6 +122,10 @@ public class BranchRequestService {
     }
 
     public List<BranchRequest> getRequestsByBranch(String branchName, LocalDate date, LocalDate fromDate, LocalDate toDate, Long orgId) {
+        return getRequestsByBranch(branchName, date, fromDate, toDate, null, orgId);
+    }
+
+    public List<BranchRequest> getRequestsByBranch(String branchName, LocalDate date, LocalDate fromDate, LocalDate toDate, String category, Long orgId) {
         List<BranchRequest> all;
         if (orgId != null) {
             all = (branchName == null || branchName.isBlank())
@@ -110,7 +141,7 @@ public class BranchRequestService {
             .filter(r -> {
                 LocalDate rDate = r.requestDate != null ? r.requestDate : (r.createdAt != null ? r.createdAt.toLocalDate() : null);
                 if (date != null) {
-                    return rDate != null && rDate.equals(date);
+                    if (rDate == null || !rDate.equals(date)) return false;
                 }
                 if (fromDate != null && (rDate == null || rDate.isBefore(fromDate))) {
                     return false;
@@ -118,18 +149,27 @@ public class BranchRequestService {
                 if (toDate != null && (rDate == null || rDate.isAfter(toDate))) {
                     return false;
                 }
+                if (category != null && !category.isBlank() && !"ALL".equalsIgnoreCase(category)) {
+                    if (r.category == null || !r.category.equalsIgnoreCase(category.trim())) {
+                        return false;
+                    }
+                }
                 return true;
             })
             .toList();
     }
 
     public List<BranchRequest> getOutstandingRequestsForBranch(String branchName, LocalDate date, Long orgId) {
-        if (branchName == null || branchName.isBlank()) {
-            return Collections.emptyList();
+        List<BranchRequest> all;
+        if (branchName != null && !branchName.isBlank()) {
+            all = (orgId != null)
+                ? requestRepo.findOutstandingForOrganisationAndBranch(orgId, branchName.trim())
+                : requestRepo.findOutstandingForBranch(branchName.trim());
+        } else {
+            all = (orgId != null)
+                ? requestRepo.findAllOutstandingByOrganisationId(orgId)
+                : requestRepo.findAllOutstanding();
         }
-        List<BranchRequest> all = (orgId != null)
-            ? requestRepo.findOutstandingForOrganisationAndBranch(orgId, branchName.trim())
-            : requestRepo.findOutstandingForBranch(branchName.trim());
 
         if (date == null) {
             return all;
@@ -320,6 +360,7 @@ public class BranchRequestService {
                         br.createdAt,
                         br.item,
                         br.unit,
+                        br.category,
                         br.requested,
                         actualDispatched,
                         actualReceived,
@@ -365,6 +406,7 @@ public class BranchRequestService {
                     sectionDate.format(displayDateFmt),
                     displayItem,
                     displayUnit,
+                    group.get(0).category,
                     totalRequested,
                     alreadyDispatched,
                     confirmedReceived,

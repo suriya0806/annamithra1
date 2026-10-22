@@ -4,7 +4,8 @@ import {
   itemTranslations,
   unitTranslations,
   statusTranslations,
-  roleTranslations
+  roleTranslations,
+  categoryTranslations
 } from './translations';
 
 const LANGUAGE_KEY = 'annamithra_lang';
@@ -16,7 +17,8 @@ const LanguageContext = createContext({
   translateItem: (name) => name,
   translateUnit: (unit) => unit,
   translateStatus: (status) => status,
-  translateRole: (role) => role
+  translateRole: (role) => role,
+  translateCategory: (category) => category
 });
 
 export function LanguageProvider({ children }) {
@@ -117,6 +119,15 @@ export function LanguageProvider({ children }) {
     return roleTranslations[role] || role;
   };
 
+  /**
+   * Translates reporting categories
+   */
+  const translateCategory = (category) => {
+    if (!category) return '';
+    if (language === 'en') return category;
+    return categoryTranslations[category] || category;
+  };
+
   return (
     <LanguageContext.Provider
       value={{
@@ -126,7 +137,8 @@ export function LanguageProvider({ children }) {
         translateItem,
         translateUnit,
         translateStatus,
-        translateRole
+        translateRole,
+        translateCategory
       }}
     >
       {children}

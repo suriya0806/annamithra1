@@ -43,15 +43,16 @@ export function TopNavbar({ user, activeTab, onSelectTab, onLogout }) {
         ];
       case 'Store Manager':
         return [
+          { id: 'branch-requests', label: t('Dispatch', 'Dispatch'), icon: '🚚' },
           { id: 'central-inventory', label: t('Central Inventory'), icon: '📦' },
           { id: 'entry-items', label: t('Entry Items'), icon: '📥' },
-          { id: 'branch-requests', label: t('Branch Requests'), icon: '🚚' },
           { id: 'order', label: t('Order'), icon: '📋' },
           { id: 'reports', label: t('Reports'), icon: '📊' }
         ];
       case 'Branch Manager':
         return [
           { id: 'order-items', label: t('Order Items'), icon: '📝' },
+          { id: 'drafts', label: t('Drafts', 'Drafts'), icon: '📑' },
           { id: 'entry', label: t('Entry'), icon: '📦' },
           { id: 'history', label: t('History'), icon: '📜' }
         ];

@@ -242,12 +242,13 @@ export const api = {
   }),
 
   // Branch Requests (Store Manager view & Branch Manager submit)
-  getBranchRequests: (branch, date, fromDate, toDate) => {
+  getBranchRequests: (branch, date, fromDate, toDate, category) => {
     const params = new URLSearchParams();
     if (branch) params.append('branch', branch);
     if (date) params.append('date', date);
     if (fromDate) params.append('fromDate', fromDate);
     if (toDate) params.append('toDate', toDate);
+    if (category && category !== 'ALL') params.append('category', category);
     const qs = params.toString();
     return request(`/api/branch-requests${qs ? `?${qs}` : ''}`);
   },
@@ -258,18 +259,52 @@ export const api = {
     const qs = params.toString();
     return request(`/api/branch-requests/outstanding${qs ? `?${qs}` : ''}`);
   },
+  getRawBranchRequests: (branch, date, fromDate, toDate, category) => {
+    const params = new URLSearchParams();
+    if (branch) params.append('branch', branch);
+    if (date) params.append('date', date);
+    if (fromDate) params.append('fromDate', fromDate);
+    if (toDate) params.append('toDate', toDate);
+    if (category && category !== 'ALL') params.append('category', category);
+    const qs = params.toString();
+    return request(`/api/branch-requests/raw${qs ? `?${qs}` : ''}`);
+  },
   submitBranchRequest: (items) => request('/api/branch-requests', {
     method: 'POST',
     body: JSON.stringify({ items })
   }),
-  getMyBranchRequests: (date, fromDate, toDate) => {
+  getMyBranchRequests: (date, fromDate, toDate, category) => {
     const params = new URLSearchParams();
     if (date) params.append('date', date);
     if (fromDate) params.append('fromDate', fromDate);
     if (toDate) params.append('toDate', toDate);
+    if (category && category !== 'ALL') params.append('category', category);
     const qs = params.toString();
     return request(`/api/branch-requests/my-branch${qs ? `?${qs}` : ''}`);
   },
+
+  // Branch Order Drafts
+  saveBranchDraft: (draftName, items) => request('/api/branch-drafts', {
+    method: 'POST',
+    body: JSON.stringify({ draftName, items })
+  }),
+  getBranchDrafts: (branch) => {
+    const params = new URLSearchParams();
+    if (branch) params.append('branch', branch);
+    const qs = params.toString();
+    return request(`/api/branch-drafts${qs ? `?${qs}` : ''}`);
+  },
+  getBranchDraft: (id) => request(`/api/branch-drafts/${id}`),
+  updateBranchDraft: (id, draftName, items) => request(`/api/branch-drafts/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify({ draftName, items })
+  }),
+  deleteBranchDraft: (id) => request(`/api/branch-drafts/${id}`, {
+    method: 'DELETE'
+  }),
+  markBranchDraftMoved: (id) => request(`/api/branch-drafts/${id}/move`, {
+    method: 'POST'
+  }),
 
   // Dispatches & Acknowledgements
   dispatchItems: (branchName, items) => request('/api/dispatches/prepare', {
@@ -294,8 +329,12 @@ export const api = {
     const qs = params.toString();
     return request(`/api/dispatches/my-branch${qs ? `?${qs}` : ''}`);
   },
-  acknowledgeDelivery: (dispatchId) => request(`/api/dispatches/${dispatchId}/acknowledge`, {
-    method: 'POST'
+  acknowledgeDelivery: (dispatchId, actualReceivedQty, remarks) => request(`/api/dispatches/${dispatchId}/acknowledge`, {
+    method: 'POST',
+    body: JSON.stringify({
+      actualReceivedQty: actualReceivedQty !== undefined && actualReceivedQty !== null ? Number(actualReceivedQty) : undefined,
+      remarks: remarks || ''
+    })
   }),
   returnDelivery: (dispatchId, returnQty, reason) => request(`/api/dispatches/${dispatchId}/return`, {
     method: 'POST',
@@ -346,17 +385,18 @@ export const api = {
     const qs = params.toString();
     return request(`/api/reports/inventory-entries${qs ? `?${qs}` : ''}`);
   },
-  getBranchRequestReport: ({ fromDate, toDate, branch, search, status } = {}) => {
+  getBranchRequestReport: ({ fromDate, toDate, branch, search, status, category } = {}) => {
     const params = new URLSearchParams();
     if (fromDate) params.append('fromDate', fromDate);
     if (toDate) params.append('toDate', toDate);
     if (branch && branch !== 'ALL') params.append('branch', branch);
     if (search) params.append('search', search);
     if (status && status !== 'ALL') params.append('status', status);
+    if (category && category !== 'ALL') params.append('category', category);
     const qs = params.toString();
     return request(`/api/reports/branch-requests${qs ? `?${qs}` : ''}`);
   },
-  getBranchDispatchReport: ({ date, fromDate, toDate, branch, search, status } = {}) => {
+  getBranchDispatchReport: ({ date, fromDate, toDate, branch, search, status, category } = {}) => {
     const params = new URLSearchParams();
     if (date) params.append('date', date);
     if (fromDate) params.append('fromDate', fromDate);
@@ -364,6 +404,7 @@ export const api = {
     if (branch && branch !== 'ALL') params.append('branch', branch);
     if (search) params.append('search', search);
     if (status && status !== 'ALL') params.append('status', status);
+    if (category && category !== 'ALL') params.append('category', category);
     const qs = params.toString();
     return request(`/api/reports/dispatches${qs ? `?${qs}` : ''}`);
   },

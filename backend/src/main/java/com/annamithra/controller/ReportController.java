@@ -75,10 +75,11 @@ public class ReportController {
             @RequestParam(required = false) String branch,
             @RequestParam(required = false) String search,
             @RequestParam(required = false) String status,
+            @RequestParam(required = false) String category,
             HttpServletRequest request) {
         UserSession user = security.requireRole(request, "Store Manager", "Organisation Admin", "Master Admin");
         Long orgId = security.requireOrganisationId(user);
-        return reportService.getBranchRequestReport(fromDate, toDate, branch, search, status, orgId);
+        return reportService.getBranchRequestReport(fromDate, toDate, branch, search, status, category, orgId);
     }
 
     @GetMapping("/dispatches")
@@ -89,9 +90,10 @@ public class ReportController {
             @RequestParam(required = false) String branch,
             @RequestParam(required = false) String search,
             @RequestParam(required = false) String status,
+            @RequestParam(required = false) String category,
             HttpServletRequest request) {
         UserSession user = security.requireRole(request, "Store Manager", "Organisation Admin", "Master Admin");
         Long orgId = security.requireOrganisationId(user);
-        return reportService.getBranchDispatchReport(date, fromDate, toDate, branch, search, status, orgId);
+        return reportService.getBranchDispatchReport(date, fromDate, toDate, branch, search, status, category, orgId);
     }
 }

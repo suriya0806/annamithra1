@@ -4,6 +4,7 @@ import { Alert } from '../components/Alert';
 import DateFilterBar, { DateSectionHeader, EmptyDateMessage } from '../components/DateFilterBar';
 import { useAddItemShortcut } from '../utils/useAddItemShortcut';
 import { useLanguage } from '../i18n/LanguageContext';
+import { downloadBranchOrderListPdf } from '../utils/pdfGenerator';
 import {
   getTodayDateString,
   toLocalDateString,
@@ -12,8 +13,28 @@ import {
   groupByDate
 } from '../utils/dateGrouping';
 
-export function BranchPortal({ user, activeTab }) {
-  const { language, t, translateItem, translateUnit, translateStatus, translateRole } = useLanguage();
+export const BRANCH_ORDER_CATEGORIES = [
+  'Vegetables',
+  'Groceries',
+  'Tea/Coffee',
+  'Vada Stall',
+  'Sweet/Savouries',
+  'Dosa Kal',
+  'Chinese',
+  'Idly',
+  'Front Office',
+  'Parcel',
+  'Dishwasher'
+];
+
+export function BranchPortal({ user, activeTab, onSelectTab }) {
+  const { language, t, translateItem, translateUnit, translateStatus, translateRole, translateCategory } = useLanguage();
+
+  const formatDisplayDateTime = (dt) => {
+    if (!dt) return '-';
+    return formatDateTime(dt, language);
+  };
+
   // Alerts
   const [alert, setAlert] = useState(null);
   const showAlert = (type, message) => setAlert({ type, message });
@@ -23,6 +44,8 @@ export function BranchPortal({ user, activeTab }) {
   const [loading, setLoading] = useState(false);
 
   // 1. Order Items states
+  const [selectedCategory, setSelectedCategory] = useState('');
+  const categorySelectRef = useRef(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedItem, setSelectedItem] = useState(null);
   const [itemUnit, setItemUnit] = useState('');
@@ -61,7 +84,15 @@ export function BranchPortal({ user, activeTab }) {
   const [deliveries, setDeliveries] = useState([]);
   const [deliveryDate, setDeliveryDate] = useState(getTodayDateString());
   const [deliveryIsAllDates, setDeliveryIsAllDates] = useState(false);
-  const [acknowledgingId, setAcknowledgingId] = useState(null);
+
+  // Acknowledgement with Shortage Modal states
+  const [showAckModal, setShowAckModal] = useState(false);
+  const [ackModalItem, setAckModalItem] = useState(null);
+  const [actualReceivedQty, setActualReceivedQty] = useState('');
+  const [ackRemarks, setAckRemarks] = useState('');
+  const [ackError, setAckError] = useState('');
+  const [isSubmittingAck, setIsSubmittingAck] = useState(false);
+  const ackQtyInputRef = useRef(null);
 
   // Return modal state
   const [showReturnModal, setShowReturnModal] = useState(false);
@@ -79,6 +110,271 @@ export function BranchPortal({ user, activeTab }) {
   const [historyFromDate, setHistoryFromDate] = useState('');
   const [historyToDate, setHistoryToDate] = useState('');
   const [historySearch, setHistorySearch] = useState('');
+
+  // 4. Drafts state & actions
+  const [savedDrafts, setSavedDrafts] = useState([]);
+  const [loadingDrafts, setLoadingDrafts] = useState(false);
+  const [savingDraft, setSavingDraft] = useState(false);
+  const [downloadingOrderPdf, setDownloadingOrderPdf] = useState(false);
+  const [downloadingDraftPdfId, setDownloadingDraftPdfId] = useState(null);
+
+  // Review / Edit Draft Modal state
+  const [viewingDraft, setViewingDraft] = useState(null);
+  const [editDraftName, setEditDraftName] = useState('');
+  const [editDraftItems, setEditDraftItems] = useState([]);
+  const [savingEditDraft, setSavingEditDraft] = useState(false);
+
+  // Delete Draft Confirmation Modal state
+  const [deleteConfirmDraft, setDeleteConfirmDraft] = useState(null);
+  const [deletingDraft, setDeletingDraft] = useState(false);
+
+  // Save as Draft Modal / Prompt state
+  const [showSaveDraftModal, setShowSaveDraftModal] = useState(false);
+  const [newDraftNameInput, setNewDraftNameInput] = useState('');
+
+  // Load branch's saved order drafts
+  const loadSavedDrafts = async () => {
+    try {
+      setLoadingDrafts(true);
+      const data = await api.getBranchDrafts(user?.branchName);
+      if (Array.isArray(data)) {
+        setSavedDrafts(data);
+      }
+    } catch (err) {
+      console.error('Failed to load branch drafts', err);
+    } finally {
+      setLoadingDrafts(false);
+    }
+  };
+
+  // Open Save as Draft modal
+  const handleOpenSaveDraftModal = () => {
+    if (orderItemsList.length === 0) {
+      showAlert('error', language === 'ta' ? 'வரைவாக சேமிக்க குறைந்தது ஒரு பொருளையாவது சேர்க்கவும்.' : 'Please add at least one item to your request before saving as draft.');
+      return;
+    }
+    const defaultName = `Draft #${savedDrafts.length + 1} (${getTodayDateString()})`;
+    setNewDraftNameInput(defaultName);
+    setShowSaveDraftModal(true);
+  };
+
+  // Save current order list as draft to database
+  const handleSaveCurrentAsDraft = async (e) => {
+    if (e) e.preventDefault();
+    if (orderItemsList.length === 0) {
+      showAlert('error', language === 'ta' ? 'கோரிக்கை பட்டியலில் பொருட்கள் இல்லை.' : 'No items in order list to save as draft.');
+      return;
+    }
+
+    try {
+      setSavingDraft(true);
+      const name = (newDraftNameInput || '').trim() || `Draft #${savedDrafts.length + 1} (${getTodayDateString()})`;
+      const saved = await api.saveBranchDraft(name, orderItemsList.map(it => ({
+        itemName: it.itemName,
+        unit: it.unit,
+        category: it.category,
+        requestedQuantity: it.requestedQuantity,
+        isNewItem: it.isNewItem
+      })));
+
+      showAlert('success', language === 'ta'
+        ? `✓ வரைவு "${saved.draftName || name}" வெற்றிகரமாக சேமிக்கப்பட்டது! வரைவுகள் பக்கத்தில் எந்த நேரமும் அணுகலாம்.`
+        : `✓ Draft "${saved.draftName || name}" saved successfully! You can review or edit it from the Drafts tab.`);
+
+      setShowSaveDraftModal(false);
+      await loadSavedDrafts();
+    } catch (err) {
+      console.error('Failed to save draft', err);
+      showAlert('error', err.message || (language === 'ta' ? 'வரைவை சேமிக்க முடியவில்லை' : 'Failed to save draft'));
+    } finally {
+      setSavingDraft(false);
+    }
+  };
+
+  // Download Order List PDF
+  const handleDownloadOrderListPdf = async () => {
+    if (orderItemsList.length === 0) {
+      showAlert('error', language === 'ta' ? 'பதிவிறக்க பட்டியலில் பொருட்கள் எதுவும் இல்லை.' : 'No items in order list to generate PDF.');
+      return;
+    }
+
+    try {
+      setDownloadingOrderPdf(true);
+      await downloadBranchOrderListPdf({
+        organisationName: user?.organisationName || 'Saravana Bhavan',
+        branchName: user?.branchName || 'Branch 1',
+        date: getTodayDateString(),
+        items: orderItemsList,
+        isDraft: false,
+        language
+      });
+      showAlert('success', language === 'ta' ? '✓ ஆர்டர் பட்டியல் PDF வெற்றிகரமாக பதிவிறக்கப்பட்டது!' : '✓ Order list PDF downloaded successfully!');
+    } catch (err) {
+      console.error('Error generating Order List PDF', err);
+      showAlert('error', err.message || (language === 'ta' ? 'PDF உருவாக்குவதில் பிழை' : 'Failed to generate PDF'));
+    } finally {
+      setDownloadingOrderPdf(false);
+    }
+  };
+
+  // Download Draft PDF
+  const handleDownloadDraftPdf = async (draft) => {
+    if (!draft || !draft.items || draft.items.length === 0) {
+      showAlert('error', language === 'ta' ? 'இந்த வரைவில் பொருட்கள் இல்லை.' : 'No items in this draft to generate PDF.');
+      return;
+    }
+    try {
+      setDownloadingDraftPdfId(draft.id);
+      await downloadBranchOrderListPdf({
+        organisationName: user?.organisationName || 'Saravana Bhavan',
+        branchName: draft.branchName || user?.branchName || 'Branch 1',
+        date: (draft.createdAt || '').slice(0, 10) || getTodayDateString(),
+        items: draft.items,
+        isDraft: true,
+        draftName: draft.draftName,
+        language
+      });
+      showAlert('success', language === 'ta' ? `✓ வரைவு "${draft.draftName}" PDF பதிவிறக்கப்பட்டது!` : `✓ Draft "${draft.draftName}" PDF downloaded successfully!`);
+    } catch (err) {
+      console.error('Error generating Draft PDF', err);
+      showAlert('error', err.message || 'Failed to generate Draft PDF');
+    } finally {
+      setDownloadingDraftPdfId(null);
+    }
+  };
+
+  // Open Draft Review / Edit modal
+  const handleOpenDraftReview = (draft) => {
+    setViewingDraft(draft);
+    setEditDraftName(draft.draftName || '');
+    setEditDraftItems(Array.isArray(draft.items) ? JSON.parse(JSON.stringify(draft.items)) : []);
+  };
+
+  const handleCloseDraftReview = () => {
+    setViewingDraft(null);
+    setEditDraftName('');
+    setEditDraftItems([]);
+  };
+
+  const handleUpdateEditDraftItemQty = (index, qty) => {
+    const val = parseInt(qty, 10);
+    setEditDraftItems(prev => prev.map((item, i) => {
+      if (i === index) {
+        return { ...item, requestedQuantity: isNaN(val) ? 0 : val };
+      }
+      return item;
+    }));
+  };
+
+  const handleRemoveEditDraftItem = (index) => {
+    setEditDraftItems(prev => prev.filter((_, i) => i !== index));
+  };
+
+  const handleSaveEditDraftChanges = async () => {
+    if (!viewingDraft) return;
+    if (editDraftItems.length === 0) {
+      showAlert('error', language === 'ta' ? 'வரைவில் குறைந்தது ஒரு பொருளையாவது வைத்திருக்க வேண்டும்.' : 'Draft must contain at least one item.');
+      return;
+    }
+    for (const it of editDraftItems) {
+      if (!it.requestedQuantity || it.requestedQuantity <= 0) {
+        showAlert('error', `Requested quantity for "${it.itemName}" must be greater than 0.`);
+        return;
+      }
+    }
+
+    try {
+      setSavingEditDraft(true);
+      const updated = await api.updateBranchDraft(viewingDraft.id, editDraftName, editDraftItems);
+      showAlert('success', language === 'ta' ? '✓ வரைவு மாற்றங்கள் வெற்றிகரமாக சேமிக்கப்பட்டன!' : '✓ Draft changes saved successfully!');
+      setViewingDraft(updated);
+      await loadSavedDrafts();
+    } catch (err) {
+      console.error('Failed to update draft', err);
+      showAlert('error', err.message || 'Failed to update draft');
+    } finally {
+      setSavingEditDraft(false);
+    }
+  };
+
+  // Move Draft to Order List
+  const handleMoveDraftToOrderList = async (draftToMove) => {
+    const draft = draftToMove || viewingDraft;
+    if (!draft || !draft.items || draft.items.length === 0) {
+      showAlert('error', language === 'ta' ? 'நகர்த்துவதற்கு இந்த வரைவில் பொருட்கள் இல்லை.' : 'No items in this draft to move.');
+      return;
+    }
+
+    try {
+      const itemsToTransfer = draft.items;
+      setOrderItemsList(prev => {
+        const nextList = [...prev];
+        itemsToTransfer.forEach(draftItem => {
+          const matchIdx = nextList.findIndex(
+            x => x.itemName.trim().toLowerCase() === draftItem.itemName.trim().toLowerCase() &&
+                 (x.category || '').trim().toLowerCase() === (draftItem.category || '').trim().toLowerCase()
+          );
+          if (matchIdx >= 0) {
+            // Avoid duplicate lines; preserve draft requested quantity
+            nextList[matchIdx] = {
+              ...nextList[matchIdx],
+              requestedQuantity: draftItem.requestedQuantity || nextList[matchIdx].requestedQuantity,
+              unit: draftItem.unit || nextList[matchIdx].unit
+            };
+          } else {
+            nextList.push({
+              id: Date.now() + Math.random(),
+              itemName: draftItem.itemName,
+              unit: draftItem.unit || 'KG',
+              requestedQuantity: draftItem.requestedQuantity,
+              category: draftItem.category || 'General',
+              isNewItem: draftItem.isNewItem || false
+            });
+          }
+        });
+        return nextList;
+      });
+
+      // Update draft status in database
+      await api.markBranchDraftMoved(draft.id);
+      await loadSavedDrafts();
+
+      if (viewingDraft && viewingDraft.id === draft.id) {
+        handleCloseDraftReview();
+      }
+
+      showAlert('success', language === 'ta'
+        ? `✓ வரைவு "${draft.draftName}"-ல் இருந்து ${draft.items.length} பொருட்கள் ஆர்டர் பட்டியலுக்கு வெற்றிகரமாக மாற்றப்பட்டன!`
+        : `✓ Transferred ${draft.items.length} item(s) from draft "${draft.draftName}" into your Order List! Review them and send order when ready.`);
+
+      if (typeof onSelectTab === 'function') {
+        onSelectTab('order-items');
+      }
+    } catch (err) {
+      console.error('Failed to move draft to order list', err);
+      showAlert('error', err.message || 'Failed to move draft to order list');
+    }
+  };
+
+  // Delete draft
+  const handleDeleteDraft = async () => {
+    if (!deleteConfirmDraft) return;
+    try {
+      setDeletingDraft(true);
+      await api.deleteBranchDraft(deleteConfirmDraft.id);
+      showAlert('success', language === 'ta' ? '✓ வரைவு வெற்றிகரமாக நீக்கப்பட்டது!' : `✓ Draft "${deleteConfirmDraft.draftName}" deleted successfully!`);
+      if (viewingDraft && viewingDraft.id === deleteConfirmDraft.id) {
+        handleCloseDraftReview();
+      }
+      setDeleteConfirmDraft(null);
+      await loadSavedDrafts();
+    } catch (err) {
+      console.error('Failed to delete draft', err);
+      showAlert('error', err.message || 'Failed to delete draft');
+    } finally {
+      setDeletingDraft(false);
+    }
+  };
 
   // Load items catalogue
   const loadCatalogue = async () => {
@@ -147,6 +443,9 @@ export function BranchPortal({ user, activeTab }) {
     if (activeTab === 'order-items') {
       loadCatalogue();
       loadMyRequests(requestFilterDate, requestIsAllDates);
+      loadSavedDrafts();
+    } else if (activeTab === 'drafts') {
+      loadSavedDrafts();
     } else if (activeTab === 'entry') {
       loadDeliveries(deliveryDate, deliveryIsAllDates);
     } else if (activeTab === 'history') {
@@ -360,6 +659,12 @@ export function BranchPortal({ user, activeTab }) {
 
   // Add Item to Order List
   const handleAddItemToOrderList = () => {
+    if (!selectedCategory) {
+      showAlert('error', language === 'ta' ? 'தயவுசெய்து வகையைத் தேர்ந்தெடுக்கவும் (Category).' : 'Please select a Category before adding an item.');
+      categorySelectRef.current?.focus();
+      return;
+    }
+
     const finalName = searchQuery.trim();
     if (!finalName) {
       showAlert('error', 'Please enter or select an Item Name');
@@ -385,9 +690,10 @@ export function BranchPortal({ user, activeTab }) {
       }
     }
 
-    // Prevent duplicate item lines in the same unsent request list
+    // Prevent duplicate item lines in the same unsent request list (same name and category)
     const existingIndex = orderItemsList.findIndex(
-      x => x.itemName.trim().toLowerCase() === finalName.toLowerCase()
+      x => x.itemName.trim().toLowerCase() === finalName.toLowerCase() &&
+           (!x.category || x.category.toLowerCase() === selectedCategory.toLowerCase())
     );
     if (existingIndex >= 0) {
       const existing = orderItemsList[existingIndex];
@@ -395,7 +701,7 @@ export function BranchPortal({ user, activeTab }) {
       showAlert('warning', `"${finalName}" is already in your request list. Updated its quantity to ${updatedQty}. You can edit it directly in the table.`);
       setOrderItemsList(prev => prev.map((item, idx) => {
         if (idx === existingIndex) {
-          return { ...item, requestedQuantity: updatedQty };
+          return { ...item, requestedQuantity: updatedQty, category: selectedCategory || item.category };
         }
         return item;
       }));
@@ -416,13 +722,14 @@ export function BranchPortal({ user, activeTab }) {
       {
         id: Date.now() + Math.random(),
         itemName: finalName,
+        category: selectedCategory,
         unit: finalUnit,
         requestedQuantity: q,
         isNewItem: !selectedItem && !catalogueItems.some(it => it.name.toLowerCase() === finalName.toLowerCase())
       }
     ]);
 
-    showAlert('success', `✓ Added ${q} ${finalUnit} of "${finalName}" to request list.`);
+    showAlert('success', `✓ Added ${q} ${finalUnit} of "${finalName}" (${translateCategory(selectedCategory)}) to request list.`);
 
     // Clear entry fields and return focus automatically to Item Name input ready for next item
     setSearchQuery('');
@@ -461,6 +768,10 @@ export function BranchPortal({ user, activeTab }) {
         showAlert('error', `Requested quantity for "${it.itemName}" must be greater than 0.`);
         return;
       }
+      if (!it.category) {
+        showAlert('error', `Category is missing for "${it.itemName}". Please select a category.`);
+        return;
+      }
     }
 
     setShowConfirmModal(true);
@@ -488,6 +799,7 @@ export function BranchPortal({ user, activeTab }) {
       await api.submitBranchRequest(orderItemsList.map(it => ({
         itemName: it.itemName,
         unit: it.unit,
+        category: it.category || selectedCategory || 'General',
         requestedQuantity: it.requestedQuantity,
         isNewItem: it.isNewItem
       })));
@@ -507,18 +819,90 @@ export function BranchPortal({ user, activeTab }) {
     }
   };
 
-  // Acknowledge Received Delivery
-  const handleAcknowledgeDelivery = async (dispatchRecord) => {
-    if (acknowledgingId) return;
+  // Acknowledgement with Shortage Modal Handlers
+  const handleOpenAckModal = (item) => {
+    setAckModalItem(item);
+    setActualReceivedQty(String(item.quantity)); // Pre-fill with dispatched qty
+    setAckRemarks('');
+    setAckError('');
+    setShowAckModal(true);
+    setTimeout(() => {
+      ackQtyInputRef.current?.focus();
+      ackQtyInputRef.current?.select();
+    }, 40);
+  };
+
+  const handleCloseAckModal = () => {
+    if (isSubmittingAck) return;
+    setShowAckModal(false);
+    setAckModalItem(null);
+    setActualReceivedQty('');
+    setAckRemarks('');
+    setAckError('');
+  };
+
+  const handleConfirmAck = async (e) => {
+    if (e) e.preventDefault();
+    if (!ackModalItem || isSubmittingAck) return;
+
+    if (actualReceivedQty === '' || actualReceivedQty === null || actualReceivedQty === undefined) {
+      setAckError(language === 'ta' ? 'தயவுசெய்து பெறப்பட்ட அளவை உள்ளிடவும்.' : 'Please enter actual received quantity.');
+      ackQtyInputRef.current?.focus();
+      return;
+    }
+
+    const rQty = parseInt(actualReceivedQty, 10);
+    if (isNaN(rQty)) {
+      setAckError(language === 'ta' ? 'செல்லுபடியாகும் எண்ணை உள்ளிடவும்.' : 'Please enter a valid number.');
+      ackQtyInputRef.current?.focus();
+      return;
+    }
+    if (rQty < 0) {
+      setAckError(language === 'ta' ? 'பெறப்பட்ட அளவு எதிர்மறையாக (negative) இருக்க முடியாது.' : 'Actual received quantity cannot be negative.');
+      ackQtyInputRef.current?.focus();
+      return;
+    }
+    if (rQty > ackModalItem.quantity) {
+      setAckError(language === 'ta'
+        ? `பெறப்பட்ட அளவு (${rQty} ${translateUnit(ackModalItem.unit)}) அனுப்பப்பட்ட அளவை (${ackModalItem.quantity} ${translateUnit(ackModalItem.unit)}) விட அதிகமாக இருக்க முடியாது.`
+        : `Actual received quantity (${rQty} ${ackModalItem.unit}) cannot exceed dispatched quantity (${ackModalItem.quantity} ${ackModalItem.unit}).`);
+      ackQtyInputRef.current?.focus();
+      return;
+    }
+
+    const shortage = ackModalItem.quantity - rQty;
+
     try {
-      setAcknowledgingId(dispatchRecord.id);
-      await api.acknowledgeDelivery(dispatchRecord.id);
-      showAlert('success', `✓ Successfully confirmed receipt of ${dispatchRecord.quantity} ${dispatchRecord.unit} of ${dispatchRecord.itemName}! Confirmed received quantity updated.`);
+      setIsSubmittingAck(true);
+      setAckError('');
+      await api.acknowledgeDelivery(ackModalItem.id, rQty, ackRemarks ? ackRemarks.trim() : '');
+
+      let msg = '';
+      if (shortage === 0) {
+        msg = language === 'ta'
+          ? `✓ ${translateItem(ackModalItem.itemName)}: ${rQty} ${translateUnit(ackModalItem.unit)} முழுமையாக பெறப்பட்டது என உறுதிசெய்யப்பட்டது.`
+          : `✓ Successfully confirmed full receipt of ${rQty} ${translateUnit(ackModalItem.unit)} of "${ackModalItem.itemName}".`;
+      } else if (rQty > 0) {
+        msg = language === 'ta'
+          ? `✓ ${translateItem(ackModalItem.itemName)}: பெறப்பட்டது: ${rQty} ${translateUnit(ackModalItem.unit)}, பற்றாக்குறை: ${shortage} ${translateUnit(ackModalItem.unit)}.`
+          : `✓ Confirmed partial receipt: ${rQty} ${translateUnit(ackModalItem.unit)} received, shortage: ${shortage} ${translateUnit(ackModalItem.unit)}.`;
+      } else {
+        msg = language === 'ta'
+          ? `✓ ${translateItem(ackModalItem.itemName)}: வரவு இல்லை (0 ${translateUnit(ackModalItem.unit)}). முழு பற்றாக்குறை: ${shortage} ${translateUnit(ackModalItem.unit)} பதிவு செய்யப்பட்டது.`
+          : `✓ Recorded zero receipt: 0 ${translateUnit(ackModalItem.unit)} received, full shortage: ${shortage} ${translateUnit(ackModalItem.unit)}.`;
+      }
+
+      showAlert('success', msg);
+      handleCloseAckModal();
       await loadDeliveries(deliveryDate, deliveryIsAllDates);
+      if (activeTab === 'history') {
+        await loadReceivedHistory();
+      }
     } catch (err) {
-      showAlert('error', err.message || 'Failed to acknowledge delivery');
+      console.error('Failed to acknowledge delivery', err);
+      setAckError(err.message || (language === 'ta' ? 'வரவை உறுதிசெய்வதில் பிழை' : 'Failed to confirm receipt'));
     } finally {
-      setAcknowledgingId(null);
+      setIsSubmittingAck(false);
     }
   };
 
@@ -618,6 +1002,38 @@ export function BranchPortal({ user, activeTab }) {
               </div>
 
               <div className="branch-form-fields">
+                {/* Category Selection Dropdown */}
+                <div className="branch-category-field" style={{ marginBottom: 14 }}>
+                  <label htmlFor="branch-item-category-select" style={{ display: 'block', fontWeight: 600, fontSize: 13, color: 'var(--primary-dark-green)', marginBottom: 6 }}>
+                    {t('Category', 'Category')} *
+                  </label>
+                  <select
+                    id="branch-item-category-select"
+                    ref={categorySelectRef}
+                    value={selectedCategory}
+                    onChange={e => setSelectedCategory(e.target.value)}
+                    required
+                    style={{
+                      width: '100%',
+                      height: 40,
+                      padding: '6px 12px',
+                      fontSize: 14,
+                      borderRadius: 6,
+                      border: '1.5px solid var(--border-color)',
+                      backgroundColor: '#ffffff',
+                      color: selectedCategory ? 'var(--primary-dark-green)' : '#666',
+                      fontWeight: selectedCategory ? 600 : 400
+                    }}
+                  >
+                    <option value="">{language === 'ta' ? '-- வகையைத் தேர்ந்தெடுக்கவும் (Select Category) --' : '-- Select Category --'}</option>
+                    {BRANCH_ORDER_CATEGORIES.map(cat => (
+                      <option key={cat} value={cat}>
+                        {translateCategory(cat)}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
                 {/* Searchable Autocomplete Item Name Input */}
                 <div className="autocomplete-container" ref={dropdownRef}>
                   <label htmlFor="branch-item-search-input">
@@ -749,13 +1165,36 @@ export function BranchPortal({ user, activeTab }) {
 
             {/* Right column — Items Being Requested */}
             <div className="card branch-order-list-card">
-              <div className="card-header">
+              <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 10 }}>
                 <div>
                   <h3 className="card-title">{t('Items Being Requested', 'கோரப்படும் பொருட்கள்')} ({orderItemsList.length})</h3>
                   <p className="muted" style={{ margin: '4px 0 0' }}>
                     {t('Review and edit quantities before sending your request to the Store Manager.', 'கிடங்கு மேலாளருக்கு கோரிக்கையை அனுப்பும் முன் அளவுகளை சரிபார்க்கவும்.')}
                   </p>
                 </div>
+                <button
+                  type="button"
+                  className="secondary small"
+                  id="btn-download-order-pdf"
+                  disabled={orderItemsList.length === 0 || downloadingOrderPdf}
+                  onClick={handleDownloadOrderListPdf}
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    height: 32,
+                    padding: '0 12px',
+                    fontWeight: 600,
+                    fontSize: 12.5,
+                    borderRadius: 6
+                  }}
+                  title={language === 'ta' ? 'தற்போதைய ஆர்டர் பட்டியலை PDF ஆக பதிவிறக்கவும்' : 'Download current order list as PDF'}
+                >
+                  <span>📄</span>
+                  {downloadingOrderPdf
+                    ? (language === 'ta' ? 'தயாராகிறது...' : 'Generating...')
+                    : (language === 'ta' ? 'PDF அச்சிடு / பதிவிறக்கு' : 'Print / Download PDF')}
+                </button>
               </div>
 
               <div className="table-wrap">
@@ -763,19 +1202,39 @@ export function BranchPortal({ user, activeTab }) {
                   <thead>
                     <tr>
                       <th>{t('Item Name')}</th>
+                      <th>{t('Category')}</th>
                       <th>{t('Unit')}</th>
-                      <th>{t('Requested Quantity')}</th>
-                      <th>{t('Category', 'வகை')}</th>
-                      <th>{t('Action')}</th>
+                      <th style={{ textAlign: 'center', width: 140 }}>{t('Requested Quantity')}</th>
+                      <th style={{ textAlign: 'center', width: 90 }}>{t('Action')}</th>
                     </tr>
                   </thead>
                   <tbody>
                     {orderItemsList.length > 0 ? (
                       orderItemsList.map(item => (
                         <tr key={item.id}>
-                          <td><b>{translateItem(item.itemName)}</b></td>
-                          <td><span className="autocomplete-unit-badge">{translateUnit(item.unit)}</span></td>
                           <td>
+                            <b>{translateItem(item.itemName)}</b>
+                            {item.isNewItem && (
+                              <span style={{ fontSize: 10, color: '#b45309', marginLeft: 6, fontWeight: 700 }}>
+                                [{language === 'ta' ? 'புதியது' : 'New'}]
+                              </span>
+                            )}
+                          </td>
+                          <td>
+                            <span style={{
+                              background: '#e2ece9',
+                              color: '#003B2B',
+                              padding: '2px 8px',
+                              borderRadius: 4,
+                              fontSize: 12,
+                              fontWeight: 600,
+                              display: 'inline-block'
+                            }}>
+                              {translateCategory(item.category || 'General')}
+                            </span>
+                          </td>
+                          <td><span className="autocomplete-unit-badge">{translateUnit(item.unit)}</span></td>
+                          <td style={{ textAlign: 'center' }}>
                             <input
                               type="number"
                               min="1"
@@ -784,12 +1243,7 @@ export function BranchPortal({ user, activeTab }) {
                               onChange={e => handleUpdateOrderItemQty(item.id, e.target.value)}
                             />
                           </td>
-                          <td>
-                            <span style={{ fontSize: 12, color: item.isNewItem ? '#8c671b' : 'var(--green)', fontWeight: 600 }}>
-                              {item.isNewItem ? t('New Item') : t('Catalogue', 'பட்டியல்')}
-                            </span>
-                          </td>
-                          <td>
+                          <td style={{ textAlign: 'center' }}>
                             <button
                               type="button"
                               className="danger small"
@@ -811,7 +1265,30 @@ export function BranchPortal({ user, activeTab }) {
                 </table>
               </div>
 
-              <div className="form-actions" style={{ marginTop: 16 }}>
+              <div className="form-actions" style={{ marginTop: 16, display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+                <button
+                  type="button"
+                  className="secondary"
+                  id="btn-save-as-draft"
+                  disabled={orderItemsList.length === 0 || savingDraft}
+                  onClick={handleOpenSaveDraftModal}
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    height: 38,
+                    padding: '0 16px',
+                    fontWeight: 600,
+                    borderRadius: 6
+                  }}
+                  title={language === 'ta' ? 'தற்போதைய பொருட்களை வரைவாக சேமிக்கவும் (ஆர்டர் அனுப்பப்படாது)' : 'Save current items as draft (will not send order)'}
+                >
+                  <span>💾</span>
+                  {savingDraft
+                    ? (language === 'ta' ? 'சேமிக்கிறது...' : 'Saving...')
+                    : (language === 'ta' ? 'வரைவாக சேமி' : 'Save as Draft')}
+                </button>
+
                 <button
                   type="button"
                   className="primary"
@@ -819,8 +1296,17 @@ export function BranchPortal({ user, activeTab }) {
                   ref={sendOrderBtnRef}
                   disabled={orderItemsList.length === 0}
                   onClick={handleOpenConfirmModal}
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    height: 38,
+                    padding: '0 18px',
+                    fontWeight: 700,
+                    borderRadius: 6
+                  }}
                 >
-                  {t('Send Order', 'கோரிக்கையை அனுப்பு')} ({orderItemsList.length} {t('items')})
+                  <span>📤</span> {t('Send Order', 'கோரிக்கையை அனுப்பு')} ({orderItemsList.length} {t('items')})
                 </button>
               </div>
             </div>
@@ -871,6 +1357,7 @@ export function BranchPortal({ user, activeTab }) {
                       <tr>
                         <th style={{ width: 36 }}>#</th>
                         <th>{t('Item Name')}</th>
+                        <th>{t('Category')}</th>
                         <th>{t('Unit')}</th>
                         <th style={{ textAlign: 'right' }}>{t('Requested Quantity')}</th>
                       </tr>
@@ -879,7 +1366,19 @@ export function BranchPortal({ user, activeTab }) {
                       {orderItemsList.map((item, idx) => (
                         <tr key={item.id}>
                           <td style={{ color: 'var(--muted)' }}>{idx + 1}</td>
-                          <td><b>{translateItem(item.itemName)}</b></td>
+                          <td>
+                            <b>{translateItem(item.itemName)}</b>
+                            {item.isNewItem && (
+                              <span style={{ fontSize: 10, color: '#b45309', marginLeft: 6, fontWeight: 700 }}>
+                                [{language === 'ta' ? 'புதியது' : 'New'}]
+                              </span>
+                            )}
+                          </td>
+                          <td>
+                            <span style={{ background: '#e2ece9', color: '#003B2B', padding: '2px 6px', borderRadius: 4, fontSize: 11, fontWeight: 600 }}>
+                              {translateCategory(item.category || 'General')}
+                            </span>
+                          </td>
                           <td><span className="autocomplete-unit-badge">{translateUnit(item.unit)}</span></td>
                           <td style={{ textAlign: 'right', fontWeight: 700, color: 'var(--green)' }}>
                             {item.requestedQuantity}
@@ -1211,6 +1710,230 @@ export function BranchPortal({ user, activeTab }) {
       )}
 
       {/* =========================================================================
+          DRAFTS TAB (Saved Branch Order Drafts)
+          ========================================================================= */}
+      {activeTab === 'drafts' && (
+        <section className="card branch-drafts-section" id="section-branch-drafts">
+          <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
+            <div>
+              <h3 className="card-title" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span>📑</span> {language === 'ta' ? 'சேமிக்கப்பட்ட வரைவுகள்' : 'Saved Drafts'} ({savedDrafts.length})
+              </h3>
+              <p className="muted" style={{ margin: '4px 0 0', fontSize: 13 }}>
+                {t('Branch')}: <b>{user?.branchName}</b>. {language === 'ta'
+                  ? 'சேமிக்கப்பட்ட வரைவுகளை மதிப்பாய்வு செய்யவும், திருத்தவும் மற்றும் ஆர்டர் பட்டியலுக்கு மாற்றவும்.'
+                  : 'Review, edit, download PDF, or transfer saved drafts to your Order List for submission.'}
+              </p>
+            </div>
+            <div style={{ display: 'flex', gap: 10 }}>
+              <button
+                type="button"
+                className="secondary small"
+                id="btn-refresh-drafts"
+                onClick={loadSavedDrafts}
+                disabled={loadingDrafts}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 6, height: 32 }}
+              >
+                <span>↻</span> {loadingDrafts ? (language === 'ta' ? 'ஏற்றுகிறது...' : 'Loading...') : t('Refresh', 'Refresh')}
+              </button>
+              {orderItemsList.length > 0 && (
+                <button
+                  type="button"
+                  className="primary small"
+                  id="btn-save-current-to-draft"
+                  onClick={handleOpenSaveDraftModal}
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: 6, height: 32 }}
+                >
+                  <span>💾</span> {language === 'ta' ? 'தற்போதைய பட்டியலை சேமி' : 'Save Current Order List'} ({orderItemsList.length})
+                </button>
+              )}
+            </div>
+          </div>
+
+          <div style={{ padding: '16px' }}>
+            {loadingDrafts ? (
+              <p className="muted" style={{ padding: 24, textAlign: 'center' }}>
+                {language === 'ta' ? 'வரைவுகள் ஏற்றப்படுகின்றன...' : 'Loading saved drafts...'}
+              </p>
+            ) : savedDrafts.length === 0 ? (
+              <div style={{
+                textAlign: 'center',
+                padding: '48px 20px',
+                background: '#FAF6EC',
+                borderRadius: 8,
+                border: '1.5px dashed #D4A63B'
+              }}>
+                <div style={{ fontSize: 36, marginBottom: 10 }}>📑</div>
+                <h4 style={{ margin: '0 0 6px', color: 'var(--primary-dark-green)', fontSize: 16 }}>
+                  {language === 'ta' ? `${user?.branchName} கிளைக்கு சேமிக்கப்பட்ட வரைவுகள் எதுவும் இல்லை` : `No saved drafts for ${user?.branchName}`}
+                </h4>
+                <p className="muted" style={{ margin: '0 0 16px', maxWidth: 440, marginLeft: 'auto', marginRight: 'auto', fontSize: 13 }}>
+                  {language === 'ta'
+                    ? 'பொருட்கள் ஆர்டர் (Order Items) பக்கத்தில் பொருட்களை சேர்த்து "வரைவாக சேமி" பொத்தானை கிளிக் செய்து வரைவை உருவாக்கலாம்.'
+                    : 'Add items on the Order Items page and click "Save as Draft" to keep them saved for later review.'}
+                </p>
+                <button
+                  type="button"
+                  className="primary"
+                  onClick={() => typeof onSelectTab === 'function' && onSelectTab('order-items')}
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
+                >
+                  <span>📝</span> {language === 'ta' ? 'பொருட்கள் ஆர்டர் பக்கத்திற்கு செல்லவும்' : 'Go to Order Items'}
+                </button>
+              </div>
+            ) : (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(340px, 1fr))', gap: 16 }}>
+                {savedDrafts.map(draft => {
+                  const isMoved = draft.status === 'MOVED_TO_ORDER';
+                  const dateStr = formatDisplayDateTime(draft.updatedAt || draft.createdAt);
+                  return (
+                    <div
+                      key={draft.id}
+                      className="card"
+                      id={`draft-card-${draft.id}`}
+                      style={{
+                        margin: 0,
+                        border: isMoved ? '1px solid #c7d2fe' : '1.5px solid #D4A63B',
+                        background: isMoved ? '#f8fafc' : '#ffffff',
+                        boxShadow: '0 2px 8px rgba(0,0,0,0.04)',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        justifyContent: 'space-between'
+                      }}
+                    >
+                      <div className="card-header" style={{ padding: '12px 14px', borderBottom: '1px solid #F5EFE0', background: isMoved ? '#f1f5f9' : '#FCFAF3' }}>
+                        <div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                            <span style={{ fontSize: 16 }}>📑</span>
+                            <h4 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: 'var(--primary-dark-green)' }}>
+                              {draft.draftName || `Draft #${draft.id}`}
+                            </h4>
+                          </div>
+                          <span className="muted" style={{ fontSize: 11, display: 'block', marginTop: 2 }}>
+                            {t('Branch')}: <b>{draft.branchName}</b>
+                          </span>
+                        </div>
+                        <span
+                          className="badge"
+                          style={{
+                            fontSize: 10,
+                            fontWeight: 700,
+                            background: isMoved ? '#e0e7ff' : '#FEF3C7',
+                            color: isMoved ? '#3730a3' : '#b45309',
+                            border: isMoved ? '1px solid #c7d2fe' : '1px solid #FCD34D'
+                          }}
+                        >
+                          {isMoved ? (language === 'ta' ? '✓ ஆர்டருக்கு மாற்றப்பட்டது' : '✓ MOVED TO ORDER') : (language === 'ta' ? 'வரைவு' : 'DRAFT')}
+                        </span>
+                      </div>
+
+                      <div style={{ padding: '12px 14px', flex: 1 }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 10, fontSize: 12.5, color: '#4b5563' }}>
+                          <span>
+                            {language === 'ta' ? 'மொத்த பொருட்கள்' : 'Items'}: <b style={{ color: 'var(--primary-dark-green)' }}>{draft.itemCount}</b>
+                          </span>
+                          <span>
+                            {language === 'ta' ? 'மொத்த அளவு' : 'Total Qty'}: <b style={{ color: 'var(--primary-dark-green)' }}>{draft.totalQuantity}</b>
+                          </span>
+                        </div>
+
+                        {/* Items Preview Chips */}
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 12 }}>
+                          {(draft.items || []).slice(0, 4).map((it, idx) => (
+                            <span
+                              key={idx}
+                              style={{
+                                background: '#F5EFE0',
+                                color: '#17352B',
+                                padding: '2px 8px',
+                                borderRadius: 4,
+                                fontSize: 11,
+                                fontWeight: 500
+                              }}
+                            >
+                              {translateItem(it.itemName)}: <b>{it.requestedQuantity} {translateUnit(it.unit)}</b>
+                            </span>
+                          ))}
+                          {(draft.items || []).length > 4 && (
+                            <span style={{ fontSize: 11, color: '#5A6962', alignSelf: 'center' }}>
+                              +${(draft.items || []).length - 4} {language === 'ta' ? 'கூடுதல்' : 'more'}
+                            </span>
+                          )}
+                        </div>
+
+                        <div style={{ fontSize: 11, color: '#5A6962' }}>
+                          <span>🕒 {language === 'ta' ? 'சேமிக்கப்பட்ட நேரம்' : 'Saved'}: {dateStr}</span>
+                        </div>
+                      </div>
+
+                      {/* Card Actions */}
+                      <div style={{ padding: '10px 14px', background: '#FDFBF7', borderTop: '1px solid #F5EFE0', display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'space-between' }}>
+                        <div style={{ display: 'flex', gap: 6 }}>
+                          <button
+                            type="button"
+                            className="secondary small"
+                            id={`btn-review-draft-${draft.id}`}
+                            onClick={() => handleOpenDraftReview(draft)}
+                            style={{ height: 30, padding: '0 10px', fontSize: 12, fontWeight: 600 }}
+                            title={language === 'ta' ? 'வரைவை பார்க்க மற்றும் திருத்த' : 'Review and edit draft items'}
+                          >
+                            <span>👁️</span> {language === 'ta' ? 'திருத்து' : 'Review & Edit'}
+                          </button>
+
+                          <button
+                            type="button"
+                            className="secondary small"
+                            id={`btn-pdf-draft-${draft.id}`}
+                            onClick={() => handleDownloadDraftPdf(draft)}
+                            disabled={downloadingDraftPdfId === draft.id}
+                            style={{ height: 30, padding: '0 8px', fontSize: 12 }}
+                            title={language === 'ta' ? 'வரைவை PDF ஆக பதிவிறக்கவும்' : 'Download draft PDF'}
+                          >
+                            <span>📄</span> {downloadingDraftPdfId === draft.id ? '...' : 'PDF'}
+                          </button>
+                        </div>
+
+                        <div style={{ display: 'flex', gap: 6 }}>
+                          <button
+                            type="button"
+                            className="primary small"
+                            id={`btn-move-draft-${draft.id}`}
+                            onClick={() => handleMoveDraftToOrderList(draft)}
+                            style={{
+                              height: 30,
+                              padding: '0 10px',
+                              fontSize: 12,
+                              fontWeight: 700,
+                              background: isMoved ? '#4b5563' : 'var(--primary-dark-green)',
+                              color: '#ffffff'
+                            }}
+                            title={language === 'ta' ? 'இந்த வரைவை பொருட்கள் ஆர்டர் பட்டியலுக்கு மாற்றவும்' : 'Transfer draft items into Order List'}
+                          >
+                            <span>📥</span> {language === 'ta' ? 'பட்டியலுக்கு நகர்த்து' : 'Move to Order List'}
+                          </button>
+
+                          <button
+                            type="button"
+                            className="danger small"
+                            id={`btn-delete-draft-${draft.id}`}
+                            onClick={() => setDeleteConfirmDraft(draft)}
+                            style={{ height: 30, padding: '0 8px', fontSize: 12 }}
+                            title={language === 'ta' ? 'வரைவை நீக்கு' : 'Delete draft'}
+                          >
+                            <span>🗑️</span>
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </section>
+      )}
+
+      {/* =========================================================================
           2. ENTRY TAB (Deliveries & Physical Acknowledgement)
           ========================================================================= */}
       {activeTab === 'entry' && (
@@ -1278,32 +2001,45 @@ export function BranchPortal({ user, activeTab }) {
                     <table>
                       <thead>
                         <tr>
-                          <th style={{ width: '180px' }}>{t('Dispatch Date & Time', 'Dispatch Date & Time')}</th>
+                          <th style={{ width: '155px' }}>{t('Dispatch Date & Time', 'Dispatch Date & Time')}</th>
                           <th>{t('Item Name', 'Item Name')}</th>
-                          <th style={{ width: '85px', textAlign: 'center' }}>{t('Unit', 'Unit')}</th>
-                          <th style={{ width: '150px', textAlign: 'center' }}>{t('Dispatched Quantity', 'Dispatched Quantity')}</th>
-                          <th style={{ width: '190px', textAlign: 'center' }}>{t('Acknowledgement Action', 'Acknowledgement Action')}</th>
-                          <th style={{ width: '160px', textAlign: 'center' }}>{t('Return Action', 'Return Action')}</th>
+                          <th style={{ width: '75px', textAlign: 'center' }}>{t('Unit', 'Unit')}</th>
+                          <th style={{ width: '105px', textAlign: 'center' }}>{t('Dispatched Quantity', 'Dispatched Quantity')}</th>
+                          <th style={{ width: '115px', textAlign: 'center' }}>{t('Actual Received Quantity', 'Actual Received Quantity')}</th>
+                          <th style={{ width: '105px', textAlign: 'center' }}>{t('Shortage Quantity', 'Shortage Quantity')}</th>
+                          <th style={{ width: '170px', textAlign: 'center' }}>{t('Acknowledgement Status', 'Acknowledgement Status')}</th>
+                          <th style={{ width: '155px', textAlign: 'center' }}>{t('Action', 'Action')}</th>
                         </tr>
                       </thead>
                       <tbody>
                         {grp.items.map(d => {
                           const isAck = (d.status || '').toUpperCase() === 'ACKNOWLEDGED';
-                          const isProc = acknowledgingId === d.id;
+                          const ackStatus = (d.acknowledgementStatus || '').toUpperCase();
+                          const shortage = d.shortageQuantity || 0;
+                          const received = d.acknowledgedQuantity !== undefined && d.acknowledgedQuantity !== null ? d.acknowledgedQuantity : (isAck ? d.quantity : null);
+                          const isProc = isSubmittingAck && ackModalItem?.id === d.id;
                           const alreadyReturned = d.returnedQuantity || 0;
                           const isFullyReturned = alreadyReturned >= d.quantity;
+
+                          const rowBgStyle = !isAck ? {
+                            borderLeft: '4px solid transparent',
+                            transition: 'background-color 0.25s ease'
+                          } : (ackStatus === 'NOT_RECEIVED' || (received === 0 && shortage > 0)) ? {
+                            backgroundColor: '#fef2f2',
+                            borderLeft: '4px solid #ef4444',
+                            transition: 'background-color 0.25s ease'
+                          } : (ackStatus === 'PARTIALLY_RECEIVED' || shortage > 0) ? {
+                            backgroundColor: '#fffdf0',
+                            borderLeft: '4px solid #f59e0b',
+                            transition: 'background-color 0.25s ease'
+                          } : {
+                            backgroundColor: '#edf7ee',
+                            borderLeft: '4px solid #2e7d32',
+                            transition: 'background-color 0.25s ease'
+                          };
+
                           return (
-                            <tr
-                              key={d.id}
-                              style={isAck ? {
-                                backgroundColor: '#edf7ee',
-                                borderLeft: '4px solid #2e7d32',
-                                transition: 'background-color 0.25s ease'
-                              } : {
-                                borderLeft: '4px solid transparent',
-                                transition: 'background-color 0.25s ease'
-                              }}
-                            >
+                            <tr key={d.id} style={rowBgStyle}>
                               <td style={{ whiteSpace: 'nowrap' }}>{formatDateTime(d.createdAt || d.dispatchDate, language)}</td>
                               <td>
                                 <b>{translateItem(d.itemName)}</b>
@@ -1325,41 +2061,146 @@ export function BranchPortal({ user, activeTab }) {
                                 )}
                               </td>
                               <td style={{ textAlign: 'center' }}>
-                                {!isAck ? (
-                                  <button
-                                    type="button"
-                                    className="primary small"
-                                    disabled={isProc}
-                                    onClick={() => handleAcknowledgeDelivery(d)}
-                                    style={{ width: '100%', maxWidth: '160px' }}
-                                  >
-                                    {isProc ? t('Confirming...', 'Confirming...') : t('Acknowledge Received', 'Acknowledge Received')}
-                                  </button>
+                                {isAck ? (
+                                  received === 0 && (ackStatus === 'NOT_RECEIVED' || shortage > 0) ? (
+                                    <span style={{ fontWeight: 700, color: '#dc2626', fontSize: '14px' }}>0</span>
+                                  ) : (
+                                    <span style={{ fontWeight: 700, color: '#166534', fontSize: '14px' }}>{received}</span>
+                                  )
                                 ) : (
-                                  <div style={{ display: 'inline-flex', flexDirection: 'column', alignItems: 'center', gap: '2px' }}>
-                                    <span style={{
-                                      display: 'inline-flex',
-                                      alignItems: 'center',
-                                      gap: '4px',
-                                      color: '#1b5e20',
-                                      fontWeight: 700,
-                                      fontSize: '12px',
-                                      background: 'rgba(46, 125, 50, 0.15)',
-                                      padding: '3px 8px',
-                                      borderRadius: '4px'
-                                    }}>
-                                      ✓ {t('Received', 'Received')}
-                                    </span>
-                                    {d.acknowledgedAt && (
-                                      <span className="muted" style={{ fontSize: '11px' }}>
-                                        {formatDateTime(d.acknowledgedAt, language)}
-                                      </span>
-                                    )}
-                                  </div>
+                                  <span className="muted" style={{ fontSize: '13px' }}>-</span>
                                 )}
                               </td>
                               <td style={{ textAlign: 'center' }}>
-                                <div style={{ display: 'inline-flex', flexDirection: 'column', alignItems: 'center', gap: '3px' }}>
+                                {isAck ? (
+                                  shortage > 0 ? (
+                                    <span style={{
+                                      fontWeight: 700,
+                                      color: '#b91c1c',
+                                      backgroundColor: '#fef2f2',
+                                      border: '1px solid #fca5a5',
+                                      padding: '2px 7px',
+                                      borderRadius: 4,
+                                      fontSize: '12px',
+                                      display: 'inline-flex',
+                                      alignItems: 'center',
+                                      gap: 3
+                                    }}>
+                                      ⚠️ {shortage}
+                                    </span>
+                                  ) : (
+                                    <span style={{ fontWeight: 600, color: '#166534', fontSize: '13px' }}>0</span>
+                                  )
+                                ) : (
+                                  <span className="muted" style={{ fontSize: '13px' }}>-</span>
+                                )}
+                              </td>
+                              <td style={{ textAlign: 'center' }}>
+                                {isAck ? (
+                                  (ackStatus === 'NOT_RECEIVED' || (received === 0 && shortage > 0)) ? (
+                                    <div style={{ display: 'inline-flex', flexDirection: 'column', alignItems: 'center', gap: '2px' }}>
+                                      <span style={{
+                                        display: 'inline-flex',
+                                        alignItems: 'center',
+                                        gap: '4px',
+                                        color: '#991b1b',
+                                        fontWeight: 700,
+                                        fontSize: '11.5px',
+                                        background: '#fee2e2',
+                                        border: '1px solid #f87171',
+                                        padding: '2px 8px',
+                                        borderRadius: '4px',
+                                        whiteSpace: 'nowrap'
+                                      }}>
+                                        ✕ {t('Not Received', 'Not Received')}
+                                      </span>
+                                      {d.acknowledgedAt && (
+                                        <span className="muted" style={{ fontSize: '10.5px' }}>
+                                          {formatDateTime(d.acknowledgedAt, language)}
+                                        </span>
+                                      )}
+                                      {d.acknowledgementRemarks && (
+                                        <span style={{ fontSize: '10.5px', color: '#6b7280', fontStyle: 'italic', maxWidth: '150px', textAlign: 'center', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={d.acknowledgementRemarks}>
+                                          💬 "{d.acknowledgementRemarks}"
+                                        </span>
+                                      )}
+                                    </div>
+                                  ) : (ackStatus === 'PARTIALLY_RECEIVED' || shortage > 0) ? (
+                                    <div style={{ display: 'inline-flex', flexDirection: 'column', alignItems: 'center', gap: '2px' }}>
+                                      <span style={{
+                                        display: 'inline-flex',
+                                        alignItems: 'center',
+                                        gap: '4px',
+                                        color: '#92400e',
+                                        fontWeight: 700,
+                                        fontSize: '11.5px',
+                                        background: '#fef3c7',
+                                        border: '1px solid #fcd34d',
+                                        padding: '2px 8px',
+                                        borderRadius: '4px',
+                                        whiteSpace: 'nowrap'
+                                      }}>
+                                        ⚡ {t('Partially Received', 'Partially Received')}
+                                      </span>
+                                      {d.acknowledgedAt && (
+                                        <span className="muted" style={{ fontSize: '10.5px' }}>
+                                          {formatDateTime(d.acknowledgedAt, language)}
+                                        </span>
+                                      )}
+                                      {d.acknowledgementRemarks && (
+                                        <span style={{ fontSize: '10.5px', color: '#6b7280', fontStyle: 'italic', maxWidth: '150px', textAlign: 'center', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={d.acknowledgementRemarks}>
+                                          💬 "{d.acknowledgementRemarks}"
+                                        </span>
+                                      )}
+                                    </div>
+                                  ) : (
+                                    <div style={{ display: 'inline-flex', flexDirection: 'column', alignItems: 'center', gap: '2px' }}>
+                                      <span style={{
+                                        display: 'inline-flex',
+                                        alignItems: 'center',
+                                        gap: '4px',
+                                        color: '#166534',
+                                        fontWeight: 700,
+                                        fontSize: '11.5px',
+                                        background: '#dcfce7',
+                                        border: '1px solid #86efac',
+                                        padding: '2px 8px',
+                                        borderRadius: '4px',
+                                        whiteSpace: 'nowrap'
+                                      }}>
+                                        ✓ {t('Fully Received', 'Fully Received')}
+                                      </span>
+                                      {d.acknowledgedAt && (
+                                        <span className="muted" style={{ fontSize: '10.5px' }}>
+                                          {formatDateTime(d.acknowledgedAt, language)}
+                                        </span>
+                                      )}
+                                      {d.acknowledgementRemarks && (
+                                        <span style={{ fontSize: '10.5px', color: '#6b7280', fontStyle: 'italic', maxWidth: '150px', textAlign: 'center', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={d.acknowledgementRemarks}>
+                                          💬 "{d.acknowledgementRemarks}"
+                                        </span>
+                                      )}
+                                    </div>
+                                  )
+                                ) : (
+                                  <span className="badge badge-pending" style={{ fontSize: '11.5px' }}>
+                                    {t('Pending', 'Pending')}
+                                  </span>
+                                )}
+                              </td>
+                              <td style={{ textAlign: 'center' }}>
+                                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px' }}>
+                                  {!isAck && (
+                                    <button
+                                      type="button"
+                                      className="primary small"
+                                      disabled={isProc}
+                                      onClick={() => handleOpenAckModal(d)}
+                                      style={{ width: '100%', maxWidth: '150px' }}
+                                    >
+                                      {isProc ? t('Confirming...', 'Confirming...') : t('Acknowledge Received', 'Acknowledge Received')}
+                                    </button>
+                                  )}
                                   <button
                                     type="button"
                                     className="secondary small"
@@ -1368,7 +2209,7 @@ export function BranchPortal({ user, activeTab }) {
                                     title={isFullyReturned ? t('Fully Returned', 'Dispatched quantity has been fully returned') : t('Return', 'Return item to central inventory')}
                                     style={{
                                       width: '100%',
-                                      maxWidth: '120px',
+                                      maxWidth: '150px',
                                       opacity: isFullyReturned ? 0.45 : 1,
                                       cursor: isFullyReturned ? 'not-allowed' : 'pointer'
                                     }}
@@ -1402,32 +2243,45 @@ export function BranchPortal({ user, activeTab }) {
                 <table>
                   <thead>
                     <tr>
-                      <th style={{ width: '180px' }}>{t('Dispatch Date & Time', 'Dispatch Date & Time')}</th>
+                      <th style={{ width: '155px' }}>{t('Dispatch Date & Time', 'Dispatch Date & Time')}</th>
                       <th>{t('Item Name', 'Item Name')}</th>
-                      <th style={{ width: '85px', textAlign: 'center' }}>{t('Unit', 'Unit')}</th>
-                      <th style={{ width: '150px', textAlign: 'center' }}>{t('Dispatched Quantity', 'Dispatched Quantity')}</th>
-                      <th style={{ width: '190px', textAlign: 'center' }}>{t('Acknowledgement Action', 'Acknowledgement Action')}</th>
-                      <th style={{ width: '160px', textAlign: 'center' }}>{t('Return Action', 'Return Action')}</th>
+                      <th style={{ width: '75px', textAlign: 'center' }}>{t('Unit', 'Unit')}</th>
+                      <th style={{ width: '105px', textAlign: 'center' }}>{t('Dispatched Quantity', 'Dispatched Quantity')}</th>
+                      <th style={{ width: '115px', textAlign: 'center' }}>{t('Actual Received Quantity', 'Actual Received Quantity')}</th>
+                      <th style={{ width: '105px', textAlign: 'center' }}>{t('Shortage Quantity', 'Shortage Quantity')}</th>
+                      <th style={{ width: '170px', textAlign: 'center' }}>{t('Acknowledgement Status', 'Acknowledgement Status')}</th>
+                      <th style={{ width: '155px', textAlign: 'center' }}>{t('Action', 'Action')}</th>
                     </tr>
                   </thead>
                   <tbody>
                     {displayed.map(d => {
                       const isAck = (d.status || '').toUpperCase() === 'ACKNOWLEDGED';
-                      const isProc = acknowledgingId === d.id;
+                      const ackStatus = (d.acknowledgementStatus || '').toUpperCase();
+                      const shortage = d.shortageQuantity || 0;
+                      const received = d.acknowledgedQuantity !== undefined && d.acknowledgedQuantity !== null ? d.acknowledgedQuantity : (isAck ? d.quantity : null);
+                      const isProc = isSubmittingAck && ackModalItem?.id === d.id;
                       const alreadyReturned = d.returnedQuantity || 0;
                       const isFullyReturned = alreadyReturned >= d.quantity;
+
+                      const rowBgStyle = !isAck ? {
+                        borderLeft: '4px solid transparent',
+                        transition: 'background-color 0.25s ease'
+                      } : (ackStatus === 'NOT_RECEIVED' || (received === 0 && shortage > 0)) ? {
+                        backgroundColor: '#fef2f2',
+                        borderLeft: '4px solid #ef4444',
+                        transition: 'background-color 0.25s ease'
+                      } : (ackStatus === 'PARTIALLY_RECEIVED' || shortage > 0) ? {
+                        backgroundColor: '#fffdf0',
+                        borderLeft: '4px solid #f59e0b',
+                        transition: 'background-color 0.25s ease'
+                      } : {
+                        backgroundColor: '#edf7ee',
+                        borderLeft: '4px solid #2e7d32',
+                        transition: 'background-color 0.25s ease'
+                      };
+
                       return (
-                        <tr
-                          key={d.id}
-                          style={isAck ? {
-                            backgroundColor: '#edf7ee',
-                            borderLeft: '4px solid #2e7d32',
-                            transition: 'background-color 0.25s ease'
-                          } : {
-                            borderLeft: '4px solid transparent',
-                            transition: 'background-color 0.25s ease'
-                          }}
-                        >
+                        <tr key={d.id} style={rowBgStyle}>
                           <td style={{ whiteSpace: 'nowrap' }}>{formatDateTime(d.createdAt || d.dispatchDate, language)}</td>
                           <td>
                             <b>{translateItem(d.itemName)}</b>
@@ -1449,41 +2303,146 @@ export function BranchPortal({ user, activeTab }) {
                             )}
                           </td>
                           <td style={{ textAlign: 'center' }}>
-                            {!isAck ? (
-                              <button
-                                type="button"
-                                className="primary small"
-                                disabled={isProc}
-                                onClick={() => handleAcknowledgeDelivery(d)}
-                                style={{ width: '100%', maxWidth: '160px' }}
-                              >
-                                {isProc ? t('Confirming...', 'Confirming...') : t('Acknowledge Received', 'Acknowledge Received')}
-                              </button>
+                            {isAck ? (
+                              received === 0 && (ackStatus === 'NOT_RECEIVED' || shortage > 0) ? (
+                                <span style={{ fontWeight: 700, color: '#dc2626', fontSize: '14px' }}>0</span>
+                              ) : (
+                                <span style={{ fontWeight: 700, color: '#166534', fontSize: '14px' }}>{received}</span>
+                              )
                             ) : (
-                              <div style={{ display: 'inline-flex', flexDirection: 'column', alignItems: 'center', gap: '2px' }}>
-                                <span style={{
-                                  display: 'inline-flex',
-                                  alignItems: 'center',
-                                  gap: '4px',
-                                  color: '#1b5e20',
-                                  fontWeight: 700,
-                                  fontSize: '12px',
-                                  background: 'rgba(46, 125, 50, 0.15)',
-                                  padding: '3px 8px',
-                                  borderRadius: '4px'
-                                }}>
-                                  ✓ {t('Received', 'Received')}
-                                </span>
-                                {d.acknowledgedAt && (
-                                  <span className="muted" style={{ fontSize: '11px' }}>
-                                    {formatDateTime(d.acknowledgedAt, language)}
-                                  </span>
-                                )}
-                              </div>
+                              <span className="muted" style={{ fontSize: '13px' }}>-</span>
                             )}
                           </td>
                           <td style={{ textAlign: 'center' }}>
-                            <div style={{ display: 'inline-flex', flexDirection: 'column', alignItems: 'center', gap: '3px' }}>
+                            {isAck ? (
+                              shortage > 0 ? (
+                                <span style={{
+                                  fontWeight: 700,
+                                  color: '#b91c1c',
+                                  backgroundColor: '#fef2f2',
+                                  border: '1px solid #fca5a5',
+                                  padding: '2px 7px',
+                                  borderRadius: 4,
+                                  fontSize: '12px',
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: 3
+                                }}>
+                                  ⚠️ {shortage}
+                                </span>
+                              ) : (
+                                <span style={{ fontWeight: 600, color: '#166534', fontSize: '13px' }}>0</span>
+                              )
+                            ) : (
+                              <span className="muted" style={{ fontSize: '13px' }}>-</span>
+                            )}
+                          </td>
+                          <td style={{ textAlign: 'center' }}>
+                            {isAck ? (
+                              (ackStatus === 'NOT_RECEIVED' || (received === 0 && shortage > 0)) ? (
+                                <div style={{ display: 'inline-flex', flexDirection: 'column', alignItems: 'center', gap: '2px' }}>
+                                  <span style={{
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: '4px',
+                                    color: '#991b1b',
+                                    fontWeight: 700,
+                                    fontSize: '11.5px',
+                                    background: '#fee2e2',
+                                    border: '1px solid #f87171',
+                                    padding: '2px 8px',
+                                    borderRadius: '4px',
+                                    whiteSpace: 'nowrap'
+                                  }}>
+                                    ✕ {t('Not Received', 'Not Received')}
+                                  </span>
+                                  {d.acknowledgedAt && (
+                                    <span className="muted" style={{ fontSize: '10.5px' }}>
+                                      {formatDateTime(d.acknowledgedAt, language)}
+                                    </span>
+                                  )}
+                                  {d.acknowledgementRemarks && (
+                                    <span style={{ fontSize: '10.5px', color: '#6b7280', fontStyle: 'italic', maxWidth: '150px', textAlign: 'center', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={d.acknowledgementRemarks}>
+                                      💬 "{d.acknowledgementRemarks}"
+                                    </span>
+                                  )}
+                                </div>
+                              ) : (ackStatus === 'PARTIALLY_RECEIVED' || shortage > 0) ? (
+                                <div style={{ display: 'inline-flex', flexDirection: 'column', alignItems: 'center', gap: '2px' }}>
+                                  <span style={{
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: '4px',
+                                    color: '#92400e',
+                                    fontWeight: 700,
+                                    fontSize: '11.5px',
+                                    background: '#fef3c7',
+                                    border: '1px solid #fcd34d',
+                                    padding: '2px 8px',
+                                    borderRadius: '4px',
+                                    whiteSpace: 'nowrap'
+                                  }}>
+                                    ⚡ {t('Partially Received', 'Partially Received')}
+                                  </span>
+                                  {d.acknowledgedAt && (
+                                    <span className="muted" style={{ fontSize: '10.5px' }}>
+                                      {formatDateTime(d.acknowledgedAt, language)}
+                                    </span>
+                                  )}
+                                  {d.acknowledgementRemarks && (
+                                    <span style={{ fontSize: '10.5px', color: '#6b7280', fontStyle: 'italic', maxWidth: '150px', textAlign: 'center', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={d.acknowledgementRemarks}>
+                                      💬 "{d.acknowledgementRemarks}"
+                                    </span>
+                                  )}
+                                </div>
+                              ) : (
+                                <div style={{ display: 'inline-flex', flexDirection: 'column', alignItems: 'center', gap: '2px' }}>
+                                  <span style={{
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: '4px',
+                                    color: '#166534',
+                                    fontWeight: 700,
+                                    fontSize: '11.5px',
+                                    background: '#dcfce7',
+                                    border: '1px solid #86efac',
+                                    padding: '2px 8px',
+                                    borderRadius: '4px',
+                                    whiteSpace: 'nowrap'
+                                  }}>
+                                    ✓ {t('Fully Received', 'Fully Received')}
+                                  </span>
+                                  {d.acknowledgedAt && (
+                                    <span className="muted" style={{ fontSize: '10.5px' }}>
+                                      {formatDateTime(d.acknowledgedAt, language)}
+                                    </span>
+                                  )}
+                                  {d.acknowledgementRemarks && (
+                                    <span style={{ fontSize: '10.5px', color: '#6b7280', fontStyle: 'italic', maxWidth: '150px', textAlign: 'center', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={d.acknowledgementRemarks}>
+                                      💬 "{d.acknowledgementRemarks}"
+                                    </span>
+                                  )}
+                                </div>
+                              )
+                            ) : (
+                              <span className="badge badge-pending" style={{ fontSize: '11.5px' }}>
+                                {t('Pending', 'Pending')}
+                              </span>
+                            )}
+                          </td>
+                          <td style={{ textAlign: 'center' }}>
+                            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px' }}>
+                              {!isAck && (
+                                <button
+                                  type="button"
+                                  className="primary small"
+                                  disabled={isProc}
+                                  onClick={() => handleOpenAckModal(d)}
+                                  style={{ width: '100%', maxWidth: '150px' }}
+                                >
+                                  {isProc ? t('Confirming...', 'Confirming...') : t('Acknowledge Received', 'Acknowledge Received')}
+                                </button>
+                              )}
                               <button
                                 type="button"
                                 className="secondary small"
@@ -1492,7 +2451,7 @@ export function BranchPortal({ user, activeTab }) {
                                 title={isFullyReturned ? t('Fully Returned', 'Dispatched quantity has been fully returned') : t('Return', 'Return item to central inventory')}
                                 style={{
                                   width: '100%',
-                                  maxWidth: '120px',
+                                  maxWidth: '150px',
                                   opacity: isFullyReturned ? 0.45 : 1,
                                   cursor: isFullyReturned ? 'not-allowed' : 'pointer'
                                 }}
@@ -1630,35 +2589,132 @@ export function BranchPortal({ user, activeTab }) {
                             <th>{t('Acknowledgement Date & Time', 'Acknowledgement Date & Time')}</th>
                             <th>{t('Original Dispatch Date & Time', 'Original Dispatch Date & Time')}</th>
                             <th>{t('Item Name', 'Item Name')}</th>
-                            <th>{t('Unit', 'Unit')}</th>
-                            <th>{t('Received Quantity', 'Received Quantity')}</th>
-                            <th>{t('Status', 'Status')}</th>
+                            <th style={{ width: '75px', textAlign: 'center' }}>{t('Unit', 'Unit')}</th>
+                            <th style={{ width: '95px', textAlign: 'center' }}>{t('Dispatched Quantity', 'Dispatched Quantity')}</th>
+                            <th style={{ width: '105px', textAlign: 'center' }}>{t('Received Quantity', 'Received Quantity')}</th>
+                            <th style={{ width: '105px', textAlign: 'center' }}>{t('Shortage Quantity', 'Shortage Quantity')}</th>
+                            <th style={{ textAlign: 'center' }}>{t('Status', 'Status')}</th>
                           </tr>
                         </thead>
                         <tbody>
-                          {grp.items.map(d => (
-                            <tr key={d.id}>
-                              <td><b>{formatDateTime(d.acknowledgedAt, language)}</b></td>
-                              <td>{formatDateTime(d.createdAt || d.dispatchDate, language)}</td>
-                              <td><b>{translateItem(d.itemName)}</b></td>
-                              <td>{translateUnit(d.unit)}</td>
-                              <td>
-                                <span style={{ fontWeight: 700, color: 'var(--green)' }}>
-                                  {d.quantity} {translateUnit(d.unit)}
-                                </span>
-                                {(d.returnedQuantity || 0) > 0 && (
-                                  <div style={{ fontSize: '11px', color: '#b45309', fontWeight: 600, marginTop: '2px' }}>
-                                    {t('Returned', 'Returned')}: {d.returnedQuantity} {translateUnit(d.unit)}
-                                  </div>
-                                )}
-                              </td>
-                              <td>
-                                <span className="badge badge-completed">
-                                  ✓ {t('Acknowledged', 'Acknowledged')}
-                                </span>
-                              </td>
-                            </tr>
-                          ))}
+                          {grp.items.map(d => {
+                            const ackStatus = (d.acknowledgementStatus || '').toUpperCase();
+                            const shortage = d.shortageQuantity || 0;
+                            const received = d.acknowledgedQuantity !== undefined && d.acknowledgedQuantity !== null ? d.acknowledgedQuantity : d.quantity;
+                            const alreadyReturned = d.returnedQuantity || 0;
+
+                            return (
+                              <tr key={d.id}>
+                                <td><b>{formatDateTime(d.acknowledgedAt, language)}</b></td>
+                                <td>{formatDateTime(d.createdAt || d.dispatchDate, language)}</td>
+                                <td><b>{translateItem(d.itemName)}</b></td>
+                                <td style={{ textAlign: 'center' }}>{translateUnit(d.unit)}</td>
+                                <td style={{ textAlign: 'center', fontWeight: 600 }}>{d.quantity}</td>
+                                <td style={{ textAlign: 'center' }}>
+                                  <span style={{ fontWeight: 700, color: (received === 0 && shortage > 0) ? '#dc2626' : '#166534', fontSize: '14px' }}>
+                                    {received}
+                                  </span>
+                                  {alreadyReturned > 0 && (
+                                    <div style={{ fontSize: '11px', color: '#b45309', fontWeight: 600, marginTop: '2px' }}>
+                                      {t('Returned', 'Returned')}: {alreadyReturned} {translateUnit(d.unit)}
+                                    </div>
+                                  )}
+                                </td>
+                                <td style={{ textAlign: 'center' }}>
+                                  {shortage > 0 ? (
+                                    <span style={{
+                                      fontWeight: 700,
+                                      color: '#b91c1c',
+                                      backgroundColor: '#fef2f2',
+                                      border: '1px solid #fca5a5',
+                                      padding: '2px 7px',
+                                      borderRadius: 4,
+                                      fontSize: '12px',
+                                      display: 'inline-flex',
+                                      alignItems: 'center',
+                                      gap: 3
+                                    }}>
+                                      ⚠️ {shortage}
+                                    </span>
+                                  ) : (
+                                    <span style={{ fontWeight: 600, color: '#166534', fontSize: '13px' }}>0</span>
+                                  )}
+                                </td>
+                                <td style={{ textAlign: 'center' }}>
+                                  {(ackStatus === 'NOT_RECEIVED' || (received === 0 && shortage > 0)) ? (
+                                    <div style={{ display: 'inline-flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
+                                      <span style={{
+                                        display: 'inline-flex',
+                                        alignItems: 'center',
+                                        gap: 4,
+                                        color: '#991b1b',
+                                        fontWeight: 700,
+                                        fontSize: '11.5px',
+                                        background: '#fee2e2',
+                                        border: '1px solid #f87171',
+                                        padding: '2px 8px',
+                                        borderRadius: '4px',
+                                        whiteSpace: 'nowrap'
+                                      }}>
+                                        ✕ {t('Not Received', 'Not Received')}
+                                      </span>
+                                      {d.acknowledgementRemarks && (
+                                        <span style={{ fontSize: '10.5px', color: '#6b7280', fontStyle: 'italic' }}>
+                                          💬 "{d.acknowledgementRemarks}"
+                                        </span>
+                                      )}
+                                    </div>
+                                  ) : (ackStatus === 'PARTIALLY_RECEIVED' || shortage > 0) ? (
+                                    <div style={{ display: 'inline-flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
+                                      <span style={{
+                                        display: 'inline-flex',
+                                        alignItems: 'center',
+                                        gap: 4,
+                                        color: '#92400e',
+                                        fontWeight: 700,
+                                        fontSize: '11.5px',
+                                        background: '#fef3c7',
+                                        border: '1px solid #fcd34d',
+                                        padding: '2px 8px',
+                                        borderRadius: '4px',
+                                        whiteSpace: 'nowrap'
+                                      }}>
+                                        ⚡ {t('Partially Received', 'Partially Received')}
+                                      </span>
+                                      {d.acknowledgementRemarks && (
+                                        <span style={{ fontSize: '10.5px', color: '#6b7280', fontStyle: 'italic' }}>
+                                          💬 "{d.acknowledgementRemarks}"
+                                        </span>
+                                      )}
+                                    </div>
+                                  ) : (
+                                    <div style={{ display: 'inline-flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
+                                      <span style={{
+                                        display: 'inline-flex',
+                                        alignItems: 'center',
+                                        gap: 4,
+                                        color: '#166534',
+                                        fontWeight: 700,
+                                        fontSize: '11.5px',
+                                        background: '#dcfce7',
+                                        border: '1px solid #86efac',
+                                        padding: '2px 8px',
+                                        borderRadius: '4px',
+                                        whiteSpace: 'nowrap'
+                                      }}>
+                                        ✓ {t('Fully Received', 'Fully Received')}
+                                      </span>
+                                      {d.acknowledgementRemarks && (
+                                        <span style={{ fontSize: '10.5px', color: '#6b7280', fontStyle: 'italic' }}>
+                                          💬 "{d.acknowledgementRemarks}"
+                                        </span>
+                                      )}
+                                    </div>
+                                  )}
+                                </td>
+                              </tr>
+                            );
+                          })}
                         </tbody>
                       </table>
                     </div>
@@ -1674,35 +2730,132 @@ export function BranchPortal({ user, activeTab }) {
                       <th>{t('Acknowledgement Date & Time', 'Acknowledgement Date & Time')}</th>
                       <th>{t('Original Dispatch Date & Time', 'Original Dispatch Date & Time')}</th>
                       <th>{t('Item Name', 'Item Name')}</th>
-                      <th>{t('Unit', 'Unit')}</th>
-                      <th>{t('Received Quantity', 'Received Quantity')}</th>
-                      <th>{t('Status', 'Status')}</th>
+                      <th style={{ width: '75px', textAlign: 'center' }}>{t('Unit', 'Unit')}</th>
+                      <th style={{ width: '95px', textAlign: 'center' }}>{t('Dispatched Quantity', 'Dispatched Quantity')}</th>
+                      <th style={{ width: '105px', textAlign: 'center' }}>{t('Received Quantity', 'Received Quantity')}</th>
+                      <th style={{ width: '105px', textAlign: 'center' }}>{t('Shortage Quantity', 'Shortage Quantity')}</th>
+                      <th style={{ textAlign: 'center' }}>{t('Status', 'Status')}</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {sortedHistory.map(d => (
-                      <tr key={d.id}>
-                        <td><b>{formatDateTime(d.acknowledgedAt, language)}</b></td>
-                        <td>{formatDateTime(d.createdAt || d.dispatchDate, language)}</td>
-                        <td><b>{translateItem(d.itemName)}</b></td>
-                        <td>{translateUnit(d.unit)}</td>
-                        <td>
-                          <span style={{ fontWeight: 700, color: 'var(--green)' }}>
-                            {d.quantity} {translateUnit(d.unit)}
-                          </span>
-                          {(d.returnedQuantity || 0) > 0 && (
-                            <div style={{ fontSize: '11px', color: '#b45309', fontWeight: 600, marginTop: '2px' }}>
-                              {t('Returned', 'Returned')}: {d.returnedQuantity} {translateUnit(d.unit)}
-                            </div>
-                          )}
-                        </td>
-                        <td>
-                          <span className="badge badge-completed">
-                            ✓ {t('Acknowledged', 'Acknowledged')}
-                          </span>
-                        </td>
-                      </tr>
-                    ))}
+                    {sortedHistory.map(d => {
+                      const ackStatus = (d.acknowledgementStatus || '').toUpperCase();
+                      const shortage = d.shortageQuantity || 0;
+                      const received = d.acknowledgedQuantity !== undefined && d.acknowledgedQuantity !== null ? d.acknowledgedQuantity : d.quantity;
+                      const alreadyReturned = d.returnedQuantity || 0;
+
+                      return (
+                        <tr key={d.id}>
+                          <td><b>{formatDateTime(d.acknowledgedAt, language)}</b></td>
+                          <td>{formatDateTime(d.createdAt || d.dispatchDate, language)}</td>
+                          <td><b>{translateItem(d.itemName)}</b></td>
+                          <td style={{ textAlign: 'center' }}>{translateUnit(d.unit)}</td>
+                          <td style={{ textAlign: 'center', fontWeight: 600 }}>{d.quantity}</td>
+                          <td style={{ textAlign: 'center' }}>
+                            <span style={{ fontWeight: 700, color: (received === 0 && shortage > 0) ? '#dc2626' : '#166534', fontSize: '14px' }}>
+                              {received}
+                            </span>
+                            {alreadyReturned > 0 && (
+                              <div style={{ fontSize: '11px', color: '#b45309', fontWeight: 600, marginTop: '2px' }}>
+                                {t('Returned', 'Returned')}: {alreadyReturned} {translateUnit(d.unit)}
+                              </div>
+                            )}
+                          </td>
+                          <td style={{ textAlign: 'center' }}>
+                            {shortage > 0 ? (
+                              <span style={{
+                                fontWeight: 700,
+                                color: '#b91c1c',
+                                backgroundColor: '#fef2f2',
+                                border: '1px solid #fca5a5',
+                                padding: '2px 7px',
+                                borderRadius: 4,
+                                fontSize: '12px',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: 3
+                              }}>
+                                ⚠️ {shortage}
+                              </span>
+                            ) : (
+                              <span style={{ fontWeight: 600, color: '#166534', fontSize: '13px' }}>0</span>
+                            )}
+                          </td>
+                          <td style={{ textAlign: 'center' }}>
+                            {(ackStatus === 'NOT_RECEIVED' || (received === 0 && shortage > 0)) ? (
+                              <div style={{ display: 'inline-flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
+                                <span style={{
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: 4,
+                                  color: '#991b1b',
+                                  fontWeight: 700,
+                                  fontSize: '11.5px',
+                                  background: '#fee2e2',
+                                  border: '1px solid #f87171',
+                                  padding: '2px 8px',
+                                  borderRadius: '4px',
+                                  whiteSpace: 'nowrap'
+                                }}>
+                                  ✕ {t('Not Received', 'Not Received')}
+                                </span>
+                                {d.acknowledgementRemarks && (
+                                  <span style={{ fontSize: '10.5px', color: '#6b7280', fontStyle: 'italic' }}>
+                                    💬 "{d.acknowledgementRemarks}"
+                                  </span>
+                                )}
+                              </div>
+                            ) : (ackStatus === 'PARTIALLY_RECEIVED' || shortage > 0) ? (
+                              <div style={{ display: 'inline-flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
+                                <span style={{
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: 4,
+                                  color: '#92400e',
+                                  fontWeight: 700,
+                                  fontSize: '11.5px',
+                                  background: '#fef3c7',
+                                  border: '1px solid #fcd34d',
+                                  padding: '2px 8px',
+                                  borderRadius: '4px',
+                                  whiteSpace: 'nowrap'
+                                }}>
+                                  ⚡ {t('Partially Received', 'Partially Received')}
+                                </span>
+                                {d.acknowledgementRemarks && (
+                                  <span style={{ fontSize: '10.5px', color: '#6b7280', fontStyle: 'italic' }}>
+                                    💬 "{d.acknowledgementRemarks}"
+                                  </span>
+                                )}
+                              </div>
+                            ) : (
+                              <div style={{ display: 'inline-flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
+                                <span style={{
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: 4,
+                                  color: '#166534',
+                                  fontWeight: 700,
+                                  fontSize: '11.5px',
+                                  background: '#dcfce7',
+                                  border: '1px solid #86efac',
+                                  padding: '2px 8px',
+                                  borderRadius: '4px',
+                                  whiteSpace: 'nowrap'
+                                }}>
+                                  ✓ {t('Fully Received', 'Fully Received')}
+                                </span>
+                                {d.acknowledgementRemarks && (
+                                  <span style={{ fontSize: '10.5px', color: '#6b7280', fontStyle: 'italic' }}>
+                                    💬 "{d.acknowledgementRemarks}"
+                                  </span>
+                                )}
+                              </div>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -1711,7 +2864,297 @@ export function BranchPortal({ user, activeTab }) {
         );
       })()}
 
-      {/* Return Dispatched Item Modal Popup */}
+      {/* Save Draft Prompt Modal */}
+      {showSaveDraftModal && (
+        <div className="modal-overlay" onClick={() => setShowSaveDraftModal(false)} style={{ zIndex: 1250 }}>
+          <div
+            className="modal-content"
+            style={{ maxWidth: 440, padding: '22px 26px', borderRadius: 8, boxShadow: '0 10px 30px rgba(0,0,0,0.25)' }}
+            onClick={e => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+          >
+            <div className="modal-header" style={{ marginBottom: 14, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <h3 style={{ margin: 0, color: 'var(--primary-dark-green)', fontSize: 17, display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span>💾</span> {language === 'ta' ? 'வரைவாக சேமி' : 'Save Order as Draft'}
+              </h3>
+              <button
+                type="button"
+                className="close-btn"
+                onClick={() => setShowSaveDraftModal(false)}
+                disabled={savingDraft}
+              >
+                ✕
+              </button>
+            </div>
+
+            <p className="muted" style={{ margin: '0 0 16px', fontSize: 13, lineHeight: 1.5 }}>
+              {language === 'ta'
+                ? `தற்போதைய ${orderItemsList.length} பொருட்களையும் வரைவாக சேமிக்கவும். பின்னர் வரைவுகள் பக்கத்தில் திறந்து திருத்தலாம் அல்லது அனுப்பலாம்.`
+                : `Save current ${orderItemsList.length} item(s) as a draft for ${user?.branchName}. This will NOT send an order to the Store Manager.`}
+            </p>
+
+            <form onSubmit={handleSaveCurrentAsDraft}>
+              <div className="form-group" style={{ marginBottom: 20 }}>
+                <label
+                  htmlFor="input-save-draft-name"
+                  style={{ display: 'block', fontWeight: 600, fontSize: 13, color: 'var(--primary-dark-green)', marginBottom: 6 }}
+                >
+                  {language === 'ta' ? 'வரைவு பெயர்' : 'Draft Name'}
+                </label>
+                <input
+                  id="input-save-draft-name"
+                  type="text"
+                  required
+                  autoFocus
+                  placeholder="e.g. Vegetables & Dairy Draft"
+                  value={newDraftNameInput}
+                  onChange={e => setNewDraftNameInput(e.target.value)}
+                  disabled={savingDraft}
+                  style={{ width: '100%', height: 38, padding: '6px 12px', fontSize: 14, borderRadius: 6, border: '1px solid var(--border-color)' }}
+                />
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
+                <button
+                  type="button"
+                  className="secondary"
+                  onClick={() => setShowSaveDraftModal(false)}
+                  disabled={savingDraft}
+                  style={{ height: 36, padding: '0 16px', borderRadius: 6 }}
+                >
+                  {t('Cancel', 'Cancel')}
+                </button>
+                <button
+                  type="submit"
+                  className="primary"
+                  disabled={savingDraft}
+                  id="btn-confirm-save-draft"
+                  style={{ height: 36, padding: '0 18px', fontWeight: 700, borderRadius: 6, background: 'var(--primary-dark-green)', color: '#ffffff' }}
+                >
+                  {savingDraft ? (language === 'ta' ? 'சேமிக்கிறது...' : 'Saving...') : (language === 'ta' ? 'வரைவை சேமிக்கவும்' : 'Save Draft')}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Review / Edit Draft Modal */}
+      {viewingDraft && (
+        <div className="modal-overlay" onClick={handleCloseDraftReview} style={{ zIndex: 1250 }}>
+          <div
+            className="modal-content"
+            style={{ maxWidth: 650, width: '95%', padding: '24px 28px', borderRadius: 8, boxShadow: '0 12px 35px rgba(0,0,0,0.3)', maxHeight: '90vh', overflowY: 'auto' }}
+            onClick={e => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+          >
+            <div className="modal-header" style={{ marginBottom: 14, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div>
+                <h3 style={{ margin: 0, color: 'var(--primary-dark-green)', fontSize: 18, display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span>📑</span> {language === 'ta' ? 'வரைவை மதிப்பாய்வு / திருத்து' : 'Review & Edit Draft'}
+                </h3>
+                <span className="muted" style={{ fontSize: 12, display: 'block', marginTop: 2 }}>
+                  {t('Branch')}: <b>{viewingDraft.branchName}</b> | {formatDisplayDateTime(viewingDraft.updatedAt || viewingDraft.createdAt)}
+                </span>
+              </div>
+              <button
+                type="button"
+                className="close-btn"
+                onClick={handleCloseDraftReview}
+                disabled={savingEditDraft}
+              >
+                ✕
+              </button>
+            </div>
+
+            <div style={{ marginBottom: 16 }}>
+              <label
+                htmlFor="input-edit-draft-name"
+                style={{ display: 'block', fontWeight: 600, fontSize: 13, color: 'var(--primary-dark-green)', marginBottom: 6 }}
+              >
+                {language === 'ta' ? 'வரைவு பெயர்' : 'Draft Name'}
+              </label>
+              <input
+                id="input-edit-draft-name"
+                type="text"
+                value={editDraftName}
+                onChange={e => setEditDraftName(e.target.value)}
+                disabled={savingEditDraft}
+                style={{ width: '100%', height: 36, padding: '6px 12px', fontSize: 13.5, borderRadius: 6, border: '1px solid var(--border-color)' }}
+              />
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+              <h4 style={{ margin: 0, fontSize: 13.5, color: 'var(--primary-dark-green)' }}>
+                {language === 'ta' ? 'வரைவு பொருட்கள்' : 'Draft Items'} ({editDraftItems.length})
+              </h4>
+              <span className="muted" style={{ fontSize: 12 }}>
+                {language === 'ta' ? 'மொத்த அளவு' : 'Total Qty'}: <b>{editDraftItems.reduce((acc, it) => acc + (it.requestedQuantity || 0), 0)}</b>
+              </span>
+            </div>
+
+            <div className="table-wrap" style={{ maxHeight: 280, overflowY: 'auto', marginBottom: 20 }}>
+              <table className="compact-table" style={{ width: '100%', margin: 0 }}>
+                <thead>
+                  <tr>
+                    <th>{t('Item Name')}</th>
+                    <th>{t('Category')}</th>
+                    <th>{t('Unit')}</th>
+                    <th style={{ textAlign: 'center', width: 110 }}>{t('Quantity')}</th>
+                    <th style={{ textAlign: 'center', width: 70 }}>{t('Action')}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {editDraftItems.length > 0 ? (
+                    editDraftItems.map((item, idx) => (
+                      <tr key={idx}>
+                        <td>
+                          <b>{translateItem(item.itemName)}</b>
+                          {item.isNewItem && (
+                            <span style={{ fontSize: 10, color: '#b45309', marginLeft: 6, fontWeight: 700 }}>
+                              [{language === 'ta' ? 'புதியது' : 'New'}]
+                            </span>
+                          )}
+                        </td>
+                        <td>
+                          <span style={{ background: '#e2ece9', color: '#003B2B', padding: '2px 8px', borderRadius: 4, fontSize: 11, fontWeight: 600 }}>
+                            {translateCategory(item.category)}
+                          </span>
+                        </td>
+                        <td>{translateUnit(item.unit)}</td>
+                        <td style={{ textAlign: 'center' }}>
+                          <input
+                            type="number"
+                            min="1"
+                            value={item.requestedQuantity}
+                            onChange={e => handleUpdateEditDraftItemQty(idx, e.target.value)}
+                            disabled={savingEditDraft}
+                            style={{ width: 75, height: 30, textAlign: 'right', padding: '3px 6px', fontSize: 13, borderRadius: 5, border: '1px solid var(--border-color)' }}
+                          />
+                        </td>
+                        <td style={{ textAlign: 'center' }}>
+                          <button
+                            type="button"
+                            className="danger small"
+                            onClick={() => handleRemoveEditDraftItem(idx)}
+                            disabled={savingEditDraft}
+                            style={{ height: 26, padding: '0 8px', fontSize: 11 }}
+                          >
+                            ✕
+                          </button>
+                        </td>
+                      </tr>
+                    ))
+                  ) : (
+                    <tr>
+                      <td colSpan="5" className="empty" style={{ padding: 20 }}>
+                        {language === 'ta' ? 'இந்த வரைவில் பொருட்கள் எதுவும் இல்லை.' : 'No items in this draft.'}
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10, borderTop: '1px solid #E5DDC9', paddingTop: 16 }}>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button
+                  type="button"
+                  className="secondary small"
+                  onClick={() => handleDownloadDraftPdf(viewingDraft)}
+                  disabled={savingEditDraft || editDraftItems.length === 0}
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: 6, height: 34 }}
+                >
+                  <span>📄</span> {language === 'ta' ? 'PDF பதிவிறக்கு' : 'Download PDF'}
+                </button>
+              </div>
+
+              <div style={{ display: 'flex', gap: 10 }}>
+                <button
+                  type="button"
+                  className="secondary"
+                  onClick={handleCloseDraftReview}
+                  disabled={savingEditDraft}
+                  style={{ height: 36, padding: '0 14px', borderRadius: 6 }}
+                >
+                  {t('Cancel', 'Cancel')}
+                </button>
+
+                <button
+                  type="button"
+                  className="secondary"
+                  onClick={handleSaveEditDraftChanges}
+                  disabled={savingEditDraft || editDraftItems.length === 0}
+                  id="btn-save-draft-changes"
+                  style={{ height: 36, padding: '0 16px', fontWeight: 600, borderRadius: 6 }}
+                >
+                  <span>💾</span> {savingEditDraft ? (language === 'ta' ? 'சேமிக்கிறது...' : 'Saving...') : (language === 'ta' ? 'மாற்றங்களை சேமி' : 'Save Changes')}
+                </button>
+
+                <button
+                  type="button"
+                  className="primary"
+                  onClick={() => handleMoveDraftToOrderList(viewingDraft)}
+                  disabled={savingEditDraft || editDraftItems.length === 0}
+                  id="btn-move-draft-from-modal"
+                  style={{ height: 36, padding: '0 18px', fontWeight: 700, borderRadius: 6, background: 'var(--primary-dark-green)', color: '#ffffff' }}
+                >
+                  <span>📥</span> {language === 'ta' ? 'பட்டியலுக்கு நகர்த்து' : 'Move to Order List'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Draft Confirmation Modal */}
+      {deleteConfirmDraft && (
+        <div className="modal-overlay" onClick={() => setDeleteConfirmDraft(null)} style={{ zIndex: 1260 }}>
+          <div
+            className="modal-content"
+            style={{ maxWidth: 420, padding: '22px 24px', borderRadius: 8 }}
+            onClick={e => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+          >
+            <div className="modal-header" style={{ marginBottom: 12 }}>
+              <h3 style={{ margin: 0, color: '#dc2626', fontSize: 17, display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span>⚠️</span> {language === 'ta' ? 'வரைவை நீக்குவதை உறுதிசெய்' : 'Delete Draft Confirmation'}
+              </h3>
+            </div>
+            <p style={{ margin: '0 0 16px', fontSize: 13.5, color: '#374151', lineHeight: 1.5 }}>
+              {language === 'ta'
+                ? `"${deleteConfirmDraft.draftName}" என்ற வரைவை நிச்சயமாக நீக்க விரும்புகிறீர்களா? இந்த செயலை மாற்ற முடியாது.`
+                : `Are you sure you want to permanently delete draft "${deleteConfirmDraft.draftName}"? This action cannot be undone.`}
+            </p>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
+              <button
+                type="button"
+                className="secondary"
+                onClick={() => setDeleteConfirmDraft(null)}
+                disabled={deletingDraft}
+                style={{ height: 34, padding: '0 14px' }}
+              >
+                {t('Cancel', 'Cancel')}
+              </button>
+              <button
+                type="button"
+                className="danger"
+                id="btn-confirm-delete-draft"
+                onClick={handleDeleteDraft}
+                disabled={deletingDraft}
+                style={{ height: 34, padding: '0 16px', fontWeight: 700 }}
+              >
+                {deletingDraft ? (language === 'ta' ? 'நீக்குகிறது...' : 'Deleting...') : (language === 'ta' ? 'நீக்கு' : 'Delete Draft')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Return Items Confirmation Modal */}
       {showReturnModal && returnModalItem && (
         <div className="modal-overlay" onClick={handleCloseReturnModal}>
           <div
@@ -1860,6 +3303,363 @@ export function BranchPortal({ user, activeTab }) {
           </div>
         </div>
       )}
+
+      {/* Acknowledge Delivery Receipt & Shortage Modal */}
+      {showAckModal && ackModalItem && (() => {
+        const dispatched = ackModalItem.quantity || 0;
+        const parsedVal = actualReceivedQty === '' ? NaN : parseInt(actualReceivedQty, 10);
+        const isValidNum = !isNaN(parsedVal);
+        const receivedNum = isValidNum ? parsedVal : 0;
+        const computedShortage = isValidNum ? dispatched - parsedVal : dispatched;
+        const isNegative = isValidNum && parsedVal < 0;
+        const isExcess = isValidNum && parsedVal > dispatched;
+        const isFullReceipt = isValidNum && parsedVal === dispatched;
+        const isPartialReceipt = isValidNum && parsedVal > 0 && parsedVal < dispatched;
+        const isZeroReceipt = isValidNum && parsedVal === 0;
+
+        return (
+          <div className="modal-overlay" onClick={handleCloseAckModal} style={{ zIndex: 1250 }}>
+            <div
+              className="modal-content"
+              style={{ maxWidth: 520, borderRadius: 10, padding: '22px 24px' }}
+              onClick={e => e.stopPropagation()}
+              onKeyDown={e => {
+                if (e.key === 'Escape' && !isSubmittingAck) {
+                  e.preventDefault();
+                  handleCloseAckModal();
+                }
+              }}
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="ack-modal-title"
+            >
+              <div className="modal-header" style={{ marginBottom: 14 }}>
+                <div>
+                  <h3 id="ack-modal-title" style={{ margin: 0, color: 'var(--primary-dark-green)', fontSize: 18, fontWeight: 700 }}>
+                    {t('Acknowledge Delivery Receipt', 'Acknowledge Delivery Receipt')}
+                  </h3>
+                  <p className="muted" style={{ margin: '4px 0 0', fontSize: '13px' }}>
+                    {t('Branch', 'Branch')}: <b>{user?.branchName}</b> • {t('Physical Goods Verification', 'Physical Goods Verification')}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  className="close-btn"
+                  onClick={handleCloseAckModal}
+                  disabled={isSubmittingAck}
+                  aria-label="Close"
+                  style={{ fontSize: 18, width: 32, height: 32, borderRadius: 6, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                >
+                  ✕
+                </button>
+              </div>
+
+              <form onSubmit={handleConfirmAck}>
+                {ackError && (
+                  <div style={{
+                    background: '#fdf2f2',
+                    border: '1px solid #f8b4b4',
+                    color: '#9b1c1c',
+                    padding: '10px 14px',
+                    borderRadius: 8,
+                    fontSize: 13,
+                    marginBottom: 14
+                  }}>
+                    {ackError}
+                  </div>
+                )}
+
+                {/* Dispatch Details Card */}
+                <div style={{
+                  background: 'var(--cream, #fdfbf7)',
+                  border: '1px solid rgba(140, 103, 27, 0.25)',
+                  borderRadius: 8,
+                  padding: '14px 16px',
+                  marginBottom: 16
+                }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                    <span style={{ fontSize: 13, color: '#555' }}>{t('Item Name', 'Item Name')}:</span>
+                    <b style={{ fontSize: 16, color: 'var(--primary-dark-green)' }}>
+                      {translateItem(ackModalItem.itemName)}
+                      {ackModalItem.isAdditional && (
+                        <span style={{ marginLeft: 6, fontSize: 11, background: '#f4ebd5', color: '#8c671b', padding: '2px 5px', borderRadius: 4 }}>
+                          {t('Additional Item', 'Additional Item')}
+                        </span>
+                      )}
+                    </b>
+                  </div>
+
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10, fontSize: 13, color: '#555' }}>
+                    <span>{t('Original Dispatch Date & Time', 'Original Dispatch Date & Time')}:</span>
+                    <b style={{ color: '#2d3748' }}>
+                      {formatDateTime(ackModalItem.createdAt || ackModalItem.dispatchDate, language)}
+                    </b>
+                  </div>
+
+                  <div style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(2, 1fr)',
+                    gap: 12,
+                    textAlign: 'center',
+                    paddingTop: 10,
+                    borderTop: '1px solid rgba(0,0,0,0.08)'
+                  }}>
+                    <div>
+                      <div style={{ fontSize: 11.5, color: '#666', textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                        {t('Dispatched Quantity', 'Dispatched Quantity')}
+                      </div>
+                      <div style={{ fontWeight: 800, fontSize: 18, color: 'var(--primary-dark-green)', marginTop: 2 }}>
+                        {dispatched} <span style={{ fontSize: 13, fontWeight: 600 }}>{translateUnit(ackModalItem.unit)}</span>
+                      </div>
+                    </div>
+                    <div>
+                      <div style={{ fontSize: 11.5, color: '#666', textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                        {t('Unit', 'Unit')}
+                      </div>
+                      <div style={{ fontWeight: 700, fontSize: 18, color: '#8c671b', marginTop: 2 }}>
+                        {translateUnit(ackModalItem.unit)}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Form Fields: Actual Received Qty & Shortage */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                  <div>
+                    <label htmlFor="ack-actual-received-input" style={{ display: 'block', fontWeight: 600, fontSize: 13.5, color: '#1f2937', marginBottom: 6 }}>
+                      {t('Actual Received Quantity', 'Actual Received Quantity')} *
+                    </label>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                      <input
+                        id="ack-actual-received-input"
+                        ref={ackQtyInputRef}
+                        type="number"
+                        min="0"
+                        max={dispatched}
+                        step="1"
+                        placeholder={t('Enter received quantity', 'Enter received quantity')}
+                        value={actualReceivedQty}
+                        onChange={e => {
+                          setActualReceivedQty(e.target.value);
+                          if (ackError) setAckError('');
+                        }}
+                        disabled={isSubmittingAck}
+                        required
+                        style={{
+                          flex: 1,
+                          height: 42,
+                          fontSize: 16,
+                          fontWeight: 700,
+                          padding: '0 12px',
+                          borderRadius: 6,
+                          border: (isNegative || isExcess) ? '2px solid #ef4444' : '1.5px solid var(--border-color)',
+                          color: (isNegative || isExcess) ? '#b91c1c' : '#111827'
+                        }}
+                      />
+                      <span style={{ fontWeight: 700, color: '#4b5563', fontSize: 14, minWidth: 50 }}>
+                        {translateUnit(ackModalItem.unit)}
+                      </span>
+                    </div>
+                    <span className="muted" style={{ fontSize: 11.5, marginTop: 4, display: 'block' }}>
+                      {language === 'ta'
+                        ? `செல்லுபடியாகும் அளவு: 0 முதல் ${dispatched} ${translateUnit(ackModalItem.unit)} வரை`
+                        : `Allowed range: 0 to ${dispatched} ${translateUnit(ackModalItem.unit)}`}
+                    </span>
+                  </div>
+
+                  {/* Automatic Shortage Calculation Card */}
+                  <div>
+                    <div style={{ display: 'block', fontWeight: 600, fontSize: 13.5, color: '#1f2937', marginBottom: 6 }}>
+                      {t('Shortage Quantity', 'Shortage Quantity')}
+                      <span style={{ fontWeight: 400, fontSize: 12, color: '#6b7280', marginLeft: 6 }}>
+                        ({t('Shortage Quantity = Dispatched Quantity - Actual Received Quantity', 'Shortage = Dispatched - Received')})
+                      </span>
+                    </div>
+
+                    {isExcess ? (
+                      <div style={{
+                        padding: '12px 14px',
+                        borderRadius: 6,
+                        background: '#fef2f2',
+                        border: '1.5px solid #f87171',
+                        color: '#991b1b',
+                        fontSize: 13,
+                        fontWeight: 600,
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 8
+                      }}>
+                        <span>⚠️</span>
+                        <span>
+                          {language === 'ta'
+                            ? `பெறப்பட்ட அளவு (${parsedVal}) அனுப்பப்பட்ட அளவை (${dispatched}) விட அதிகமாக இருக்க முடியாது.`
+                            : `Actual received quantity (${parsedVal}) cannot exceed dispatched quantity (${dispatched}).`}
+                        </span>
+                      </div>
+                    ) : isNegative ? (
+                      <div style={{
+                        padding: '12px 14px',
+                        borderRadius: 6,
+                        background: '#fef2f2',
+                        border: '1.5px solid #f87171',
+                        color: '#991b1b',
+                        fontSize: 13,
+                        fontWeight: 600,
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 8
+                      }}>
+                        <span>⚠️</span>
+                        <span>
+                          {language === 'ta'
+                            ? 'பெறப்பட்ட அளவு எதிர்மறையாக (negative) இருக்க முடியாது.'
+                            : 'Actual received quantity cannot be negative.'}
+                        </span>
+                      </div>
+                    ) : isFullReceipt ? (
+                      <div style={{
+                        padding: '12px 14px',
+                        borderRadius: 6,
+                        background: '#f0fdf4',
+                        border: '1.5px solid #86efac',
+                        color: '#166534',
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center'
+                      }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <span style={{ fontSize: 16 }}>✓</span>
+                          <span style={{ fontWeight: 600, fontSize: 13.5 }}>
+                            {t('Full Receipt (No shortage)', 'Full Receipt (No shortage)')}
+                          </span>
+                        </div>
+                        <div style={{ fontWeight: 800, fontSize: 16 }}>
+                          0 {translateUnit(ackModalItem.unit)}
+                        </div>
+                      </div>
+                    ) : isPartialReceipt ? (
+                      <div style={{
+                        padding: '12px 14px',
+                        borderRadius: 6,
+                        background: '#fffbeb',
+                        border: '1.5px solid #fcd34d',
+                        color: '#92400e',
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center'
+                      }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <span style={{ fontSize: 16 }}>⚠️</span>
+                          <div>
+                            <span style={{ fontWeight: 700, fontSize: 13.5 }}>
+                              {t('Partial Receipt Shortage', 'Partial Receipt Shortage')}
+                            </span>
+                            <div style={{ fontSize: 11.5, opacity: 0.9 }}>
+                              {dispatched} - {receivedNum} = {computedShortage} {translateUnit(ackModalItem.unit)}
+                            </div>
+                          </div>
+                        </div>
+                        <div style={{ fontWeight: 800, fontSize: 17, color: '#b91c1c' }}>
+                          {computedShortage} {translateUnit(ackModalItem.unit)}
+                        </div>
+                      </div>
+                    ) : isZeroReceipt ? (
+                      <div style={{
+                        padding: '12px 14px',
+                        borderRadius: 6,
+                        background: '#fef2f2',
+                        border: '1.5px solid #fca5a5',
+                        color: '#991b1b',
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center'
+                      }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <span style={{ fontSize: 16 }}>✕</span>
+                          <div>
+                            <span style={{ fontWeight: 700, fontSize: 13.5 }}>
+                              {t('Zero Receipt — Entire Dispatched Quantity Missing', 'Zero Receipt — Entire Dispatched Quantity Missing')}
+                            </span>
+                            <div style={{ fontSize: 11.5, opacity: 0.9 }}>
+                              0 received • Full shortage recorded
+                            </div>
+                          </div>
+                        </div>
+                        <div style={{ fontWeight: 800, fontSize: 17, color: '#b91c1c' }}>
+                          {computedShortage} {translateUnit(ackModalItem.unit)}
+                        </div>
+                      </div>
+                    ) : (
+                      <div style={{
+                        padding: '12px 14px',
+                        borderRadius: 6,
+                        background: '#f9fafb',
+                        border: '1.5px solid #e5e7eb',
+                        color: '#6b7280',
+                        fontSize: 13
+                      }}>
+                        {t('Enter actual received quantity above to calculate shortage.', 'Enter actual received quantity above to calculate shortage.')}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Optional Remarks input */}
+                  <div>
+                    <label htmlFor="ack-remarks-input" style={{ display: 'block', fontWeight: 600, fontSize: 13.5, color: '#1f2937', marginBottom: 6 }}>
+                      {t('Optional Remarks', 'Optional Remarks')}
+                    </label>
+                    <input
+                      id="ack-remarks-input"
+                      type="text"
+                      placeholder={language === 'ta' ? 'எ.கா. 2 கிலோ சேதமடைந்துள்ளது, பை கிழிந்துள்ளது...' : 'e.g. 2 kg missing, damaged package, carton torn...'}
+                      value={ackRemarks}
+                      onChange={e => setAckRemarks(e.target.value)}
+                      disabled={isSubmittingAck}
+                      maxLength={300}
+                      style={{
+                        width: '100%',
+                        height: 40,
+                        fontSize: 13.5,
+                        padding: '0 12px',
+                        borderRadius: 6,
+                        border: '1.5px solid var(--border-color)'
+                      }}
+                    />
+                  </div>
+                </div>
+
+                <div className="modal-actions" style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 22 }}>
+                  <button
+                    type="button"
+                    className="secondary"
+                    id="btn-cancel-ack-modal"
+                    onClick={handleCloseAckModal}
+                    disabled={isSubmittingAck}
+                    style={{ minWidth: 90 }}
+                  >
+                    {t('Cancel', 'Cancel')}
+                  </button>
+                  <button
+                    type="submit"
+                    className="primary"
+                    id="btn-confirm-ack-modal"
+                    disabled={
+                      isSubmittingAck ||
+                      actualReceivedQty === '' ||
+                      !isValidNum ||
+                      isNegative ||
+                      isExcess
+                    }
+                    style={{ fontWeight: 700, minWidth: 140 }}
+                  >
+                    {isSubmittingAck ? t('Confirming Receipt...', 'Confirming Receipt...') : t('Confirm Receipt', 'Confirm Receipt')}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }

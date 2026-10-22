@@ -17,7 +17,13 @@ function AppContent() {
   const [role, setRole] = useState('Organisation Admin');
   const [username, setUsername] = useState('admin@saravanas');
   const [password, setPassword] = useState('1234');
-  const [activeTab, setActiveTab] = useState('branches');
+  const [activeTab, setActiveTab] = useState(() => {
+    const stored = getStoredAuth();
+    if (stored?.user?.role === 'Store Manager') return 'branch-requests';
+    if (stored?.user?.role === 'Master Admin') return 'organisations';
+    if (stored?.user?.role === 'Branch Manager') return 'order-items';
+    return 'branches';
+  });
   const [alert, setAlert] = useState(null);
   const [dbConnected, setDbConnected] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -34,7 +40,7 @@ function AppContent() {
     if (auth.user?.role) {
       if (auth.user.role === 'Master Admin') setActiveTab('organisations');
       else if (auth.user.role === 'Organisation Admin') setActiveTab('branches');
-      else if (auth.user.role === 'Store Manager') setActiveTab('central-inventory');
+      else if (auth.user.role === 'Store Manager') setActiveTab('branch-requests');
       else if (auth.user.role === 'Branch Manager') setActiveTab('order-items');
     }
   }, [auth.user?.role]);
@@ -48,6 +54,9 @@ function AppContent() {
     try {
       const loginData = await api.login(username.trim(), password, role);
       setAuth({ token: loginData.token, user: loginData });
+      if (loginData.role === 'Store Manager') {
+        setActiveTab('branch-requests');
+      }
     } catch (err) {
       setAlert({ type: 'error', message: err.message || t('Login failed. Please check credentials.') });
     } finally {
@@ -220,7 +229,7 @@ function AppContent() {
           <StorePortal activeTab={activeTab} />
         )}
         {auth.user.role === 'Branch Manager' && (
-          <BranchPortal user={auth.user} activeTab={activeTab} />
+          <BranchPortal user={auth.user} activeTab={activeTab} onSelectTab={setActiveTab} />
         )}
       </main>
     </div>

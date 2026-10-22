@@ -38,6 +38,8 @@ public class DispatchService {
         this.returnRepo = returnRepo;
     }
 
+    private final java.util.concurrent.ConcurrentHashMap<String, Long> recentDispatchSubmissions = new java.util.concurrent.ConcurrentHashMap<>();
+
     // Store Manager: Multi-item dispatch
     @Transactional
     public List<Dispatch> prepareAndDispatch(PrepareDispatchRequest req, String storeManagerUsername, Long orgId) {
@@ -49,6 +51,21 @@ public class DispatchService {
         }
 
         String branchName = req.branchName.trim();
+
+        // Prevent duplicate dispatch submissions (e.g. rapid double-clicks or replays)
+        String submissionKey = (orgId != null ? orgId : 0L) + ":" + branchName.toLowerCase() + ":" + req.items.stream()
+            .map(i -> (i.itemName != null ? i.itemName.toLowerCase().trim() : "") + "_" + i.dispatchQty)
+            .reduce("", (a, b) -> a + ";" + b);
+        long currentTime = System.currentTimeMillis();
+        Long lastTime = recentDispatchSubmissions.get(submissionKey);
+        if (lastTime != null && (currentTime - lastTime) < 2000) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Duplicate dispatch submission detected. Please wait a moment.");
+        }
+        recentDispatchSubmissions.put(submissionKey, currentTime);
+        if (recentDispatchSubmissions.size() > 200) {
+            recentDispatchSubmissions.entrySet().removeIf(e -> (currentTime - e.getValue()) > 10000);
+        }
+
         List<PrepareDispatchRequest.DispatchItemLine> validLines = new ArrayList<>();
 
         for (PrepareDispatchRequest.DispatchItemLine line : req.items) {
@@ -127,25 +144,30 @@ public class DispatchService {
             }
         }
 
-        // 2. Validate total stock requirements across all lines (requested + additional)
+        // 2. Lookup or initialize item records in central warehouse (stock does NOT restrict dispatch)
         Map<String, Integer> totalItemQuantities = new HashMap<>();
+        Map<String, String> itemUnits = new HashMap<>();
         for (PrepareDispatchRequest.DispatchItemLine line : validLines) {
             String key = line.itemName.trim().toLowerCase();
             totalItemQuantities.put(key, totalItemQuantities.getOrDefault(key, 0) + line.dispatchQty);
+            if (line.unit != null && !line.unit.isBlank()) {
+                itemUnits.put(key, line.unit.trim().toUpperCase());
+            }
         }
 
         Map<String, Item> itemMap = new HashMap<>();
         for (Map.Entry<String, Integer> entry : totalItemQuantities.entrySet()) {
+            String fallbackUnit = itemUnits.getOrDefault(entry.getKey(), "KG");
             Item item = (orgId != null)
                 ? itemRepo.findByOrganisationIdAndNameIgnoreCase(orgId, entry.getKey())
-                    .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Item '" + entry.getKey() + "' not found in warehouse"))
+                    .orElseGet(() -> {
+                        Item ni = new Item(entry.getKey(), fallbackUnit, 0);
+                        ni.organisationId = orgId;
+                        return itemRepo.save(ni);
+                    })
                 : itemRepo.findByNameIgnoreCase(entry.getKey())
-                    .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Item '" + entry.getKey() + "' not found in warehouse"));
+                    .orElseGet(() -> itemRepo.save(new Item(entry.getKey(), fallbackUnit, 0)));
 
-            if (item.stock < entry.getValue()) {
-                throw new ResponseStatusException(HttpStatus.CONFLICT,
-                    "Insufficient stock for " + item.name + ": Requires " + entry.getValue() + " " + item.unit + ", but only " + item.stock + " " + item.unit + " available in central warehouse");
-            }
             itemMap.put(entry.getKey(), item);
         }
 
@@ -159,32 +181,35 @@ public class DispatchService {
             String itemKey = line.itemName.trim().toLowerCase();
             Item item = itemMap.get(itemKey);
 
-            // Deduct from central warehouse
+            int previousStock = item.stock;
+            // Deduct actual quantity from central warehouse transparently (reflects accurate stock / deficit)
             item.stock -= line.dispatchQty;
             itemRepo.save(item);
 
-            // Create dispatch record
+            // Create dispatch record with responsible user
             Dispatch dispatch = new Dispatch();
             dispatch.dispatchNumber = dispatchBatch;
             dispatch.dispatchDate = today;
             dispatch.createdAt = now;
             dispatch.branchName = branchName;
             dispatch.itemName = item.name;
-            dispatch.unit = item.unit;
+            dispatch.unit = (line.unit != null && !line.unit.isBlank()) ? line.unit.trim().toUpperCase() : item.unit;
             dispatch.quantity = line.dispatchQty;
             dispatch.isAdditional = line.isAdditional || (line.requestId == null);
             dispatch.requestId = line.requestId;
             dispatch.status = "PENDING";
             dispatch.acknowledgedQuantity = 0;
             dispatch.organisationId = orgId;
+            dispatch.dispatchedBy = storeManagerUsername != null ? storeManagerUsername : "Store Manager";
 
             Dispatch saved = dispatchRepo.save(dispatch);
             savedDispatches.add(saved);
 
-            // Record audit transaction
+            // Record audit transaction in inventory ledger
             InventoryTransaction tx = new InventoryTransaction(
+                orgId,
                 item.name,
-                item.unit,
+                dispatch.unit,
                 "DISPATCH",
                 line.dispatchQty,
                 "DISPATCH",
@@ -192,8 +217,26 @@ public class DispatchService {
                 item.stock,
                 storeManagerUsername != null ? storeManagerUsername : "Store Manager"
             );
-            tx.organisationId = orgId;
+            tx.transactionDate = now;
             transactionRepo.save(tx);
+
+            // Preserve an explicit stock adjustment / deficit record when dispatch exceeds available stock
+            if (previousStock < line.dispatchQty) {
+                int deficit = line.dispatchQty - Math.max(0, previousStock);
+                InventoryTransaction adjustTx = new InventoryTransaction(
+                    orgId,
+                    item.name,
+                    dispatch.unit,
+                    "DISPATCH_DEFICIT_ADJUSTMENT",
+                    deficit,
+                    "DISPATCH_DEFICIT",
+                    saved.id,
+                    item.stock,
+                    storeManagerUsername != null ? storeManagerUsername : "Store Manager"
+                );
+                adjustTx.transactionDate = now;
+                transactionRepo.save(adjustTx);
+            }
 
             // Update branch request dispatched amount if linked
             if (line.requestId != null && requestMap.containsKey(line.requestId)) {
@@ -279,7 +322,7 @@ public class DispatchService {
 
     // Branch Manager: Confirm physical receipt (acknowledge)
     @Transactional
-    public Dispatch acknowledgeDispatch(Long dispatchId, String managerBranch, String managerUsername, Long orgId) {
+    public Dispatch acknowledgeDispatch(Long dispatchId, Integer actualReceivedQty, String remarks, String managerBranch, String managerUsername, Long orgId) {
         if (dispatchId == null) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Dispatch ID cannot be null");
         }
@@ -293,19 +336,32 @@ public class DispatchService {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Access denied: Cannot access delivery from another organisation");
         }
 
-        if ("ACKNOWLEDGED".equalsIgnoreCase(d.status)) {
+        if ("ACKNOWLEDGED".equalsIgnoreCase(d.status) || d.acknowledgedAt != null) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Delivery has already been acknowledged");
         }
 
+        int receivedQty = (actualReceivedQty != null) ? actualReceivedQty : d.quantity;
+        if (receivedQty < 0) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Actual received quantity cannot be negative");
+        }
+        if (receivedQty > d.quantity) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Actual received quantity (" + receivedQty + " " + d.unit + ") cannot exceed dispatched quantity (" + d.quantity + " " + d.unit + ")");
+        }
+
+        int shortage = d.quantity - receivedQty;
+
         d.status = "ACKNOWLEDGED";
+        d.acknowledgedQuantity = receivedQty;
+        d.shortageQuantity = shortage;
+        d.acknowledgementStatus = (shortage <= 0) ? "FULLY_RECEIVED" : (receivedQty > 0 ? "PARTIALLY_RECEIVED" : "NOT_RECEIVED");
+        d.acknowledgementRemarks = (remarks != null && !remarks.isBlank()) ? remarks.trim() : null;
         d.acknowledgedAt = LocalDateTime.now();
         d.acknowledgedBy = managerUsername != null ? managerUsername : (managerBranch + " Manager");
-        d.acknowledgedQuantity = d.quantity;
 
-        // If linked to branch request, update confirmed received quantity
-        if (d.requestId != null) {
+        // If linked to branch request, update confirmed received quantity with actual quantity received
+        if (d.requestId != null && receivedQty > 0) {
             requestRepo.findById(d.requestId).ifPresent(r -> {
-                r.received += d.quantity;
+                r.received += receivedQty;
                 if (r.received >= r.requested) {
                     r.status = "COMPLETED";
                 } else if (r.received > 0) {
@@ -316,6 +372,11 @@ public class DispatchService {
         }
 
         return dispatchRepo.save(d);
+    }
+
+    @Transactional
+    public Dispatch acknowledgeDispatch(Long dispatchId, String managerBranch, String managerUsername, Long orgId) {
+        return acknowledgeDispatch(dispatchId, null, null, managerBranch, managerUsername, orgId);
     }
 
     // Branch Manager: Return item to central store

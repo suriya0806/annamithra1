@@ -27,12 +27,16 @@ public class BranchRequestController {
         this.security = security;
     }
 
-    // Branch Manager: Submit multi-item request for assigned branch
+    // Branch Manager & Org Admin: Submit multi-item request for assigned branch
     @PostMapping
-    public List<BranchRequest> submitBranchRequest(@RequestBody MultiItemBranchRequest req, HttpServletRequest request) {
-        UserSession user = security.requireRole(request, "Branch Manager");
+    public List<BranchRequest> submitBranchRequest(
+            @RequestBody MultiItemBranchRequest req,
+            @RequestParam(required = false) String branch,
+            HttpServletRequest request) {
+        UserSession user = security.requireRole(request, "Branch Manager", "Organisation Admin");
         Long orgId = security.requireOrganisationId(user);
-        return requestService.submitBranchRequest(req, user.branchName, user.branchId, orgId);
+        String targetBranch = (user.branchName != null && !user.branchName.isBlank()) ? user.branchName : branch;
+        return requestService.submitBranchRequest(req, targetBranch, user.branchId, orgId);
     }
 
     // Branch Manager: View own branch requests
@@ -41,10 +45,11 @@ public class BranchRequestController {
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate fromDate,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate toDate,
+            @RequestParam(required = false) String category,
             HttpServletRequest request) {
         UserSession user = security.requireRole(request, "Branch Manager");
         Long orgId = security.requireOrganisationId(user);
-        return requestService.getRequestsByBranch(user.branchName, date, fromDate, toDate, orgId);
+        return requestService.getRequestsByBranch(user.branchName, date, fromDate, toDate, category, orgId);
     }
 
     // Store Manager & Org Admin: View date-wise aggregated requests by branch and optional date
@@ -86,16 +91,17 @@ public class BranchRequestController {
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate fromDate,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate toDate,
+            @RequestParam(required = false) String category,
             HttpServletRequest request) {
         UserSession user = security.requireRole(request, "Store Manager", "Organisation Admin");
         Long orgId = security.requireOrganisationId(user);
-        return requestService.getRequestsByBranch(branch, date, fromDate, toDate, orgId);
+        return requestService.getRequestsByBranch(branch, date, fromDate, toDate, category, orgId);
     }
 
     // Store Manager: View outstanding requests for a branch (to prepare dispatch)
     @GetMapping("/outstanding")
     public List<BranchRequest> getOutstandingRequests(
-            @RequestParam String branch,
+            @RequestParam(required = false) String branch,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date,
             HttpServletRequest request) {
         UserSession user = security.requireRole(request, "Store Manager");

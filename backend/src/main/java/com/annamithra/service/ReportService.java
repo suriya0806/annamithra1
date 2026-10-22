@@ -251,6 +251,10 @@ public class ReportService {
     }
 
     public List<BranchRequestReportDto> getBranchRequestReport(LocalDate fromDate, LocalDate toDate, String branch, String search, String status, Long orgId) {
+        return getBranchRequestReport(fromDate, toDate, branch, search, status, null, orgId);
+    }
+
+    public List<BranchRequestReportDto> getBranchRequestReport(LocalDate fromDate, LocalDate toDate, String branch, String search, String status, String category, Long orgId) {
         List<BranchRequest> requests = (orgId != null)
                 ? requestRepo.findByOrganisationIdOrderByCreatedAtDesc(orgId)
                 : requestRepo.findAllByOrderByCreatedAtDesc();
@@ -266,6 +270,9 @@ public class ReportService {
                     if (status != null && !status.isBlank() && !"ALL".equalsIgnoreCase(status)) {
                         if (!status.equalsIgnoreCase(st)) return false;
                     }
+                    if (category != null && !category.isBlank() && !"ALL".equalsIgnoreCase(category)) {
+                        if (r.category == null || !r.category.equalsIgnoreCase(category.trim())) return false;
+                    }
                     if (search != null && !search.isBlank()) {
                         String s = search.trim().toLowerCase();
                         if (r.item == null || !r.item.toLowerCase().contains(s)) return false;
@@ -279,6 +286,7 @@ public class ReportService {
                         r.branch,
                         r.item,
                         r.unit,
+                        r.category,
                         r.requested,
                         r.dispatched,
                         r.received,
@@ -289,10 +297,14 @@ public class ReportService {
     }
 
     public List<BranchDispatchReportDto> getBranchDispatchReport(LocalDate fromDate, LocalDate toDate, String branch, String search, String status, Long orgId) {
-        return getBranchDispatchReport(null, fromDate, toDate, branch, search, status, orgId);
+        return getBranchDispatchReport(null, fromDate, toDate, branch, search, status, null, orgId);
     }
 
     public List<BranchDispatchReportDto> getBranchDispatchReport(LocalDate date, LocalDate fromDate, LocalDate toDate, String branch, String search, String status, Long orgId) {
+        return getBranchDispatchReport(date, fromDate, toDate, branch, search, status, null, orgId);
+    }
+
+    public List<BranchDispatchReportDto> getBranchDispatchReport(LocalDate date, LocalDate fromDate, LocalDate toDate, String branch, String search, String status, String category, Long orgId) {
         List<Dispatch> dispatches = (orgId != null)
                 ? dispatchRepo.findByOrganisationIdOrderByCreatedAtDesc(orgId)
                 : dispatchRepo.findAllByOrderByCreatedAtDesc();
@@ -303,10 +315,14 @@ public class ReportService {
                 .distinct()
                 .collect(Collectors.toList());
         Map<Long, Integer> requestQtyCache = new HashMap<>();
+        Map<Long, String> requestCategoryCache = new HashMap<>();
         if (!reqIds.isEmpty()) {
             for (BranchRequest r : requestRepo.findAllById(reqIds)) {
                 if (r.id != null) {
                     requestQtyCache.put(r.id, r.requested);
+                    if (r.category != null) {
+                        requestCategoryCache.put(r.id, r.category);
+                    }
                 }
             }
         }
@@ -327,6 +343,10 @@ public class ReportService {
                     if (status != null && !status.isBlank() && !"ALL".equalsIgnoreCase(status)) {
                         if (!status.equalsIgnoreCase(st)) return false;
                     }
+                    String cat = requestCategoryCache.get(d.requestId);
+                    if (category != null && !category.isBlank() && !"ALL".equalsIgnoreCase(category)) {
+                        if (cat == null || !cat.equalsIgnoreCase(category.trim())) return false;
+                    }
                     if (search != null && !search.isBlank()) {
                         String s = search.trim().toLowerCase();
                         boolean matchItem = d.itemName != null && d.itemName.toLowerCase().contains(s);
@@ -339,7 +359,9 @@ public class ReportService {
                     String st = d.status != null && !d.status.isBlank() ? d.status : "PENDING";
                     boolean isAck = "ACKNOWLEDGED".equalsIgnoreCase(st);
                     int pending = isAck ? 0 : Math.max(0, d.quantity - d.acknowledgedQuantity);
-                    int ackQty = isAck && d.acknowledgedQuantity == 0 ? d.quantity : d.acknowledgedQuantity;
+                    int ackQty = (isAck && d.acknowledgedQuantity == 0 && d.acknowledgementStatus == null && d.shortageQuantity == 0)
+                            ? d.quantity
+                            : d.acknowledgedQuantity;
 
                     int reqQty = d.quantity;
                     if (d.isAdditional) {
@@ -349,6 +371,7 @@ public class ReportService {
                     }
 
                     LocalDateTime dtTime = d.createdAt != null ? d.createdAt : (d.dispatchDate != null ? d.dispatchDate.atStartOfDay() : LocalDateTime.now());
+                    String cat = requestCategoryCache.get(d.requestId);
 
                     return new BranchDispatchReportDto(
                             d.id,
@@ -358,13 +381,17 @@ public class ReportService {
                             d.branchName,
                             d.itemName,
                             d.unit,
+                            cat,
                             reqQty,
                             d.quantity,
                             ackQty,
                             pending,
                             st,
                             d.acknowledgedAt,
-                            d.acknowledgedBy
+                            d.acknowledgedBy,
+                            d.shortageQuantity,
+                            d.acknowledgementStatus,
+                            d.acknowledgementRemarks
                     );
                 })
                 .collect(Collectors.toList());

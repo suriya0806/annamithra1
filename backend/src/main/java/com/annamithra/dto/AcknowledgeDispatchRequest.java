@@ -1,6 +1,13 @@
 package com.annamithra.dto;
 
 public class AcknowledgeDispatchRequest {
-    public String branchName;
-    public String acknowledgedBy;
+    public Integer actualReceivedQty;
+    public String remarks;
+
+    public AcknowledgeDispatchRequest() {}
+
+    public AcknowledgeDispatchRequest(Integer actualReceivedQty, String remarks) {
+        this.actualReceivedQty = actualReceivedQty;
+        this.remarks = remarks;
+    }
 }

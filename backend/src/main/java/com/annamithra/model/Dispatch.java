@@ -36,13 +36,18 @@ public class Dispatch {
     @Column(nullable = false)
     public String status = "PENDING"; // PENDING, ACKNOWLEDGED
 
-    public int acknowledgedQuantity = 0;
+    public int acknowledgedQuantity = 0; // Actual received quantity
+    public int shortageQuantity = 0; // Dispatched - Actual Received
+    public String acknowledgementStatus; // FULLY_RECEIVED, PARTIALLY_RECEIVED, NOT_RECEIVED
+    public String acknowledgementRemarks; // Remarks explaining shortage or damage
     public LocalDateTime acknowledgedAt;
     public String acknowledgedBy;
 
     public int returnedQuantity = 0;
     public LocalDateTime returnedAt;
     public String returnReason;
+
+    public String dispatchedBy;
 
     public Dispatch() {}
 

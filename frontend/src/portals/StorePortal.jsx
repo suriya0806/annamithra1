@@ -1,7 +1,13 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { api } from '../api';
 import { Alert } from '../components/Alert';
-import { downloadOrderPdf, parseOrderDateTime } from '../utils/pdfGenerator';
+import {
+  downloadOrderPdf,
+  parseOrderDateTime,
+  downloadBranchRequestReportPdf,
+  downloadBranchRequestsPdf
+} from '../utils/pdfGenerator';
+import { BRANCH_ORDER_CATEGORIES } from './BranchPortal';
 import DateFilterBar, { DateSectionHeader, EmptyDateMessage } from '../components/DateFilterBar';
 import { useAddItemShortcut } from '../utils/useAddItemShortcut';
 import { useLanguage } from '../i18n/LanguageContext';
@@ -14,13 +20,13 @@ import {
 } from '../utils/dateGrouping';
 
 export function StorePortal({ activeTab }) {
-  const { language, t, translateItem, translateUnit, translateStatus, translateRole } = useLanguage();
+  const { language, t, translateItem, translateUnit, translateStatus, translateRole, translateCategory } = useLanguage();
   const formatDisplayDate = (d) => formatDateLabel(d, language);
   const formatDisplayDateTime = (d) => formatDateTime(d, language);
 
   // Sub-tabs
   const [entrySubTab, setEntrySubTab] = useState('view'); // 'view' | 'entry'
-  const [branchReqSubTab, setBranchReqSubTab] = useState('branches'); // 'branches' | 'dispatch'
+  const [branchReqSubTab, setBranchReqSubTab] = useState('dispatch'); // 'dispatch'
 
   // Alerts
   const [alert, setAlert] = useState(null);
@@ -97,6 +103,7 @@ export function StorePortal({ activeTab }) {
   const [selectedBranch, setSelectedBranch] = useState('');
   const [selectedBranchReqDate, setSelectedBranchReqDate] = useState(getTodayDateString());
   const [selectedBranchReqIsAllDates, setSelectedBranchReqIsAllDates] = useState(false);
+  const [selectedBranchReqCategory, setSelectedBranchReqCategory] = useState('');
   const [branchRequestsList, setBranchRequestsList] = useState([]);
   const [historyModalItem, setHistoryModalItem] = useState(null);
   
@@ -104,8 +111,19 @@ export function StorePortal({ activeTab }) {
   const [outstandingRequests, setOutstandingRequests] = useState([]);
   const [dispatchReqDate, setDispatchReqDate] = useState(getTodayDateString());
   const [dispatchQtys, setDispatchQtys] = useState({}); // groupKey -> qty
-  const [additionalItems, setAdditionalItems] = useState([]); // list of { id, itemName, unit, dispatchQty }
-  const [dispatching, setDispatching] = useState(false);
+  const [additionalItemsByBranch, setAdditionalItemsByBranch] = useState({}); // branchName -> list of { id, itemName, unit, dispatchQty }
+  const [dispatchingBranch, setDispatchingBranch] = useState(null); // branchName currently dispatching
+  const [allBranchRequests, setAllBranchRequests] = useState([]); // Filtered by dispatchReqDate (full persisted records with createdAt)
+  const [allTimeRawRequests, setAllTimeRawRequests] = useState([]); // All-time requests for fallback sorting
+  const [downloadingBranchRequestsPdf, setDownloadingBranchRequestsPdf] = useState(false);
+  const [downloadingBranchPdf, setDownloadingBranchPdf] = useState(null); // branchName currently generating PDF
+
+  // Dispatch Additional Items "+ New Item" modal state
+  const [showDispatchNewItemModal, setShowDispatchNewItemModal] = useState(false);
+  const [dispatchNewItemTarget, setDispatchNewItemTarget] = useState(null); // { branchName, rowId }
+  const [newItemFormName, setNewItemFormName] = useState('');
+  const [newItemFormUnit, setNewItemFormUnit] = useState('KG');
+  const [savingDispatchNewItem, setSavingDispatchNewItem] = useState(false);
 
   const formatDDMMYYYY = (isoDate) => {
     if (!isoDate) return '';
@@ -132,7 +150,7 @@ export function StorePortal({ activeTab }) {
   const [viewOrderModal, setViewOrderModal] = useState(null); // { orderNumber, lines }
 
   // Operational Reports states
-  const [reportSubTab, setReportSubTab] = useState('all'); // 'all', 'orders', 'inventory-entries', 'dispatches'
+  const [reportSubTab, setReportSubTab] = useState('all'); // 'all', 'orders', 'inventory-entries', 'dispatches', 'branch-requests'
   const [reportSummary, setReportSummary] = useState({
     totalPurchaseOrders: 0,
     totalItemsOrdered: 0,
@@ -159,9 +177,18 @@ export function StorePortal({ activeTab }) {
   const [dispatchFilterDate, setDispatchFilterDate] = useState(getTodayDateString());
   const [dispatchIsAllDates, setDispatchIsAllDates] = useState(false);
   const [dispatchFilterBranch, setDispatchFilterBranch] = useState(''); // '' = All Branches
+  const [dispatchFilterCategory, setDispatchFilterCategory] = useState(''); // '' = All Categories
   const [dispatchReport, setDispatchReport] = useState([]);
   const [loadingDispatchReport, setLoadingDispatchReport] = useState(false);
   const [dispatchAvailableDates, setDispatchAvailableDates] = useState([]);
+
+  // Section 4: Branch Requests Report state
+  const [branchReqFilterDate, setBranchReqFilterDate] = useState(getTodayDateString());
+  const [branchReqIsAllDates, setBranchReqIsAllDates] = useState(false);
+  const [branchReqFilterBranch, setBranchReqFilterBranch] = useState('');
+  const [branchReqFilterCategory, setBranchReqFilterCategory] = useState('');
+  const [loadingBranchReqReport, setLoadingBranchReqReport] = useState(false);
+  const [branchReqAvailableDates, setBranchReqAvailableDates] = useState([]);
 
   // Backwards compatibility for existing modal activity
   const [centralInvReport, setCentralInvReport] = useState([]);
@@ -272,12 +299,12 @@ export function StorePortal({ activeTab }) {
   };
 
   // Branch Requests loader
-  const loadBranchRequests = async (branchName, dateStr, isAll = selectedBranchReqIsAllDates) => {
+  const loadBranchRequests = async (branchName, dateStr, isAll = selectedBranchReqIsAllDates, category = selectedBranchReqCategory) => {
     if (!branchName) return;
     try {
       setLoading(true);
       const queryDate = isAll ? '' : (dateStr !== undefined ? dateStr : selectedBranchReqDate);
-      const data = await api.getBranchRequests(branchName, queryDate);
+      const data = await api.getBranchRequests(branchName, queryDate, undefined, undefined, category);
       if (Array.isArray(data)) setBranchRequestsList(data);
     } catch (err) {
       showAlert('error', err.message || 'Failed to load branch requests');
@@ -286,24 +313,27 @@ export function StorePortal({ activeTab }) {
     }
   };
 
-  // Dispatch outstanding loader
-  const loadOutstandingForDispatch = async (branchName, reqDate = dispatchReqDate) => {
-    if (!branchName) return;
+  // Dispatch outstanding loader (loads for all branches if branchName is omitted/null)
+  const loadOutstandingForDispatch = async (branchName = null, reqDate = dispatchReqDate) => {
     try {
       setLoading(true);
-      const [data, invData] = await Promise.all([
-        api.getOutstandingBranchRequests(branchName, reqDate),
-        api.getCentralInventory()
+      const [data, invData, rawFiltered, rawAll] = await Promise.all([
+        api.getOutstandingBranchRequests(branchName || undefined, reqDate || undefined),
+        api.getCentralInventory(),
+        api.getRawBranchRequests(branchName || undefined, reqDate || undefined),
+        api.getRawBranchRequests(branchName || undefined, undefined)
       ]);
       if (Array.isArray(invData)) setInventory(invData);
+      if (Array.isArray(rawFiltered)) setAllBranchRequests(rawFiltered);
+      if (Array.isArray(rawAll)) setAllTimeRawRequests(rawAll);
       if (Array.isArray(data)) {
         setOutstandingRequests(data);
-        // Pre-fill dispatch quantities for each consolidated item group
+        // Pre-fill dispatch quantities for each consolidated item group with the unfulfilled requirement
         const initialQtys = {};
         const groupTotals = {};
         data.forEach(r => {
-          const bMatch = branches.find(b => (b.name || '').trim().toLowerCase() === (r.branch || branchName).trim().toLowerCase());
-          const bId = r.branchId || (bMatch ? bMatch.id : (r.branch || branchName));
+          const bMatch = branches.find(b => (b.name || '').trim().toLowerCase() === (r.branch || branchName || '').trim().toLowerCase());
+          const bId = r.branchId || (bMatch ? bMatch.id : (r.branch || branchName || ''));
           const cMatch = catalogueItems.find(i => (i.name || '').trim().toLowerCase() === (r.item || '').trim().toLowerCase());
           const iId = cMatch ? cMatch.id : (r.item || '').trim().toLowerCase();
           const u = (r.unit || 'KG').trim().toUpperCase();
@@ -319,28 +349,23 @@ export function StorePortal({ activeTab }) {
         Object.keys(groupTotals).forEach(key => {
           const group = groupTotals[key];
           const rem = Math.max(0, group.totalReq - group.dispatched);
-          let stock = 0;
-          if (Array.isArray(invData)) {
-            const match = invData.find(iv => (iv.name || iv.item || '').trim().toLowerCase() === group.itemName.trim().toLowerCase());
-            if (match) stock = match.stock ?? match.availableStock ?? 0;
-          }
-          initialQtys[key] = rem > 0 ? String(Math.min(rem, Math.max(0, stock))) : '';
+          initialQtys[key] = rem > 0 ? String(rem) : '';
         });
         setDispatchQtys(initialQtys);
       }
       await loadStoreDispatchHistory(branchName);
     } catch (err) {
-      showAlert('error', err.message || 'Failed to load outstanding requests for branch');
+      showAlert('error', err.message || 'Failed to load outstanding requests');
     } finally {
       setLoading(false);
     }
   };
 
-  // Dispatch history loader for store manager
-  const loadStoreDispatchHistory = async (branchName = selectedBranch, date = dispatchHistoryDate, isAll = dispatchHistoryIsAllDates) => {
+  // Dispatch history loader for store manager (loads for all branches if branchName is omitted/null)
+  const loadStoreDispatchHistory = async (branchName = null, date = dispatchHistoryDate, isAll = dispatchHistoryIsAllDates) => {
     try {
       const qDate = isAll ? '' : date;
-      const data = await api.getStoreDispatchHistory(branchName, qDate);
+      const data = await api.getStoreDispatchHistory(branchName || undefined, qDate);
       if (Array.isArray(data)) setStoreDispatchHistory(data);
     } catch (err) {
       console.error('Error loading store dispatch history', err);
@@ -473,12 +498,13 @@ export function StorePortal({ activeTab }) {
     }
   };
 
-  const loadDispatchReport = async (date = dispatchFilterDate, isAll = dispatchIsAllDates, branch = dispatchFilterBranch) => {
+  const loadDispatchReport = async (date = dispatchFilterDate, isAll = dispatchIsAllDates, branch = dispatchFilterBranch, category = dispatchFilterCategory) => {
     try {
       setLoadingDispatchReport(true);
       const disps = await api.getBranchDispatchReport({
         date: isAll ? '' : date,
-        branch: branch === 'ALL' ? '' : branch
+        branch: branch === 'ALL' ? '' : branch,
+        category: category === 'ALL' ? '' : category
       });
       if (Array.isArray(disps)) setDispatchReport(disps);
     } catch (err) {
@@ -488,12 +514,31 @@ export function StorePortal({ activeTab }) {
     }
   };
 
+  const loadBranchReqReport = async (date = branchReqFilterDate, isAll = branchReqIsAllDates, branch = branchReqFilterBranch, category = branchReqFilterCategory) => {
+    try {
+      setLoadingBranchReqReport(true);
+      const queryDate = isAll ? '' : date;
+      const reqs = await api.getBranchRequestReport({
+        fromDate: queryDate,
+        toDate: queryDate,
+        branch: branch === 'ALL' ? '' : branch,
+        category: category === 'ALL' ? '' : category
+      });
+      if (Array.isArray(reqs)) setBranchReqReport(reqs);
+    } catch (err) {
+      console.error('Failed to load branch requests report', err);
+    } finally {
+      setLoadingBranchReqReport(false);
+    }
+  };
+
   const loadAllReportDates = async () => {
     try {
-      const [allPos, allEntries, allDisps] = await Promise.all([
+      const [allPos, allEntries, allDisps, allReqs] = await Promise.all([
         api.getPurchaseOrderReport({}),
         api.getInventoryEntryReport({}),
-        api.getBranchDispatchReport({})
+        api.getBranchDispatchReport({}),
+        api.getBranchRequestReport({})
       ]);
       if (Array.isArray(allPos)) {
         const dates = [...new Set(allPos.map(p => p.createdAt ? p.createdAt.slice(0, 10) : p.orderDate).filter(Boolean))].sort().reverse();
@@ -507,6 +552,10 @@ export function StorePortal({ activeTab }) {
         const dates = [...new Set(allDisps.map(d => d.dispatchDate || (d.dispatchDateTime ? d.dispatchDateTime.slice(0, 10) : '') || (d.createdAt ? d.createdAt.slice(0, 10) : '')).filter(Boolean))].sort().reverse();
         setDispatchAvailableDates(dates);
       }
+      if (Array.isArray(allReqs)) {
+        const dates = [...new Set(allReqs.map(r => r.date ? r.date.slice(0, 10) : '').filter(Boolean))].sort().reverse();
+        setBranchReqAvailableDates(dates);
+      }
     } catch (err) {
       console.warn('Failed to load historical report dates', err);
     }
@@ -519,7 +568,8 @@ export function StorePortal({ activeTab }) {
         api.getReportSummary({}),
         loadPoReport(poFilterDate, poIsAllDates),
         loadInventoryEntryReport(inventoryEntryDate, inventoryEntryIsAllDates),
-        loadDispatchReport(dispatchFilterDate, dispatchIsAllDates, dispatchFilterBranch),
+        loadDispatchReport(dispatchFilterDate, dispatchIsAllDates, dispatchFilterBranch, dispatchFilterCategory),
+        loadBranchReqReport(branchReqFilterDate, branchReqIsAllDates, branchReqFilterBranch, branchReqFilterCategory),
         loadAllReportDates()
       ]);
       if (sum) setReportSummary(sum);
@@ -600,22 +650,35 @@ export function StorePortal({ activeTab }) {
   const handleExportBranchRequests = () => {
     const data = branchReqReport.map(r => ({
       'Request Date': r.date || '',
-      'Branch Name': r.branchName,
-      'Item Name': r.itemName,
-      'Unit': r.unit,
-      'Requested Quantity': r.requestedQuantity,
-      'Dispatched Quantity': r.dispatchedQuantity,
-      'Acknowledged Received Quantity': r.acknowledgedReceivedQuantity,
-      'Remaining Quantity': r.remainingQuantity,
-      'Request Status': r.status
+      'Branch Name': r.branchName || '',
+      'Category': r.category || '',
+      'Item Name': r.itemName || '',
+      'Unit': r.unit || '',
+      'Requested Quantity': r.requestedQuantity || 0,
+      'Dispatched Quantity': r.dispatchedQuantity || 0,
+      'Acknowledged Received Quantity': r.acknowledgedReceivedQuantity || 0,
+      'Remaining Quantity': r.remainingQuantity || 0,
+      'Request Status': r.status || ''
     }));
     downloadCsv('branch_requests_report', data);
+  };
+
+  const handleExportBranchRequestsPdf = () => {
+    downloadBranchRequestReportPdf({
+      branch: branchReqFilterBranch,
+      dateStr: branchReqFilterDate,
+      isAllDates: branchReqIsAllDates,
+      category: branchReqFilterCategory,
+      items: branchReqReport,
+      language
+    });
   };
 
   const handleExportDispatches = () => {
     const data = dispatchReport.map(d => ({
       'Dispatch Date and Time': d.dispatchDateTime ? d.dispatchDateTime.replace('T', ' ').slice(0, 16) : (d.dispatchDate || ''),
       'Branch Name': d.branchName,
+      'Category': d.category || '',
       'Item Name': d.itemName,
       'Unit': d.unit,
       'Requested Quantity': d.requestedQuantity,
@@ -633,14 +696,8 @@ export function StorePortal({ activeTab }) {
     } else if (activeTab === 'entry-items') {
       loadEntryOrders(entryDate, entryIsAllDates);
     } else if (activeTab === 'branch-requests') {
-      if (selectedBranch) {
-        if (branchReqSubTab === 'branches') {
-          loadBranchRequests(selectedBranch, selectedBranchReqDate, selectedBranchReqIsAllDates);
-        } else if (branchReqSubTab === 'dispatch') {
-          loadOutstandingForDispatch(selectedBranch, dispatchReqDate);
-          loadStoreDispatchHistory(selectedBranch, dispatchHistoryDate, dispatchHistoryIsAllDates);
-        }
-      }
+      loadOutstandingForDispatch(null, dispatchReqDate);
+      loadStoreDispatchHistory(null, dispatchHistoryDate, dispatchHistoryIsAllDates);
     } else if (activeTab === 'order') {
       loadOrderDraft();
       if (orderSubTab === 'consolidated') {
@@ -662,6 +719,7 @@ export function StorePortal({ activeTab }) {
     selectedBranch,
     selectedBranchReqDate,
     selectedBranchReqIsAllDates,
+    selectedBranchReqCategory,
     dispatchReqDate,
     dispatchHistoryDate,
     dispatchHistoryIsAllDates,
@@ -683,7 +741,12 @@ export function StorePortal({ activeTab }) {
     inventoryEntryIsAllDates,
     dispatchFilterDate,
     dispatchIsAllDates,
-    dispatchFilterBranch
+    dispatchFilterBranch,
+    dispatchFilterCategory,
+    branchReqFilterDate,
+    branchReqIsAllDates,
+    branchReqFilterBranch,
+    branchReqFilterCategory
   ]);
 
   // Handle Receiving goods against PO
@@ -1039,20 +1102,28 @@ export function StorePortal({ activeTab }) {
     }
   };
 
-  // Additional Item row handlers for Dispatch
-  const handleAddAdditionalItem = (autoFocus = true) => {
+  // Additional Item row handlers for Dispatch (per branch)
+  const handleAddAdditionalItem = (branchName, autoFocus = true) => {
+    const targetBranch = branchName || branches[0]?.name;
+    if (!targetBranch) return;
     const defaultItem = catalogueItems[0]?.name || 'Rice';
     const defaultUnit = catalogueItems[0]?.unit || 'KG';
     const newId = Date.now() + Math.random();
-    setAdditionalItems(prev => [
-      ...prev,
-      {
-        id: newId,
-        itemName: defaultItem,
-        unit: defaultUnit,
-        dispatchQty: ''
-      }
-    ]);
+    setAdditionalItemsByBranch(prev => {
+      const existing = prev[targetBranch] || [];
+      return {
+        ...prev,
+        [targetBranch]: [
+          ...existing,
+          {
+            id: newId,
+            itemName: defaultItem,
+            unit: defaultUnit,
+            dispatchQty: ''
+          }
+        ]
+      };
+    });
     if (autoFocus) {
       setTimeout(() => {
         const selectElem = document.querySelector(`select[data-additional-id="${newId}"]`);
@@ -1064,21 +1135,139 @@ export function StorePortal({ activeTab }) {
     }
   };
 
-  const handleUpdateAdditionalItem = (id, field, value) => {
-    setAdditionalItems(prev => prev.map(item => {
-      if (item.id === id) {
-        if (field === 'itemName') {
-          const match = catalogueItems.find(x => x.name === value);
-          return { ...item, itemName: value, unit: match?.unit || 'KG' };
+  const handleUpdateAdditionalItem = (branchName, id, field, value) => {
+    if (!branchName) return;
+    setAdditionalItemsByBranch(prev => {
+      const existing = prev[branchName] || [];
+      const updated = existing.map(item => {
+        if (item.id === id) {
+          if (field === 'itemName') {
+            const match = catalogueItems.find(x => x.name === value);
+            return { ...item, itemName: value, unit: match?.unit || 'KG' };
+          }
+          return { ...item, [field]: value };
         }
-        return { ...item, [field]: value };
-      }
-      return item;
-    }));
+        return item;
+      });
+      return { ...prev, [branchName]: updated };
+    });
   };
 
-  const handleRemoveAdditionalItem = (id) => {
-    setAdditionalItems(prev => prev.filter(item => item.id !== id));
+  const handleRemoveAdditionalItem = (branchName, id) => {
+    if (!branchName) return;
+    setAdditionalItemsByBranch(prev => {
+      const existing = prev[branchName] || [];
+      return {
+        ...prev,
+        [branchName]: existing.filter(item => item.id !== id)
+      };
+    });
+  };
+
+  // Supported units for "+ New Item" modal
+  const DISPATCH_SUPPORTED_UNITS = [
+    'KG',
+    'GRAMS',
+    'LITRE',
+    'ML',
+    'PACKET',
+    'PIECE',
+    'BOX',
+    'BOTTLE',
+    'CAN',
+    'TIN',
+    'BAG',
+    'BUNCH'
+  ];
+
+  // Open the "+ New Item" popup modal
+  const handleOpenDispatchNewItemModal = (branchName, rowId) => {
+    setDispatchNewItemTarget({ branchName, rowId });
+    setNewItemFormName('');
+    setNewItemFormUnit('KG');
+    setShowDispatchNewItemModal(true);
+  };
+
+  // Close the "+ New Item" popup modal
+  const handleCloseDispatchNewItemModal = () => {
+    setShowDispatchNewItemModal(false);
+    setDispatchNewItemTarget(null);
+    setNewItemFormName('');
+    setNewItemFormUnit('KG');
+  };
+
+  // Save the new item persistently to database and select in current dispatch row
+  const handleSaveDispatchNewItem = async (e) => {
+    if (e) e.preventDefault();
+    const cleanedName = (newItemFormName || '').trim();
+    const cleanedUnit = (newItemFormUnit || '').trim().toUpperCase();
+
+    if (!cleanedName) {
+      showAlert('error', language === 'ta' ? 'பொருளின் பெயரை உள்ளிடவும்.' : 'Please enter an item name.');
+      return;
+    }
+    if (!cleanedUnit) {
+      showAlert('error', language === 'ta' ? 'அளவீட்டு அலகைத் தேர்ந்தெடுக்கவும்.' : 'Please select a unit.');
+      return;
+    }
+
+    // Check for accidental duplicate items with same name and unit, ignoring letter case and extra spaces
+    const isDuplicate = catalogueItems.some(it =>
+      (it.name || '').trim().toLowerCase() === cleanedName.toLowerCase() &&
+      (it.unit || '').trim().toUpperCase() === cleanedUnit
+    );
+    if (isDuplicate) {
+      showAlert('error', language === 'ta'
+        ? `"${cleanedName}" (${cleanedUnit}) என்ற பொருள் ஏற்கனவே பட்டியலில் உள்ளது.`
+        : `Item "${cleanedName}" (${cleanedUnit}) already exists in the catalogue.`);
+      return;
+    }
+
+    try {
+      setSavingDispatchNewItem(true);
+      // Persist to database via existing API endpoint POST /api/items
+      const createdItem = await api.createItem({
+        name: cleanedName,
+        unit: cleanedUnit
+      });
+
+      // Refresh catalogue list persistently from backend
+      const refreshedList = await api.getItems();
+      const updatedCatalogue = Array.isArray(refreshedList) ? refreshedList : [...catalogueItems, createdItem];
+      setCatalogueItems(updatedCatalogue);
+
+      // Automatically select the newly created item in the triggering dispatch row
+      if (dispatchNewItemTarget) {
+        const { branchName, rowId } = dispatchNewItemTarget;
+        setAdditionalItemsByBranch(prev => {
+          const existing = prev[branchName] || [];
+          const updated = existing.map(item => {
+            if (item.id === rowId) {
+              return {
+                ...item,
+                itemName: createdItem.name || cleanedName,
+                unit: createdItem.unit || cleanedUnit
+              };
+            }
+            return item;
+          });
+          return { ...prev, [branchName]: updated };
+        });
+      }
+
+      showAlert('success', language === 'ta'
+        ? `✓ புதிய பொருள் "${cleanedName}" (${cleanedUnit}) வெற்றிகரமாக உருவாக்கப்பட்டு தேர்ந்தெடுக்கப்பட்டது!`
+        : `✓ New item "${cleanedName}" (${cleanedUnit}) successfully created and selected!`);
+
+      handleCloseDispatchNewItemModal();
+    } catch (err) {
+      console.error('Failed to create new item for dispatch', err);
+      showAlert('error', err.message || (language === 'ta'
+        ? 'புதிய பொருளை உருவாக்க முடியவில்லை'
+        : 'Failed to create new item'));
+    } finally {
+      setSavingDispatchNewItem(false);
+    }
   };
 
   // Consolidate duplicate branch request items for dispatch
@@ -1087,8 +1276,9 @@ export function StorePortal({ activeTab }) {
     const groupMap = new Map();
 
     outstandingRequests.forEach(req => {
-      const bMatch = branches.find(b => (b.name || '').trim().toLowerCase() === (req.branch || selectedBranch || '').trim().toLowerCase());
-      const branchId = req.branchId || (bMatch ? bMatch.id : (req.branch || selectedBranch));
+      const bMatch = branches.find(b => (b.name || '').trim().toLowerCase() === (req.branch || '').trim().toLowerCase());
+      const branchId = req.branchId || (bMatch ? bMatch.id : (req.branch || ''));
+      const branchName = req.branch || (bMatch ? bMatch.name : '');
       const cMatch = catalogueItems.find(i => (i.name || '').trim().toLowerCase() === (req.item || '').trim().toLowerCase());
       const itemId = cMatch ? cMatch.id : (req.itemId || (req.item || '').trim().toLowerCase());
       const unit = (req.unit || 'KG').trim().toUpperCase();
@@ -1100,7 +1290,7 @@ export function StorePortal({ activeTab }) {
         groupMap.set(groupKey, {
           key: groupKey,
           branchId,
-          branchName: req.branch || selectedBranch,
+          branchName,
           itemId,
           itemName,
           unit,
@@ -1123,21 +1313,170 @@ export function StorePortal({ activeTab }) {
       group.requests.sort((a, b) => (a.id || 0) - (b.id || 0));
       return group;
     }).filter(group => group.remainingToDispatch > 0);
-  }, [outstandingRequests, catalogueItems, branches, selectedBranch]);
+  }, [outstandingRequests, catalogueItems, branches]);
 
-  // Dispatch Items submit
-  const handleDispatchItems = async () => {
-    if (!selectedBranch) {
+  // Sort authorized branches based on request submission order:
+  // Oldest request first (ascending). Branches without requests appear after,
+  // sorted by their earliest all-time request or stable ID fallback.
+  const sortedBranches = useMemo(() => {
+    if (!branches || branches.length === 0) return [];
+
+    const getBranchReqs = (list, branch) => {
+      const bName = (branch.name || '').trim().toLowerCase();
+      const bId = branch.id;
+      return (list || []).filter(r => {
+        const rName = (r.branch || '').trim().toLowerCase();
+        const rId = r.branchId;
+        return (bId && rId && bId === rId) || (bName && rName && bName === rName);
+      });
+    };
+
+    const getEarliestTimestamp = (reqs) => {
+      if (!reqs || reqs.length === 0) return null;
+      let earliest = null;
+      for (const r of reqs) {
+        if (!r.createdAt) continue;
+        const time = new Date(r.createdAt).getTime();
+        if (!isNaN(time)) {
+          if (earliest === null || time < earliest) {
+            earliest = time;
+          }
+        }
+      }
+      return earliest;
+    };
+
+    const annotated = branches.map(branch => {
+      const filterReqs = getBranchReqs(allBranchRequests, branch);
+      const hasMatchingRequests = filterReqs.length > 0;
+      const earliestFilterTime = getEarliestTimestamp(filterReqs);
+
+      const allTimeReqs = getBranchReqs(allTimeRawRequests, branch);
+      const earliestAllTime = getEarliestTimestamp(allTimeReqs);
+
+      return {
+        branch,
+        hasMatchingRequests,
+        earliestFilterTime,
+        earliestAllTime,
+        filterReqsCount: filterReqs.length
+      };
+    });
+
+    annotated.sort((a, b) => {
+      // 1. Branches with matching requests appear first
+      if (a.hasMatchingRequests && !b.hasMatchingRequests) return -1;
+      if (!a.hasMatchingRequests && b.hasMatchingRequests) return 1;
+
+      if (a.hasMatchingRequests && b.hasMatchingRequests) {
+        // Compare earliest request creation timestamps (ascending: oldest first, newest later)
+        if (a.earliestFilterTime !== null && b.earliestFilterTime !== null) {
+          if (a.earliestFilterTime !== b.earliestFilterTime) {
+            return a.earliestFilterTime - b.earliestFilterTime;
+          }
+        } else if (a.earliestFilterTime !== null) {
+          return -1;
+        } else if (b.earliestFilterTime !== null) {
+          return 1;
+        }
+        // Stable secondary sort: branch ID
+        const idA = a.branch.id || 0;
+        const idB = b.branch.id || 0;
+        if (idA !== idB) return idA - idB;
+        return (a.branch.name || '').localeCompare(b.branch.name || '');
+      }
+
+      // Neither has matching requests for selected date/filter:
+      // Sort using earliest available request timestamp across all dates, or stable ID fallback
+      if (a.earliestAllTime !== null && b.earliestAllTime !== null) {
+        if (a.earliestAllTime !== b.earliestAllTime) {
+          return a.earliestAllTime - b.earliestAllTime;
+        }
+      } else if (a.earliestAllTime !== null) {
+        return -1;
+      } else if (b.earliestAllTime !== null) {
+        return 1;
+      }
+
+      const idA = a.branch.id || 0;
+      const idB = b.branch.id || 0;
+      if (idA !== idB) return idA - idB;
+      return (a.branch.name || '').localeCompare(b.branch.name || '');
+    });
+
+    return annotated.map(item => item.branch);
+  }, [branches, allBranchRequests, allTimeRawRequests]);
+
+  // Handler to download All Branches Requests PDF report
+  const handleDownloadBranchRequestsPdf = async () => {
+    try {
+      setDownloadingBranchRequestsPdf(true);
+      await downloadBranchRequestsPdf({
+        sortedBranches,
+        requests: allBranchRequests,
+        dateFilter: dispatchReqDate,
+        isAllDates: !dispatchReqDate,
+        language
+      });
+      showAlert('success', language === 'ta'
+        ? '✓ அனைத்து கிளைகளின் கோரிக்கைகள் அறிக்கை PDF வெற்றிகரமாக பதிவிறக்கப்பட்டது!'
+        : '✓ All Branches Requests Report PDF downloaded successfully!');
+    } catch (err) {
+      console.error('Failed to generate all branches requests PDF', err);
+      showAlert('error', err.message || (language === 'ta'
+        ? 'அனைத்து கிளைகளின் கோரிக்கைகள் அறிக்கை PDF உருவாக்க முடியவில்லை'
+        : 'Failed to generate All Branches Requests PDF'));
+    } finally {
+      setDownloadingBranchRequestsPdf(false);
+    }
+  };
+
+  // Handler to download an Individual Branch Requests PDF report
+  const handleDownloadSingleBranchPdf = async (branch) => {
+    if (!branch) return;
+    const branchName = branch.name || 'Branch';
+    try {
+      setDownloadingBranchPdf(branchName);
+      await downloadBranchRequestsPdf({
+        sortedBranches: [branch],
+        requests: allBranchRequests,
+        dateFilter: dispatchReqDate,
+        isAllDates: !dispatchReqDate,
+        language,
+        singleBranch: branch
+      });
+      showAlert('success', language === 'ta'
+        ? `✓ ${branchName} கிளையின் கோரிக்கை அறிக்கை PDF வெற்றிகரமாக பதிவிறக்கப்பட்டது!`
+        : `✓ ${branchName} Requests Report PDF downloaded successfully!`);
+    } catch (err) {
+      console.error(`Failed to generate PDF for branch ${branchName}`, err);
+      showAlert('error', err.message || (language === 'ta'
+        ? `${branchName} கிளையின் கோரிக்கை அறிக்கை PDF உருவாக்க முடியவில்லை`
+        : `Failed to generate PDF for ${branchName}`));
+    } finally {
+      setDownloadingBranchPdf(null);
+    }
+  };
+
+  // Dispatch Items submit for a specific branch
+  const handleDispatchItems = async (branchName) => {
+    if (!branchName) {
       return showAlert('error', 'Please select a branch to dispatch');
     }
-    if (dispatching) return;
+    if (dispatchingBranch) return;
 
     const itemsToDispatch = [];
 
+    // Find consolidated items for this branch
+    const bMatch = branches.find(b => (b.name || '').trim().toLowerCase() === branchName.trim().toLowerCase());
+    const bId = bMatch ? bMatch.id : null;
+    const branchItems = consolidatedDispatchItems.filter(item =>
+      (item.branchName || '').trim().toLowerCase() === branchName.trim().toLowerCase() ||
+      (bId && item.branchId === bId)
+    );
+
     // 1. Validate and gather consolidated requested items
-    for (const group of consolidatedDispatchItems) {
-      const unfulfilled = Math.max(0, group.totalRequested - group.alreadyDispatched);
-      const stock = getCentralStock(group.itemName, group.unit);
+    for (const group of branchItems) {
       const curStr = dispatchQtys[group.key];
 
       if (curStr === undefined || curStr === null || String(curStr).trim() === '') {
@@ -1149,14 +1488,6 @@ export function StorePortal({ activeTab }) {
         return showAlert('error', `Please enter a valid non-negative dispatch quantity for ${group.itemName}`);
       }
       if (qVal === 0) continue;
-
-      if (qVal > unfulfilled) {
-        return showAlert('error', `Cannot dispatch ${qVal} ${group.unit} of ${group.itemName}. Outstanding branch requirement is only ${unfulfilled} ${group.unit}`);
-      }
-
-      if (qVal > stock) {
-        return showAlert('error', `Cannot dispatch ${qVal} ${group.unit} of ${group.itemName}. Only ${stock} ${group.unit} available in central stock`);
-      }
 
       let needed = qVal;
       for (const req of group.requests) {
@@ -1173,19 +1504,26 @@ export function StorePortal({ activeTab }) {
         });
         needed -= toAlloc;
       }
+
+      // If entered dispatch quantity exceeds unfulfilled requirement, allocate surplus as additional dispatch
+      if (needed > 0) {
+        itemsToDispatch.push({
+          requestId: null,
+          itemName: group.itemName,
+          unit: group.unit,
+          dispatchQty: needed,
+          isAdditional: true
+        });
+      }
     }
 
-    // 2. Validate and gather additional non-requested items
-    for (const add of additionalItems) {
+    // 2. Validate and gather additional non-requested items for this branch
+    const branchAdditional = additionalItemsByBranch[branchName] || [];
+    for (const add of branchAdditional) {
       if (!add.itemName) continue;
       const qVal = parseInt(add.dispatchQty, 10);
       if (isNaN(qVal) || qVal <= 0) {
         return showAlert('error', `Please enter a positive dispatch quantity for additional item ${add.itemName}`);
-      }
-
-      const addStock = getCentralStock(add.itemName, add.unit);
-      if (qVal > addStock) {
-        return showAlert('error', `Cannot dispatch ${qVal} ${add.unit} of additional item ${add.itemName}. Only ${addStock} ${add.unit} available in central stock`);
       }
 
       itemsToDispatch.push({
@@ -1197,39 +1535,24 @@ export function StorePortal({ activeTab }) {
       });
     }
 
-    // 3. Cumulative stock check across requested and additional for same item
-    const totalByItem = {};
-    for (const item of itemsToDispatch) {
-      const key = `${(item.itemName || '').trim().toLowerCase()}_${(item.unit || '').trim().toUpperCase()}`;
-      totalByItem[key] = (totalByItem[key] || 0) + item.dispatchQty;
-    }
-    for (const [key, totalQty] of Object.entries(totalByItem)) {
-      const sample = itemsToDispatch.find(i => `${(i.itemName || '').trim().toLowerCase()}_${(i.unit || '').trim().toUpperCase()}` === key);
-      const stock = getCentralStock(sample.itemName, sample.unit);
-      if (totalQty > stock) {
-        return showAlert('error', `Total dispatch quantity (${totalQty} ${sample.unit}) for ${sample.itemName} exceeds available central stock (${stock} ${sample.unit})`);
-      }
-    }
-
     if (itemsToDispatch.length === 0) {
-      return showAlert('error', 'Please enter at least one item with a positive dispatch quantity');
+      return showAlert('error', `Please enter at least one item with a positive dispatch quantity for ${branchName}`);
     }
 
     try {
-      setDispatching(true);
-      const dispatches = await api.dispatchItems(selectedBranch, itemsToDispatch);
-      showAlert('success', `✓ Successfully dispatched ${dispatches.length} item(s) to ${selectedBranch}! Central inventory deducted. Marked as Pending Acknowledgement.`);
-      setAdditionalItems([]);
+      setDispatchingBranch(branchName);
+      const dispatches = await api.dispatchItems(branchName, itemsToDispatch);
+      showAlert('success', `✓ Successfully dispatched ${dispatches.length} item(s) to ${branchName}! Central inventory deducted. Marked as Pending Acknowledgement.`);
+      setAdditionalItemsByBranch(prev => ({ ...prev, [branchName]: [] }));
       await Promise.all([
         loadInventory(),
-        loadOutstandingForDispatch(selectedBranch, dispatchReqDate),
-        loadStoreDispatchHistory(selectedBranch, dispatchHistoryDate, dispatchHistoryIsAllDates),
-        loadBranchRequests(selectedBranch, selectedBranchReqDate)
+        loadOutstandingForDispatch(null, dispatchReqDate),
+        loadStoreDispatchHistory(null, dispatchHistoryDate, dispatchHistoryIsAllDates)
       ]);
     } catch (err) {
-      showAlert('error', err.message || 'Failed to dispatch items');
+      showAlert('error', err.message || `Failed to dispatch items to ${branchName}`);
     } finally {
-      setDispatching(false);
+      setDispatchingBranch(null);
     }
   };
 
@@ -1250,8 +1573,9 @@ export function StorePortal({ activeTab }) {
   // Register shared F5 Add Item keyboard shortcut on active item-entry pages
   useAddItemShortcut({
     onAddItem: () => {
-      if (activeTab === 'branch-requests' && branchReqSubTab === 'dispatch' && selectedBranch) {
-        handleAddAdditionalItem(true);
+      if (activeTab === 'branch-requests') {
+        const target = branches[0]?.name;
+        if (target) handleAddAdditionalItem(target, true);
       } else if (activeTab === 'entry-items') {
         handleOpenAddItemModal();
       } else if (activeTab === 'order' && orderSubTab === 'make-order') {
@@ -1259,7 +1583,7 @@ export function StorePortal({ activeTab }) {
       }
     },
     isEnabled: (
-      (activeTab === 'branch-requests' && branchReqSubTab === 'dispatch' && Boolean(selectedBranch)) ||
+      (activeTab === 'branch-requests' && branches.length > 0) ||
       (activeTab === 'entry-items') ||
       (activeTab === 'order' && orderSubTab === 'make-order')
     ),
@@ -2560,830 +2884,746 @@ export function StorePortal({ activeTab }) {
         </section>
       )}
 
-      {/* 3. BRANCH REQUESTS TAB */}
+      {/* 3. BRANCH REQUESTS / DISPATCH TAB */}
       {activeTab === 'branch-requests' && (
         <section>
+          {/* Subnav: Only Dispatch tab kept; Branches tab removed */}
           <div className="subnav">
             <button
               type="button"
-              className={`subnav-btn ${branchReqSubTab === 'branches' ? 'active' : ''}`}
-              onClick={() => {
-                setBranchReqSubTab('branches');
-                if (selectedBranch) loadBranchRequests(selectedBranch, selectedBranchReqDate);
-              }}
-            >
-              {t('branches', 'Branches')}
-            </button>
-            <button
-              type="button"
-              className={`subnav-btn ${branchReqSubTab === 'dispatch' ? 'active' : ''}`}
-              onClick={() => {
-                setBranchReqSubTab('dispatch');
-                if (selectedBranch) loadOutstandingForDispatch(selectedBranch);
-              }}
+              className="subnav-btn active"
             >
               {t('dispatch', 'Dispatch')}
             </button>
           </div>
 
-          {/* COMPACT BRANCH SELECTOR */}
-          <div className="card" style={{ marginBottom: 12, padding: '8px 14px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <label style={{ margin: 0, fontWeight: 600, color: 'var(--primary-dark-green)', fontSize: 13, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-                  <span>🏪</span> {t('selectBranch:', 'Select Branch:')}
-                </label>
-                <select
-                  style={{ width: 'auto', minWidth: 180, height: 32, padding: '4px 8px', fontSize: 13, borderRadius: 6 }}
-                  value={selectedBranch}
-                  onChange={e => {
-                    setSelectedBranch(e.target.value);
-                    if (branchReqSubTab === 'branches') {
-                      loadBranchRequests(e.target.value, selectedBranchReqDate, selectedBranchReqIsAllDates);
-                    } else {
-                      loadOutstandingForDispatch(e.target.value);
-                    }
+          {/* GLOBAL REQUEST DATE FILTER BAR & REFRESH */}
+          <div className="card" style={{ marginBottom: 16, padding: '10px 16px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 }}>
+              <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '8px 10px' }}>
+                <label
+                  htmlFor="dispatch-req-date-input"
+                  style={{
+                    fontWeight: 600,
+                    color: 'var(--primary-dark-green)',
+                    fontSize: 13,
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 5,
+                    margin: 0,
+                    cursor: 'pointer',
+                    whiteSpace: 'nowrap'
                   }}
                 >
-                  {branches.map(b => (
-                    <option key={b.id} value={b.name}>{b.name} ({b.location})</option>
-                  ))}
-                </select>
-              </div>
+                  <span>📅</span> {t('requestDate:', 'Request Date:')}
+                </label>
 
-              {branchReqSubTab === 'branches' && (
-                <DateFilterBar
-                  label={t('filterByRequestDate:', 'Filter by Request Date:')}
-                  selectedDate={selectedBranchReqDate}
-                  isAllDates={selectedBranchReqIsAllDates}
-                  onDateChange={d => {
-                    setSelectedBranchReqDate(d);
-                    setSelectedBranchReqIsAllDates(false);
-                    loadBranchRequests(selectedBranch, d, false);
+                <input
+                  id="dispatch-req-date-input"
+                  type="date"
+                  value={dispatchReqDate || ''}
+                  onChange={e => {
+                    const val = e.target.value;
+                    setDispatchReqDate(val);
+                    loadOutstandingForDispatch(null, val);
                   }}
-                  onToggleAllDates={all => {
-                    setSelectedBranchReqIsAllDates(all);
-                    loadBranchRequests(selectedBranch, selectedBranchReqDate, all);
+                  style={{
+                    width: 150,
+                    height: 34,
+                    padding: '4px 8px',
+                    fontSize: 13,
+                    border: '1px solid var(--border-color)',
+                    borderRadius: 6,
+                    background: '#fff',
+                    color: 'var(--dark-text)'
                   }}
                 />
-              )}
+
+                <button
+                  type="button"
+                  className={dispatchReqDate === getTodayDateString() ? 'primary small' : 'secondary small'}
+                  onClick={() => {
+                    const today = getTodayDateString();
+                    setDispatchReqDate(today);
+                    loadOutstandingForDispatch(null, today);
+                  }}
+                  style={{
+                    height: 32,
+                    padding: '0 12px',
+                    fontSize: 12,
+                    fontWeight: 600,
+                    borderRadius: 6,
+                    display: 'inline-flex',
+                    alignItems: 'center'
+                  }}
+                  title={language === 'ta' ? 'இன்று சமர்ப்பிக்கப்பட்ட கோரிக்கைகள்' : 'View requests submitted today'}
+                >
+                  {t('today', 'Today')}
+                </button>
+
+                <button
+                  type="button"
+                  className={!dispatchReqDate ? 'primary small' : 'secondary small'}
+                  onClick={() => {
+                    setDispatchReqDate('');
+                    loadOutstandingForDispatch(null, '');
+                  }}
+                  style={{
+                    height: 32,
+                    padding: '0 12px',
+                    fontSize: 12,
+                    fontWeight: 600,
+                    borderRadius: 6,
+                    display: 'inline-flex',
+                    alignItems: 'center'
+                  }}
+                  title={language === 'ta' ? 'அனைத்து தேதிகளின் நிலுவை கோரிக்கைகள்' : 'View outstanding requests across all dates'}
+                >
+                  {t('allDates', 'All Dates')}
+                </button>
+
+                <span
+                  style={{
+                    fontSize: 12,
+                    color: 'var(--text-muted)',
+                    fontWeight: 500,
+                    marginLeft: 4,
+                    whiteSpace: 'nowrap'
+                  }}
+                >
+                  {!dispatchReqDate ? (
+                    t('allDates', 'Showing All Dates')
+                  ) : (
+                    dispatchReqDate === getTodayDateString()
+                      ? `${t('today', 'Today')}: ${formatDDMMYYYY(getTodayDateString())}`
+                      : `${t('date', 'Date')}: ${formatDDMMYYYY(dispatchReqDate)}`
+                  )}
+                </span>
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <span
+                  className="badge"
+                  style={{
+                    fontSize: 12,
+                    background: 'var(--cream-surface)',
+                    color: 'var(--primary-dark-green)',
+                    borderColor: 'var(--gold)',
+                    fontWeight: 600
+                  }}
+                >
+                  🏢 {branches.length} {language === 'ta' ? 'அங்கீகரிக்கப்பட்ட கிளைகள்' : 'Authorized Branches'}
+                </span>
+
+                <button
+                  type="button"
+                  className="secondary small"
+                  onClick={() => {
+                    loadOutstandingForDispatch(null, dispatchReqDate);
+                    loadStoreDispatchHistory(null, dispatchHistoryDate, dispatchHistoryIsAllDates);
+                  }}
+                  style={{ height: 32, padding: '0 10px', fontSize: 12 }}
+                  title={language === 'ta' ? 'புதுப்பிக்கவும்' : 'Refresh All Branches'}
+                >
+                  ↻ {t('refresh', 'Refresh')}
+                </button>
+
+                <button
+                  type="button"
+                  className="primary small btn-download-branch-requests-pdf btn-download-all-branches-pdf"
+                  id="btn-download-all-branches-pdf"
+                  disabled={downloadingBranchRequestsPdf}
+                  onClick={handleDownloadBranchRequestsPdf}
+                  style={{
+                    height: 32,
+                    padding: '0 12px',
+                    fontSize: 12,
+                    fontWeight: 600,
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    borderRadius: 6,
+                    background: 'var(--primary-dark-green)',
+                    color: '#ffffff',
+                    border: '1px solid var(--primary-dark-green)',
+                    cursor: downloadingBranchRequestsPdf ? 'not-allowed' : 'pointer',
+                    boxShadow: '0 2px 4px rgba(0, 59, 43, 0.15)'
+                  }}
+                  title={language === 'ta' ? 'அனைத்து கிளைகளின் கோரிக்கைகள் அறிக்கையை PDF ஆக பதிவிறக்கவும்' : 'Download All Branches Requests Report as PDF'}
+                >
+                  <span>📄</span>
+                  {downloadingBranchRequestsPdf
+                    ? (language === 'ta' ? 'தயாராகிறது...' : 'Generating PDF...')
+                    : (language === 'ta' ? 'அனைத்து கிளைகளின் PDF பதிவிறக்கு' : 'Download All Branches PDF')}
+                </button>
+              </div>
             </div>
           </div>
 
-          {/* BRANCHES SUB-TAB: Aggregated Table for Selected Date or All Dates */}
-          {branchReqSubTab === 'branches' && (() => {
-            if (selectedBranchReqIsAllDates) {
-              return (
-                <div>
-                  {branchRequestsList.length > 0 ? (
-                    branchRequestsList.map(sec => (
-                      <div key={sec.requestDate || sec.formattedDate} className="card" style={{ marginBottom: 20 }}>
-                        <div className="card-header" style={{ borderBottom: '1.5px solid var(--border-color)', paddingBottom: 12, marginBottom: 14 }}>
-                          <div>
-                            <h3 className="card-title" style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 16 }}>
-                              <span style={{ color: 'var(--gold)' }}>📅</span> {sec.formattedDate || formatDisplayDate(sec.requestDate)}
-                            </h3>
-                            <p className="muted" style={{ margin: '4px 0 0', fontSize: 12.5 }}>
-                              {language === 'ta'
-                                ? `${sec.formattedDate || formatDisplayDate(sec.requestDate)} அன்று ${selectedBranch} கோரிய தேவைகள்:`
-                                : `Aggregated requirements requested by ${selectedBranch} on ${sec.formattedDate || formatDisplayDate(sec.requestDate)}`}
-                            </p>
-                          </div>
-                          <span className="db-badge">
-                            {sec.items?.length || 0} {(sec.items?.length || 0) === 1 ? t('item', 'item') : t('items', 'items')}
+          {/* ALL AUTHORIZED BRANCHES DISPLAYED VERTICALLY */}
+          {branches.length === 0 ? (
+            <div className="card" style={{ padding: 24, textAlign: 'center' }}>
+              <p className="muted">
+                {language === 'ta'
+                  ? 'அங்கீகரிக்கப்பட்ட கிளைகள் எதுவும் கிடைக்கவில்லை.'
+                  : 'No authorized branches found.'}
+              </p>
+            </div>
+          ) : (
+            <div className="vertical-branches-container" style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+              {sortedBranches.map(branch => {
+                const bName = branch.name || '';
+                const branchAllReqs = (allBranchRequests || []).filter(r =>
+                  ((r.branch || '').trim().toLowerCase() === bName.trim().toLowerCase()) ||
+                  (branch.id && r.branchId === branch.id)
+                );
+                // Sort branch all requests by createdAt ascending
+                branchAllReqs.sort((a, b) => {
+                  const tA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+                  const tB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+                  return tA - tB;
+                });
+                const branchEarliestTime = branchAllReqs.length > 0 && branchAllReqs[0].createdAt
+                  ? parseOrderDateTime(branchAllReqs[0].createdAt, branchAllReqs[0].requestDate, language).timeStr
+                  : null;
+                const branchConsolidated = consolidatedDispatchItems.filter(item =>
+                  (item.branchName || '').trim().toLowerCase() === bName.trim().toLowerCase() ||
+                  (branch.id && item.branchId === branch.id)
+                );
+                const branchAdditional = additionalItemsByBranch[bName] || [];
+                const branchHistory = storeDispatchHistory.filter(d =>
+                  ((d.branchName || d.branch || '')).trim().toLowerCase() === bName.trim().toLowerCase() ||
+                  (branch.id && d.branchId === branch.id)
+                );
+                const isDispatchingThisBranch = dispatchingBranch === bName;
+
+                return (
+                  <div
+                    key={branch.id || bName}
+                    className="card branch-dispatch-card"
+                    id={`branch-dispatch-section-${(bName || '').toLowerCase().replace(/[^a-z0-9]/g, '-')}`}
+                    style={{ margin: 0 }}
+                  >
+                    {/* BRANCH HEADER */}
+                    <div className="card-header">
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                        <h3 className="card-title" style={{ margin: 0, fontSize: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
+                          <span>🏪</span> {bName}
+                        </h3>
+                        {branch.location && (
+                          <span className="muted" style={{ fontSize: 12 }}>
+                            📍 {branch.location}
+                          </span>
+                        )}
+                        <span
+                          className={`badge ${branchConsolidated.length > 0 ? 'badge-ordered' : 'badge-completed'}`}
+                          style={{ fontSize: 11 }}
+                        >
+                          {branchConsolidated.length > 0
+                            ? `${branchConsolidated.length} ${language === 'ta' ? 'நிலுவை பொருட்கள்' : 'Pending Items'}`
+                            : (language === 'ta' ? 'நிலுவை கோரிக்கைகள் இல்லை' : 'No Pending Requests')}
+                        </span>
+                        {branchEarliestTime && (
+                          <span
+                            className="badge"
+                            style={{
+                              fontSize: 11,
+                              background: 'var(--cream-surface)',
+                              color: 'var(--primary-dark-green)',
+                              borderColor: 'var(--gold)',
+                              fontWeight: 600
+                            }}
+                            title={language === 'ta' ? 'முதல் கோரிக்கை நேரம்' : 'Earliest request submission time'}
+                          >
+                            🕒 {language === 'ta' ? 'முதல் கோரிக்கை:' : 'First Request:'} {branchEarliestTime}
+                          </span>
+                        )}
+                      </div>
+
+                      {/* ACTIONS: DOWNLOAD INDIVIDUAL BRANCH PDF & ADD ADDITIONAL ITEM */}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                        {/* DOWNLOAD INDIVIDUAL BRANCH PDF BUTTON */}
+                        <button
+                          type="button"
+                          className="secondary small btn-download-branch-pdf"
+                          id={`btn-download-pdf-${(bName || '').toLowerCase().replace(/[^a-z0-9]/g, '-')}`}
+                          disabled={downloadingBranchPdf === bName}
+                          onClick={() => handleDownloadSingleBranchPdf(branch)}
+                          style={{
+                            height: 32,
+                            padding: '0 12px',
+                            fontSize: 12,
+                            fontWeight: 600,
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: 6,
+                            borderRadius: 6,
+                            whiteSpace: 'nowrap',
+                            background: 'var(--cream-surface)',
+                            color: 'var(--primary-dark-green)',
+                            border: '1px solid var(--gold)',
+                            cursor: downloadingBranchPdf === bName ? 'not-allowed' : 'pointer',
+                            boxShadow: '0 1px 3px rgba(0, 0, 0, 0.08)'
+                          }}
+                          title={language === 'ta' ? `${bName} கிளையின் கோரிக்கைகளை PDF ஆக பதிவிறக்கவும்` : `Download PDF for ${bName}`}
+                        >
+                          <span>📄</span>
+                          {downloadingBranchPdf === bName
+                            ? (language === 'ta' ? 'தயாராகிறது...' : 'Generating...')
+                            : (language === 'ta' ? 'PDF பதிவிறக்கு' : 'Download PDF')}
+                        </button>
+
+                        {/* ADD ADDITIONAL NON-REQUESTED ITEM BUTTON */}
+                        <button
+                          type="button"
+                          className="primary small"
+                          id={`btn-add-item-${(bName || '').toLowerCase().replace(/[^a-z0-9]/g, '-')}`}
+                          onClick={() => handleAddAdditionalItem(bName, true)}
+                          style={{
+                            height: 32,
+                            padding: '0 12px',
+                            fontSize: 12,
+                            fontWeight: 600,
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: 6,
+                            borderRadius: 6,
+                            whiteSpace: 'nowrap'
+                          }}
+                          title={language === 'ta' ? `${bName} கிளைக்கு கூடுதல் உருப்படியைச் சேர்` : `Add Additional Non-Requested Item to ${bName}`}
+                        >
+                          <span>➕</span> {t('addItem', 'Add Item')}
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* BRANCH CARD BODY */}
+                    <div className="card-body" style={{ padding: '14px 16px' }}>
+                      {/* PENDING REQUESTS ITEMS (MAX 4 ROWS VISIBLE, VERTICAL SCROLL) */}
+                      <div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                          <h4 style={{ margin: 0, fontSize: 13, color: 'var(--primary-dark-green)', fontWeight: 600 }}>
+                            📦 {language === 'ta' ? `${bName} கிளை கோரிய பொருட்கள்` : `Requested Items for ${bName}`}
+                          </h4>
+                          <span className="muted" style={{ fontSize: 11 }}>
+                            {branchConsolidated.length > 4
+                              ? (language === 'ta' ? 'அனைத்து பொருட்களையும் காண உருட்டவும் (4 வரிசைகள் காட்டப்படுகின்றன)' : 'Scroll table to view all items (4 rows visible)')
+                              : `${branchConsolidated.length} ${language === 'ta' ? 'பொருட்கள்' : 'items'}`}
                           </span>
                         </div>
 
-                        <div className="table-wrap" style={{ margin: 0 }}>
-                          <table>
+                        {/* Vertically scrollable container for maximum 4 rows at a time */}
+                        <div className="branch-items-scroll-wrap">
+                          <table className="compact-table" style={{ margin: 0, width: '100%', minWidth: 680 }}>
                             <thead>
                               <tr>
                                 <th>{t('itemName', 'Item Name')}</th>
                                 <th>{t('unit', 'Unit')}</th>
-                                <th>{t('totalRequestedQuantity', 'Total Requested Quantity')}</th>
-                                <th>{t('alreadyDispatchedQuantity', 'Already Dispatched Quantity')}</th>
-                                <th>{t('confirmedReceivedQuantity', 'Confirmed Received Quantity')}</th>
-                                <th>{t('remainingToDispatch', 'Remaining to Dispatch')}</th>
-                                <th>{t('deliveryStatus', 'Delivery Status')}</th>
-                                <th style={{ textAlign: 'center' }}>{t('action', 'Action')}</th>
+                                <th style={{ textAlign: 'right' }}>{t('totalRequested', 'Total Requested')}</th>
+                                <th style={{ textAlign: 'right' }}>{t('alreadyDispatched', 'Already Dispatched')}</th>
+                                <th style={{ textAlign: 'right' }}>{t('centralStockAvailable', 'Central Stock Available')}</th>
+                                <th style={{ textAlign: 'center', width: 140 }}>{t('dispatchQty', 'Dispatch Qty')}</th>
+                                <th style={{ textAlign: 'right' }}>{t('remainingToDispatch', 'Remaining to Dispatch')}</th>
                               </tr>
                             </thead>
                             <tbody>
-                              {sec.items?.map(item => (
-                                <tr key={item.item + '-' + item.unit}>
-                                  <td><b>{translateItem(item.item)}</b></td>
-                                  <td>{translateUnit(item.unit)}</td>
-                                  <td><b>{item.totalRequestedQuantity}</b></td>
-                                  <td><span style={{ fontWeight: 600, color: '#8c671b' }}>{item.alreadyDispatchedQuantity}</span></td>
-                                  <td><span style={{ fontWeight: 600, color: 'var(--green)' }}>{item.confirmedReceivedQuantity}</span></td>
-                                  <td>
-                                    <span style={{
-                                      fontWeight: 700,
-                                      color: item.remainingToDispatch > 0 ? '#b78103' : 'var(--green)'
-                                    }}>
-                                      {item.remainingToDispatch} {translateUnit(item.unit)}
-                                    </span>
-                                  </td>
-                                  <td>
-                                    <span className={`badge ${
-                                      item.deliveryStatus === 'COMPLETED' ? 'badge-completed' :
-                                      item.deliveryStatus === 'PARTIALLY_DELIVERED' ? 'badge-ordered' :
-                                      'badge-pending'
-                                    }`}>
-                                      {translateStatus(item.deliveryStatusLabel || item.deliveryStatus)}
-                                    </span>
-                                  </td>
-                                  <td style={{ textAlign: 'center' }}>
-                                    <button
-                                      type="button"
-                                      className="secondary small"
-                                      onClick={() => setHistoryModalItem(item)}
-                                    >
-                                      {t('viewHistory', 'View History')}
-                                    </button>
+                              {branchConsolidated.length > 0 ? (
+                                branchConsolidated.map(item => {
+                                  const centralStock = getCentralStock(item.itemName, item.unit);
+                                  const unfulfilled = Math.max(0, item.totalRequested - item.alreadyDispatched);
+                                  const curDispatchStr = dispatchQtys[item.key] !== undefined
+                                    ? dispatchQtys[item.key]
+                                    : String(unfulfilled);
+                                  const curDispatch = curDispatchStr === '' ? 0 : parseInt(curDispatchStr, 10);
+                                  const remainingToDispatch = Math.max(0, item.totalRequested - item.alreadyDispatched - (isNaN(curDispatch) ? 0 : curDispatch));
+                                  const exceedsStock = !isNaN(curDispatch) && curDispatch > centralStock;
+
+                                  return (
+                                    <tr key={item.key} style={{ background: exceedsStock ? 'rgba(245, 158, 11, 0.05)' : undefined }}>
+                                      <td>
+                                        <b>{translateItem(item.itemName)}</b>
+                                        {item.requests.length > 1 && (
+                                          <span
+                                            className="badge"
+                                            style={{
+                                              marginLeft: 8,
+                                              fontSize: 10,
+                                              background: 'var(--cream-surface)',
+                                              color: 'var(--primary-dark-green)',
+                                              borderColor: 'var(--gold)'
+                                            }}
+                                          >
+                                            {item.requests.length} {language === 'ta' ? 'கோரிக்கைகள்' : 'reqs'}
+                                          </span>
+                                        )}
+                                      </td>
+                                      <td>{translateUnit(item.unit)}</td>
+                                      <td style={{ textAlign: 'right', fontWeight: 600 }}>{item.totalRequested}</td>
+                                      <td style={{ textAlign: 'right', color: item.alreadyDispatched > 0 ? '#8c671b' : 'inherit' }}>
+                                        {item.alreadyDispatched}
+                                      </td>
+                                      <td style={{ textAlign: 'right' }}>
+                                        <div style={{ display: 'inline-flex', flexDirection: 'column', alignItems: 'flex-end', gap: 2 }}>
+                                          <span
+                                            style={{
+                                              fontWeight: 700,
+                                              fontSize: 13,
+                                              color: centralStock <= 0 ? '#b91c1c' : (centralStock <= 5 ? '#b45309' : 'var(--primary-dark-green)')
+                                            }}
+                                          >
+                                            {centralStock} {translateUnit(item.unit)}
+                                          </span>
+                                          {centralStock <= 0 ? (
+                                            <span style={{ fontSize: 10, fontWeight: 700, color: '#dc2626', background: '#fee2e2', padding: '1px 6px', borderRadius: 4, border: '1px solid #fca5a5' }}>
+                                              ⚠️ {t('Zero Stock', 'Zero Stock')}
+                                            </span>
+                                          ) : centralStock <= 5 ? (
+                                            <span style={{ fontSize: 10, fontWeight: 700, color: '#b45309', background: '#fef3c7', padding: '1px 6px', borderRadius: 4, border: '1px solid #fcd34d' }}>
+                                              ⚠️ {t('Low Stock', 'Low Stock')}
+                                            </span>
+                                          ) : null}
+                                        </div>
+                                      </td>
+                                      <td style={{ textAlign: 'center' }}>
+                                        <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                                          <input
+                                            type="number"
+                                            min="0"
+                                            style={{
+                                              width: 80,
+                                              height: 32,
+                                              textAlign: 'right',
+                                              padding: '4px 6px',
+                                              fontSize: 13,
+                                              border: exceedsStock ? '1.5px solid #d97706' : '1px solid var(--border-color)',
+                                              borderRadius: 6
+                                            }}
+                                            value={curDispatchStr}
+                                            onChange={e => setDispatchQtys(prev => ({ ...prev, [item.key]: e.target.value }))}
+                                            placeholder="0"
+                                          />
+                                          <button
+                                            type="button"
+                                            className="secondary small"
+                                            onClick={() => setDispatchQtys(prev => ({ ...prev, [item.key]: String(unfulfilled) }))}
+                                            style={{ height: 32, padding: '0 6px', fontSize: 11 }}
+                                            title={`Fill requested amount (${unfulfilled})`}
+                                          >
+                                            {t('max', 'Max')}
+                                          </button>
+                                        </div>
+                                        {exceedsStock && (
+                                          <div style={{ color: '#b45309', fontSize: 10, marginTop: 2, fontWeight: 600 }}>
+                                            ⚠️ {t('exceedsStock', 'Exceeds stock')} ({centralStock})
+                                          </div>
+                                        )}
+                                      </td>
+                                      <td style={{ textAlign: 'right' }}>
+                                        <span
+                                          style={{
+                                            fontWeight: 700,
+                                            fontSize: 13,
+                                            color: remainingToDispatch > 0 ? '#b78103' : 'var(--green)'
+                                          }}
+                                        >
+                                          {remainingToDispatch} {translateUnit(item.unit)}
+                                        </span>
+                                      </td>
+                                    </tr>
+                                  );
+                                })
+                              ) : (
+                                <tr>
+                                  <td colSpan="7" className="empty" style={{ padding: '24px 12px' }}>
+                                    {language === 'ta'
+                                      ? `${bName} கிளைக்கு நிலுவையில் உள்ள கோரிக்கைகள் இல்லை. கீழே கூடுதல் பொருட்களை அனுப்பலாம்.`
+                                      : `No unfulfilled requests for ${bName}${dispatchReqDate ? ` on ${formatDisplayDate(dispatchReqDate)}` : ''}. You can dispatch additional items below.`}
                                   </td>
                                 </tr>
-                              ))}
+                              )}
                             </tbody>
                           </table>
                         </div>
                       </div>
-                    ))
-                  ) : (
-                    <EmptyDateMessage message={loading ? t('loading', 'Loading...') : (language === 'ta' ? `${selectedBranch} கிளைக்கு கோரிக்கைகள் எதுவும் கிடைக்கவில்லை.` : `No requests found for ${selectedBranch}.`)} />
-                  )}
-                </div>
-              );
-            }
 
-            // Single date view
-            const currentSection = branchRequestsList.find(s => s.requestDate === selectedBranchReqDate) || (
-              branchRequestsList.length > 0 && (!branchRequestsList[0].requestDate || branchRequestsList[0].requestDate === selectedBranchReqDate)
-                ? branchRequestsList[0]
-                : null
-            );
-            const selectedDateItems = currentSection ? currentSection.items : [];
+                      {/* ADDITIONAL NON-REQUESTED ITEMS SECTION FOR THIS BRANCH */}
+                      <div style={{ marginTop: 12, paddingTop: 10, borderTop: '1px dashed var(--border-color)' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                          <h4 style={{ margin: 0, color: 'var(--primary-dark-green)', fontSize: 13, display: 'flex', alignItems: 'center', gap: 6 }}>
+                            <span>➕</span> {t('additionalNonRequestedItems', 'Additional Non-Requested Items')}
+                            {branchAdditional.length > 0 && (
+                              <span className="badge badge-ordered" style={{ fontSize: 10 }}>
+                                {branchAdditional.length} {t('added', 'Added')}
+                              </span>
+                            )}
+                          </h4>
+                        </div>
 
-            return (
-              <div>
-                {selectedDateItems && selectedDateItems.length > 0 ? (
-                  <div className="card">
-                    <DateSectionHeader date={selectedBranchReqDate} count={selectedDateItems.length} unit={t('items', 'aggregated items')} />
-                    <div className="table-wrap" style={{ margin: 0 }}>
-                      <table>
-                        <thead>
-                          <tr>
-                            <th>{t('itemName', 'Item Name')}</th>
-                            <th>{t('unit', 'Unit')}</th>
-                            <th>{t('totalRequestedQuantity', 'Total Requested Quantity')}</th>
-                            <th>{t('alreadyDispatchedQuantity', 'Already Dispatched Quantity')}</th>
-                            <th>{t('confirmedReceivedQuantity', 'Confirmed Received Quantity')}</th>
-                            <th>{t('remainingToDispatch', 'Remaining to Dispatch')}</th>
-                            <th>{t('deliveryStatus', 'Delivery Status')}</th>
-                            <th style={{ textAlign: 'center' }}>{t('action', 'Action')}</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {selectedDateItems.map(item => (
-                            <tr key={item.item + '-' + item.unit}>
-                              <td><b>{translateItem(item.item)}</b></td>
-                              <td>{translateUnit(item.unit)}</td>
-                              <td><b>{item.totalRequestedQuantity}</b></td>
-                              <td><span style={{ fontWeight: 600, color: '#8c671b' }}>{item.alreadyDispatchedQuantity}</span></td>
-                              <td><span style={{ fontWeight: 600, color: 'var(--green)' }}>{item.confirmedReceivedQuantity}</span></td>
-                              <td>
-                                <span style={{
-                                  fontWeight: 700,
-                                  color: item.remainingToDispatch > 0 ? '#b78103' : 'var(--green)'
-                                }}>
-                                  {item.remainingToDispatch} {translateUnit(item.unit)}
-                                </span>
-                              </td>
-                              <td>
-                                <span className={`badge ${
-                                  item.deliveryStatus === 'COMPLETED' ? 'badge-completed' :
-                                  item.deliveryStatus === 'PARTIALLY_DELIVERED' ? 'badge-ordered' :
-                                  'badge-pending'
-                                }`}>
-                                  {translateStatus(item.deliveryStatusLabel || item.deliveryStatus)}
-                                </span>
-                              </td>
-                              <td style={{ textAlign: 'center' }}>
-                                <button
-                                  type="button"
-                                  className="secondary small"
-                                  onClick={() => setHistoryModalItem(item)}
-                                >
-                                  {t('viewHistory', 'View History')}
-                                </button>
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-                ) : (
-                  <EmptyDateMessage
-                    message={
-                      loading
-                        ? t('loading', 'Loading...')
-                        : (language === 'ta'
-                            ? `${formatDisplayDate(selectedBranchReqDate)} அன்று ${selectedBranch} கிளைக்கு கோரிக்கைகள் எதுவும் கிடைக்கவில்லை.`
-                            : `No requests found for ${selectedBranch} on ${formatDisplayDate(selectedBranchReqDate)}.`)
-                    }
-                  />
-                )}
-              </div>
-            );
-          })()}
-
-          {/* DISPATCH SUB-TAB */}
-          {branchReqSubTab === 'dispatch' && (
-            <div>
-              <div className="card" style={{ marginBottom: 18 }}>
-                {/* Compact Card Header: Heading on left, Add Item on right (same row) */}
-                <div
-                  className="card-header"
-                  style={{
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'center',
-                    gap: 12,
-                    padding: '10px 14px 6px',
-                    flexWrap: 'wrap'
-                  }}
-                >
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-                    <h3 className="card-title" style={{ margin: 0, fontSize: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
-                      <span>🚚</span> {language === 'ta' ? `${selectedBranch} கிளைக்கு விநியோகத்தை தயார் செய்` : `Prepare Dispatch for ${selectedBranch}`}
-                    </h3>
-                    <span className="muted" style={{ fontSize: 12 }}>
-                      • {t('specifyQuantitiesDispatch', 'Specify quantities to fulfill branch requests from available central warehouse stock')}
-                    </span>
-                  </div>
-
-                  <button
-                    type="button"
-                    className="primary small"
-                    id="btn-dispatch-add-additional-item"
-                    onClick={() => handleAddAdditionalItem(true)}
-                    style={{
-                      height: 32,
-                      padding: '0 12px',
-                      fontWeight: 600,
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      gap: 6,
-                      borderRadius: 6,
-                      whiteSpace: 'nowrap'
-                    }}
-                    title={language === 'ta' ? 'கூடுதல் உருப்படியைச் சேர் (F5)' : 'Add Additional Non-Requested Item (F5 shortcut)'}
-                  >
-                    <span>➕</span> {t('addItem', 'Add Item')}
-                    <kbd
-                      style={{
-                        fontSize: 10,
-                        background: 'rgba(255,255,255,0.25)',
-                        border: '1px solid rgba(255,255,255,0.4)',
-                        padding: '1px 5px',
-                        borderRadius: 3,
-                        marginLeft: 2
-                      }}
-                    >
-                      F5
-                    </kbd>
-                  </button>
-                </div>
-
-                {/* Compact Inline Date Filter directly above the dispatch table */}
-                <div
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    flexWrap: 'wrap',
-                    gap: '8px 10px',
-                    padding: '6px 14px 10px',
-                    borderBottom: '1px solid var(--border-color)',
-                    background: 'var(--cream-surface)'
-                  }}
-                >
-                  <label
-                    htmlFor="dispatch-req-date-input"
-                    style={{
-                      fontWeight: 600,
-                      color: 'var(--primary-dark-green)',
-                      fontSize: 13,
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      gap: 5,
-                      margin: 0,
-                      cursor: 'pointer',
-                      whiteSpace: 'nowrap'
-                    }}
-                  >
-                    <span>📅</span> {t('requestDate:', 'Request Date:')}
-                  </label>
-
-                  <input
-                    id="dispatch-req-date-input"
-                    type="date"
-                    value={dispatchReqDate || ''}
-                    onChange={e => {
-                      const val = e.target.value;
-                      setDispatchReqDate(val);
-                      loadOutstandingForDispatch(selectedBranch, val);
-                    }}
-                    style={{
-                      width: 150,
-                      height: 34,
-                      padding: '4px 8px',
-                      fontSize: 13,
-                      border: '1px solid var(--border-color)',
-                      borderRadius: 6,
-                      background: '#fff',
-                      color: 'var(--dark-text)'
-                    }}
-                  />
-
-                  <button
-                    type="button"
-                    className={dispatchReqDate === getTodayDateString() ? 'primary small' : 'secondary small'}
-                    onClick={() => {
-                      const today = getTodayDateString();
-                      setDispatchReqDate(today);
-                      loadOutstandingForDispatch(selectedBranch, today);
-                    }}
-                    style={{
-                      height: 32,
-                      padding: '0 12px',
-                      fontSize: 12,
-                      fontWeight: 600,
-                      borderRadius: 6,
-                      display: 'inline-flex',
-                      alignItems: 'center'
-                    }}
-                    title={language === 'ta' ? 'இன்று சமர்ப்பிக்கப்பட்ட கோரிக்கைகள்' : 'View requests submitted today'}
-                  >
-                    {t('today', 'Today')}
-                  </button>
-
-                  <button
-                    type="button"
-                    className={!dispatchReqDate ? 'primary small' : 'secondary small'}
-                    onClick={() => {
-                      setDispatchReqDate('');
-                      loadOutstandingForDispatch(selectedBranch, '');
-                    }}
-                    style={{
-                      height: 32,
-                      padding: '0 12px',
-                      fontSize: 12,
-                      fontWeight: 600,
-                      borderRadius: 6,
-                      display: 'inline-flex',
-                      alignItems: 'center'
-                    }}
-                    title={language === 'ta' ? 'அனைத்து தேதிகளின் நிலுவை கோரிக்கைகள்' : 'View outstanding requests across all dates'}
-                  >
-                    {t('allDates', 'All Dates')}
-                  </button>
-
-                  <span
-                    style={{
-                      fontSize: 12,
-                      color: 'var(--text-muted)',
-                      fontWeight: 500,
-                      marginLeft: 4,
-                      whiteSpace: 'nowrap'
-                    }}
-                  >
-                    {!dispatchReqDate ? (
-                      t('allDates', 'Showing All Dates')
-                    ) : (
-                      dispatchReqDate === getTodayDateString()
-                        ? `${t('today', 'Today')}: ${formatDDMMYYYY(getTodayDateString())}`
-                        : `${t('date', 'Date')}: ${formatDDMMYYYY(dispatchReqDate)}`
-                    )}
-                  </span>
-                </div>
-
-                {/* Dispatch Items Table with Central Stock Available */}
-                <div className="table-wrap" style={{ margin: 0 }}>
-                  <table className="compact-table">
-                    <thead>
-                      <tr>
-                        <th>{t('itemName', 'Item Name')}</th>
-                        <th>{t('unit', 'Unit')}</th>
-                        <th style={{ textAlign: 'right' }}>{t('totalRequested', 'Total Requested')}</th>
-                        <th style={{ textAlign: 'right' }}>{t('alreadyDispatched', 'Already Dispatched')}</th>
-                        <th style={{ textAlign: 'right' }}>{t('centralStockAvailable', 'Central Stock Available')}</th>
-                        <th style={{ textAlign: 'center', width: 140 }}>{t('dispatchQty', 'Dispatch Qty')}</th>
-                        <th style={{ textAlign: 'right' }}>{t('remainingToDispatch', 'Remaining to Dispatch')}</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {consolidatedDispatchItems.length > 0 ? (
-                        consolidatedDispatchItems.map(item => {
-                          const centralStock = getCentralStock(item.itemName, item.unit);
-                          const unfulfilled = Math.max(0, item.totalRequested - item.alreadyDispatched);
-                          const curDispatchStr = dispatchQtys[item.key] !== undefined
-                            ? dispatchQtys[item.key]
-                            : String(Math.min(unfulfilled, Math.max(0, centralStock)));
-                          const curDispatch = curDispatchStr === '' ? 0 : parseInt(curDispatchStr, 10);
-                          const remainingToDispatch = Math.max(0, item.totalRequested - item.alreadyDispatched - (isNaN(curDispatch) ? 0 : curDispatch));
-                          const exceedsStock = !isNaN(curDispatch) && curDispatch > centralStock;
-                          const exceedsReq = !isNaN(curDispatch) && curDispatch > unfulfilled;
-
-                          return (
-                            <tr key={item.key} style={{ background: exceedsStock ? 'rgba(220, 38, 38, 0.04)' : undefined }}>
-                              <td>
-                                <b>{translateItem(item.itemName)}</b>
-                                {item.requests.length > 1 && (
-                                  <span
-                                    className="badge"
-                                    style={{
-                                      marginLeft: 8,
-                                      fontSize: 10,
-                                      background: 'var(--cream-surface)',
-                                      color: 'var(--primary-dark-green)',
-                                      borderColor: 'var(--gold)'
-                                    }}
-                                  >
-                                    {item.requests.length} {language === 'ta' ? 'கோரிக்கைகள் இணைக்கப்பட்டன' : 'requests combined'}
-                                  </span>
-                                )}
-                              </td>
-                              <td>{translateUnit(item.unit)}</td>
-                              <td style={{ textAlign: 'right', fontWeight: 600 }}>{item.totalRequested}</td>
-                              <td style={{ textAlign: 'right', color: item.alreadyDispatched > 0 ? '#8c671b' : 'inherit' }}>
-                                {item.alreadyDispatched}
-                              </td>
-                              <td style={{ textAlign: 'right' }}>
-                                <span
-                                  style={{
-                                    fontWeight: 700,
-                                    fontSize: 13,
-                                    color: centralStock <= 0 ? 'var(--danger)' : (centralStock < unfulfilled ? '#b45309' : 'var(--primary-dark-green)')
-                                  }}
-                                >
-                                  {centralStock} {translateUnit(item.unit)}
-                                </span>
-                              </td>
-                              <td style={{ textAlign: 'center' }}>
-                                <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                                  <input
-                                    type="number"
-                                    min="0"
-                                    max={Math.min(unfulfilled, centralStock)}
-                                    style={{
-                                      width: 80,
-                                      height: 32,
-                                      textAlign: 'right',
-                                      padding: '4px 6px',
-                                      fontSize: 13,
-                                      border: exceedsStock || exceedsReq ? '1.5px solid var(--danger)' : '1px solid var(--border-color)',
-                                      borderRadius: 6
-                                    }}
-                                    value={curDispatchStr}
-                                    onChange={e => setDispatchQtys(prev => ({ ...prev, [item.key]: e.target.value }))}
-                                    placeholder="0"
-                                  />
-                                  <button
-                                    type="button"
-                                    className="secondary small"
-                                    onClick={() => setDispatchQtys(prev => ({ ...prev, [item.key]: String(Math.min(unfulfilled, Math.max(0, centralStock))) }))}
-                                    style={{ height: 32, padding: '0 6px', fontSize: 11 }}
-                                    title={`Fill available requirement (Max: ${Math.min(unfulfilled, centralStock)})`}
-                                  >
-                                    {t('max', 'Max')}
-                                  </button>
-                                </div>
-                                {exceedsStock && (
-                                  <div style={{ color: 'var(--danger)', fontSize: 10, marginTop: 2, fontWeight: 600 }}>
-                                    {t('exceedsStock', 'Exceeds stock')} ({centralStock})
-                                  </div>
-                                )}
-                                {exceedsReq && !exceedsStock && (
-                                  <div style={{ color: '#b45309', fontSize: 10, marginTop: 2, fontWeight: 600 }}>
-                                    {t('exceedsReq', 'Exceeds req')} ({unfulfilled})
-                                  </div>
-                                )}
-                              </td>
-                              <td style={{ textAlign: 'right' }}>
-                                <span
-                                  style={{
-                                    fontWeight: 700,
-                                    fontSize: 13,
-                                    color: remainingToDispatch > 0 ? '#b78103' : 'var(--green)'
-                                  }}
-                                >
-                                  {remainingToDispatch} {translateUnit(item.unit)}
-                                </span>
-                              </td>
-                            </tr>
-                          );
-                        })
-                      ) : (
-                        <tr>
-                          <td colSpan="7" className="empty" style={{ padding: '24px 12px' }}>
+                        {branchAdditional.length === 0 ? (
+                          <p className="muted" style={{ margin: '4px 0 10px', fontSize: 12 }}>
                             {language === 'ta'
-                              ? `${selectedBranch} கிளைக்கு நிலுவையில் உள்ள கோரிக்கைகள் இல்லை. கீழே கூடுதல் பொருட்களை அனுப்பலாம்.`
-                              : `No unfulfilled requests for ${selectedBranch}${dispatchReqDate ? ` on ${formatDisplayDate(dispatchReqDate)}` : ''}. You can still dispatch additional items below.`}
-                          </td>
-                        </tr>
-                      )}
-                    </tbody>
-                  </table>
-                </div>
+                              ? `${bName} கிளைக்கு கூடுதல் பொருட்கள் எதுவும் சேர்க்கப்படவில்லை. சேர்க்க மேலே உள்ள "+ பொருள் சேர்" ஐ கிளிக் செய்யவும்.`
+                              : `No additional non-requested items added for ${bName}. Click "+ Add Item" above to add items.`}
+                          </p>
+                        ) : (
+                          <div className="table-wrap" style={{ margin: '6px 0 12px', overflowX: 'auto' }}>
+                            <table className="compact-table" style={{ margin: 0, minWidth: 680 }}>
+                              <thead>
+                                <tr>
+                                  <th>{t('itemName', 'Item Name')}</th>
+                                  <th>{t('unit', 'Unit')}</th>
+                                  <th>{t('itemType', 'Item Type')}</th>
+                                  <th style={{ textAlign: 'right' }}>{t('centralStockAvailable', 'Central Stock Available')}</th>
+                                  <th style={{ textAlign: 'center', width: 140 }}>{t('dispatchQty', 'Dispatch Qty')}</th>
+                                  <th style={{ textAlign: 'center' }}>{t('action', 'Action')}</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {branchAdditional.map(item => {
+                                  const addStock = getCentralStock(item.itemName, item.unit);
+                                  const addQty = parseInt(item.dispatchQty, 10);
+                                  const exceedsAddStock = !isNaN(addQty) && addQty > addStock;
 
-                {/* ADDITIONAL NON-REQUESTED ITEMS */}
-                <div style={{ marginTop: 20, paddingTop: 14, borderTop: '1px solid var(--border-color)', paddingLeft: 14, paddingRight: 14 }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                      <h4 style={{ margin: 0, color: 'var(--primary-dark-green)', fontSize: 14 }}>
-                        <span>➕</span> {t('additionalNonRequestedItems', 'Additional Non-Requested Items')}
-                      </h4>
-                      <span className="badge badge-ordered" style={{ fontSize: 10 }}>
-                        {additionalItems.length} {t('added', 'Added')}
-                      </span>
-                    </div>
-                  </div>
+                                  return (
+                                    <tr key={item.id} style={{ background: exceedsAddStock ? 'rgba(220, 38, 38, 0.04)' : undefined }}>
+                                      <td>
+                                        <select
+                                          data-additional-id={item.id}
+                                          value={item.itemName || ''}
+                                          onChange={e => {
+                                            const val = e.target.value;
+                                            if (val === '__NEW_ITEM__') {
+                                              handleOpenDispatchNewItemModal(bName, item.id);
+                                            } else {
+                                              handleUpdateAdditionalItem(bName, item.id, 'itemName', val);
+                                            }
+                                          }}
+                                          style={{ height: 32, padding: '4px 8px', fontSize: 13 }}
+                                          id={`select-item-${(bName || '').toLowerCase().replace(/[^a-z0-9]/g, '-')}-${item.id}`}
+                                        >
+                                          <option value="__NEW_ITEM__" style={{ fontWeight: 700, color: 'var(--primary-dark-green)' }}>
+                                            {language === 'ta' ? '➕ + புதிய பொருள் (+ New Item)' : '➕ + New Item'}
+                                          </option>
+                                          <option disabled style={{ fontSize: 4 }}>──────────</option>
+                                          {catalogueItems.map(it => (
+                                            <option key={it.id || it.name} value={it.name}>
+                                              {translateItem(it.name)} ({translateUnit(it.unit)})
+                                            </option>
+                                          ))}
+                                        </select>
+                                      </td>
+                                      <td>{translateUnit(item.unit)}</td>
+                                      <td>
+                                        <span
+                                          className="badge"
+                                          style={{
+                                            fontSize: 10,
+                                            background: 'rgba(217, 119, 6, 0.1)',
+                                            color: '#b45309',
+                                            border: '1px solid rgba(217, 119, 6, 0.3)',
+                                            fontWeight: 600
+                                          }}
+                                        >
+                                          {t('additionalItem', 'Additional Item')}
+                                        </span>
+                                      </td>
+                                      <td style={{ textAlign: 'right' }}>
+                                        <div style={{ display: 'inline-flex', flexDirection: 'column', alignItems: 'flex-end', gap: 2 }}>
+                                          <span
+                                            style={{
+                                              fontWeight: 700,
+                                              fontSize: 13,
+                                              color: addStock <= 0 ? '#b91c1c' : (addStock <= 5 ? '#b45309' : 'var(--primary-dark-green)')
+                                            }}
+                                          >
+                                            {addStock} {translateUnit(item.unit)}
+                                          </span>
+                                          {addStock <= 0 ? (
+                                            <span style={{ fontSize: 10, fontWeight: 700, color: '#dc2626', background: '#fee2e2', padding: '1px 6px', borderRadius: 4, border: '1px solid #fca5a5' }}>
+                                              ⚠️ {t('Zero Stock', 'Zero Stock')}
+                                            </span>
+                                          ) : addStock <= 5 ? (
+                                            <span style={{ fontSize: 10, fontWeight: 700, color: '#b45309', background: '#fef3c7', padding: '1px 6px', borderRadius: 4, border: '1px solid #fcd34d' }}>
+                                              ⚠️ {t('Low Stock', 'Low Stock')}
+                                            </span>
+                                          ) : null}
+                                        </div>
+                                      </td>
+                                      <td style={{ textAlign: 'center' }}>
+                                        <input
+                                          type="number"
+                                          min="1"
+                                          placeholder="Qty"
+                                          style={{
+                                            width: 80,
+                                            height: 32,
+                                            textAlign: 'right',
+                                            padding: '4px 6px',
+                                            fontSize: 13,
+                                            border: exceedsAddStock ? '1.5px solid #d97706' : '1px solid var(--border-color)',
+                                            borderRadius: 6
+                                          }}
+                                          value={item.dispatchQty}
+                                          onChange={e => handleUpdateAdditionalItem(bName, item.id, 'dispatchQty', e.target.value)}
+                                        />
+                                        {exceedsAddStock && (
+                                          <div style={{ color: '#b45309', fontSize: 10, marginTop: 2, fontWeight: 600 }}>
+                                            ⚠️ {t('exceedsStock', 'Exceeds stock')} ({addStock})
+                                          </div>
+                                        )}
+                                      </td>
+                                      <td style={{ textAlign: 'center' }}>
+                                        <button
+                                          type="button"
+                                          className="danger small"
+                                          onClick={() => handleRemoveAdditionalItem(bName, item.id)}
+                                          style={{ height: 28, padding: '0 8px', fontSize: 11 }}
+                                        >
+                                          ✕ {t('remove', 'Remove')}
+                                        </button>
+                                      </td>
+                                    </tr>
+                                  );
+                                })}
+                              </tbody>
+                            </table>
+                          </div>
+                        )}
+                      </div>
 
-                  {additionalItems.length === 0 && (
-                    <p className="muted" style={{ margin: '4px 0 10px', fontSize: 12 }}>
-                      {language === 'ta'
-                        ? 'கூடுதல் கோரப்படாத பொருட்கள் எதுவும் சேர்க்கப்படவில்லை. சேர்க்க மேலே உள்ள "+ பொருள் சேர் (F5)" ஐ கிளிக் செய்யவும்.'
-                        : 'No additional non-requested items added yet. Click + Add Item (F5) at the top of the Prepare Dispatch section to add items.'}
-                    </p>
-                  )}
-
-                  {additionalItems.length > 0 && (
-                    <div className="table-wrap" style={{ margin: '6px 0 12px' }}>
-                      <table className="compact-table">
-                        <thead>
-                          <tr>
-                            <th>{t('itemName', 'Item Name')}</th>
-                            <th>{t('unit', 'Unit')}</th>
-                            <th>{t('itemType', 'Item Type')}</th>
-                            <th style={{ textAlign: 'right' }}>{t('centralStockAvailable', 'Central Stock Available')}</th>
-                            <th style={{ textAlign: 'center', width: 140 }}>{t('dispatchQty', 'Dispatch Qty')}</th>
-                            <th style={{ textAlign: 'center' }}>{t('action', 'Action')}</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {additionalItems.map(item => {
-                            const addStock = getCentralStock(item.itemName, item.unit);
-                            const addQty = parseInt(item.dispatchQty, 10);
-                            const exceedsAddStock = !isNaN(addQty) && addQty > addStock;
-
-                            return (
-                              <tr key={item.id} style={{ background: exceedsAddStock ? 'rgba(220, 38, 38, 0.04)' : undefined }}>
-                                <td>
-                                  <select
-                                    data-additional-id={item.id}
-                                    value={item.itemName}
-                                    onChange={e => handleUpdateAdditionalItem(item.id, 'itemName', e.target.value)}
-                                    style={{ height: 32, padding: '4px 8px', fontSize: 13 }}
-                                  >
-                                    {catalogueItems.map(it => (
-                                      <option key={it.id} value={it.name}>{translateItem(it.name)} ({translateUnit(it.unit)})</option>
-                                    ))}
-                                  </select>
-                                </td>
-                                <td>{translateUnit(item.unit)}</td>
-                                <td>
-                                  <span
-                                    className="badge"
-                                    style={{
-                                      fontSize: 10,
-                                      background: 'rgba(217, 119, 6, 0.1)',
-                                      color: '#b45309',
-                                      border: '1px solid rgba(217, 119, 6, 0.3)',
-                                      fontWeight: 600
-                                    }}
-                                  >
-                                    {t('additionalItem', 'Additional Item')}
-                                  </span>
-                                </td>
-                                <td style={{ textAlign: 'right' }}>
-                                  <span
-                                    style={{
-                                      fontWeight: 700,
-                                      fontSize: 13,
-                                      color: addStock <= 0 ? 'var(--danger)' : 'var(--primary-dark-green)'
-                                    }}
-                                  >
-                                    {addStock} {translateUnit(item.unit)}
-                                  </span>
-                                </td>
-                                <td style={{ textAlign: 'center' }}>
-                                  <input
-                                    type="number"
-                                    min="1"
-                                    max={addStock}
-                                    placeholder="Qty"
-                                    style={{
-                                      width: 80,
-                                      height: 32,
-                                      textAlign: 'right',
-                                      padding: '4px 6px',
-                                      fontSize: 13,
-                                      border: exceedsAddStock ? '1.5px solid var(--danger)' : '1px solid var(--border-color)',
-                                      borderRadius: 6
-                                    }}
-                                    value={item.dispatchQty}
-                                    onChange={e => handleUpdateAdditionalItem(item.id, 'dispatchQty', e.target.value)}
-                                  />
-                                  {exceedsAddStock && (
-                                    <div style={{ color: 'var(--danger)', fontSize: 10, marginTop: 2, fontWeight: 600 }}>
-                                      {t('exceedsStock', 'Exceeds stock')} ({addStock})
-                                    </div>
-                                  )}
-                                </td>
-                                <td style={{ textAlign: 'center' }}>
-                                  <button
-                                    type="button"
-                                    className="danger small"
-                                    onClick={() => handleRemoveAdditionalItem(item.id)}
-                                    style={{ height: 28, padding: '0 8px', fontSize: 11 }}
-                                  >
-                                    ✕ {t('remove', 'Remove')}
-                                  </button>
-                                </td>
-                              </tr>
-                            );
-                          })}
-                        </tbody>
-                      </table>
-                    </div>
-                  )}
-                </div>
-
-                <div className="form-actions" style={{ marginTop: 20 }}>
-                  <button
-                    type="button"
-                    className="primary"
-                    disabled={dispatching}
-                    onClick={handleDispatchItems}
-                  >
-                    {dispatching ? t('dispatchingItems', 'Dispatching Items...') : t('dispatchItems', 'Dispatch Items')}
-                  </button>
-                </div>
-              </div>
-
-              {/* RECENT DISPATCHES HISTORY TABLE GROUPED BY DISPATCH DATE */}
-              <div className="card" style={{ marginTop: 24 }}>
-                <div className="card-header">
-                  <div>
-                    <h3 className="card-title">{language === 'ta' ? `${selectedBranch} கிளைக்கு அண்மையில் அனுப்பியவை` : `Recent Dispatches to ${selectedBranch}`}</h3>
-                    <p className="muted" style={{ margin: '4px 0 0' }}>
-                      {t('actualRecordedDispatchInfo', 'Actual recorded dispatch timestamps and branch acknowledgement progress.')}
-                    </p>
-                  </div>
-                  <button
-                    type="button"
-                    className="secondary small"
-                    onClick={() => loadStoreDispatchHistory(selectedBranch, dispatchHistoryDate, dispatchHistoryIsAllDates)}
-                  >
-                    ↻ {t('refresh', 'Refresh')}
-                  </button>
-                </div>
-
-                <div style={{ marginBottom: 16 }}>
-                  <DateFilterBar
-                    label={t('filterDispatchesByDate:', 'Filter Dispatches by Date:')}
-                    selectedDate={dispatchHistoryDate}
-                    isAllDates={dispatchHistoryIsAllDates}
-                    onDateChange={d => {
-                      setDispatchHistoryDate(d);
-                      setDispatchHistoryIsAllDates(false);
-                      loadStoreDispatchHistory(selectedBranch, d, false);
-                    }}
-                    onToggleAllDates={all => {
-                      setDispatchHistoryIsAllDates(all);
-                      loadStoreDispatchHistory(selectedBranch, dispatchHistoryDate, all);
-                    }}
-                  />
-                </div>
-
-                {storeDispatchHistory.length === 0 ? (
-                  <EmptyDateMessage
-                    message={
-                      dispatchHistoryIsAllDates
-                        ? (language === 'ta' ? `${selectedBranch} கிளைக்கு எந்த விநியோகங்களும் பதிவு செய்யப்படவில்லை.` : `No dispatches recorded for ${selectedBranch}.`)
-                        : (language === 'ta' ? `${formatDisplayDate(dispatchHistoryDate)} அன்று ${selectedBranch} கிளைக்கு எந்த விநியோகங்களும் பதிவு செய்யப்படவில்லை.` : `No dispatches recorded for ${selectedBranch} on ${formatDisplayDate(dispatchHistoryDate)}.`)
-                    }
-                  />
-                ) : dispatchHistoryIsAllDates ? (
-                  groupByDate(storeDispatchHistory, d => d.dispatchDate || d.createdAt, language).map(group => (
-                    <div key={group.date} style={{ marginBottom: 20 }}>
-                      <DateSectionHeader date={group.date} count={group.items.length} unit={t('dispatches', 'dispatches')} />
-                      <div className="table-wrap">
-                        <table>
-                          <thead>
-                            <tr>
-                              <th>{t('dispatchTime', 'Dispatch Time')}</th>
-                              <th>{t('itemName', 'Item Name')}</th>
-                              <th>{t('unit', 'Unit')}</th>
-                              <th>{t('dispatchedQty', 'Dispatched Qty')}</th>
-                              <th>{t('status', 'Status')}</th>
-                              <th>{t('acknowledgedQty', 'Acknowledged Qty')}</th>
-                              <th>{t('returnedQty', 'Returned Qty')}</th>
-                              <th>{t('acknowledgedAt', 'Acknowledged At')}</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {group.items.map(d => (
-                              <tr key={d.id}>
-                                <td>{formatDisplayDateTime(d.dispatchDateTime || d.createdAt)}</td>
-                                <td><b>{translateItem(d.itemName)}</b></td>
-                                <td>{translateUnit(d.unit)}</td>
-                                <td><b>{d.quantity}</b></td>
-                                <td>
-                                  <span className={`badge ${
-                                    d.status === 'ACKNOWLEDGED' ? 'badge-completed' :
-                                    d.status === 'PARTIALLY_DELIVERED' ? 'badge-ordered' : 'badge-pending'
-                                  }`}>
-                                    {translateStatus(d.status)}
-                                  </span>
-                                </td>
-                                <td>
-                                  <span style={{ fontWeight: 600, color: d.status === 'ACKNOWLEDGED' ? 'var(--green)' : '#8c671b' }}>
-                                    {d.acknowledgedQuantity > 0 ? d.acknowledgedQuantity : (d.status === 'ACKNOWLEDGED' ? d.quantity : 0)}
-                                  </span>
-                                </td>
-                                <td>
-                                  {d.returnedQuantity > 0 ? (
-                                    <span style={{ fontWeight: 600, color: '#b45309' }}>
-                                      {d.returnedQuantity} {translateUnit(d.unit)}
-                                    </span>
-                                  ) : (
-                                    <span className="muted">—</span>
-                                  )}
-                                </td>
-                                <td>{d.acknowledgedAt ? formatDisplayDateTime(d.acknowledgedAt) : <span className="muted">{t('pending', 'Pending')}</span>}</td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
+                      {/* DISPATCH ACTION BUTTON SPECIFIC TO THIS BRANCH */}
+                      <div style={{ marginTop: 14, display: 'flex', alignItems: 'center', justifyContent: 'flex-start' }}>
+                        <button
+                          type="button"
+                          className="primary"
+                          disabled={isDispatchingThisBranch}
+                          onClick={() => handleDispatchItems(bName)}
+                          style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: 8,
+                            padding: '9px 20px',
+                            fontWeight: 600,
+                            fontSize: 13,
+                            borderRadius: 6
+                          }}
+                        >
+                          <span>🚚</span>
+                          {isDispatchingThisBranch
+                            ? (language === 'ta' ? `${bName} கிளைக்கு விநியோகிக்கிறது...` : `Dispatching to ${bName}...`)
+                            : (language === 'ta' ? `${bName} கிளைக்கு விநியோகி` : `Dispatch Items → ${bName}`)}
+                        </button>
                       </div>
                     </div>
-                  ))
-                ) : (
-                  <div>
-                    <DateSectionHeader date={dispatchHistoryDate} count={storeDispatchHistory.length} unit={t('dispatches', 'dispatches')} />
-                    <div className="table-wrap">
-                      <table>
-                        <thead>
-                          <tr>
-                            <th>{t('dispatchTime', 'Dispatch Time')}</th>
-                            <th>{t('itemName', 'Item Name')}</th>
-                            <th>{t('unit', 'Unit')}</th>
-                            <th>{t('dispatchedQty', 'Dispatched Qty')}</th>
-                            <th>{t('status', 'Status')}</th>
-                            <th>{t('acknowledgedQty', 'Acknowledged Qty')}</th>
-                            <th>{t('returnedQty', 'Returned Qty')}</th>
-                            <th>{t('acknowledgedAt', 'Acknowledged At')}</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {storeDispatchHistory.map(d => (
-                            <tr key={d.id}>
-                              <td>{formatDisplayDateTime(d.dispatchDateTime || d.createdAt)}</td>
-                              <td><b>{translateItem(d.itemName)}</b></td>
-                              <td>{translateUnit(d.unit)}</td>
-                              <td><b>{d.quantity}</b></td>
-                              <td>
-                                <span className={`badge ${
-                                  d.status === 'ACKNOWLEDGED' ? 'badge-completed' :
-                                  d.status === 'PARTIALLY_DELIVERED' ? 'badge-ordered' : 'badge-pending'
-                                }`}>
-                                  {translateStatus(d.status)}
-                                </span>
-                              </td>
-                              <td>
-                                <span style={{ fontWeight: 600, color: d.status === 'ACKNOWLEDGED' ? 'var(--green)' : '#8c671b' }}>
-                                  {d.acknowledgedQuantity > 0 ? d.acknowledgedQuantity : (d.status === 'ACKNOWLEDGED' ? d.quantity : 0)}
-                                </span>
-                              </td>
-                              <td>
-                                {d.returnedQuantity > 0 ? (
-                                  <span style={{ fontWeight: 600, color: '#b45309' }}>
-                                    {d.returnedQuantity} {translateUnit(d.unit)}
-                                  </span>
-                                ) : (
-                                  <span className="muted">—</span>
-                                )}
-                              </td>
-                              <td>{d.acknowledgedAt ? formatDisplayDateTime(d.acknowledgedAt) : <span className="muted">{t('pending', 'Pending')}</span>}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
                   </div>
-                )}
+                );
+              })}
+            </div>
+          )}
+
+          {/* NEW ITEM MODAL FOR DISPATCH ADDITIONAL ITEMS */}
+          {showDispatchNewItemModal && (
+            <div
+              className="modal-overlay"
+              onClick={handleCloseDispatchNewItemModal}
+              style={{ zIndex: 1200 }}
+              id="modal-dispatch-new-item"
+            >
+              <div
+                className="modal-content"
+                style={{ maxWidth: 440, padding: '24px 28px', borderRadius: 8, boxShadow: '0 8px 30px rgba(0, 0, 0, 0.25)' }}
+                onClick={e => e.stopPropagation()}
+              >
+                <div className="modal-header" style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <h3 style={{ display: 'flex', alignItems: 'center', gap: 8, margin: 0, color: 'var(--primary-dark-green)', fontSize: 18, fontWeight: 700 }}>
+                    <span>➕</span> {language === 'ta' ? 'புதிய பொருள் சேர்க்க' : 'Add New Item'}
+                  </h3>
+                  <button
+                    type="button"
+                    className="close-btn"
+                    onClick={handleCloseDispatchNewItemModal}
+                    disabled={savingDispatchNewItem}
+                    id="btn-close-new-item-modal"
+                    style={{ background: 'transparent', border: 'none', fontSize: 18, cursor: 'pointer', color: '#5A6962' }}
+                  >
+                    ✕
+                  </button>
+                </div>
+
+                <p className="muted" style={{ margin: '0 0 18px', fontSize: 13, lineHeight: 1.5, color: '#5A6962' }}>
+                  {language === 'ta'
+                    ? 'விநியோகத்திற்காக ஒரு புதிய பொருளை பட்டியலில் சேர்க்கவும். இது தரவுத்தளத்தில் நிரந்தரமாக சேமிக்கப்படும்.'
+                    : 'Create a new catalogue item for dispatch. It will be persistently saved to the database.'}
+                </p>
+
+                <form onSubmit={handleSaveDispatchNewItem}>
+                  <div className="form-group" style={{ marginBottom: 16 }}>
+                    <label
+                      htmlFor="input-new-item-name"
+                      style={{ display: 'block', fontWeight: 600, fontSize: 13, color: 'var(--primary-dark-green)', marginBottom: 6 }}
+                    >
+                      {language === 'ta' ? 'பொருளின் பெயர் *' : 'Item Name *'}
+                    </label>
+                    <input
+                      id="input-new-item-name"
+                      type="text"
+                      required
+                      autoFocus
+                      placeholder={language === 'ta' ? 'எ.கா: பன்னீர் / Fresh Paneer' : 'e.g. Fresh Paneer, Mushroom'}
+                      value={newItemFormName}
+                      onChange={e => setNewItemFormName(e.target.value)}
+                      disabled={savingDispatchNewItem}
+                      style={{ width: '100%', height: 38, padding: '6px 12px', fontSize: 14, borderRadius: 6, border: '1px solid var(--border-color)' }}
+                    />
+                  </div>
+
+                  <div className="form-group" style={{ marginBottom: 22 }}>
+                    <label
+                      htmlFor="select-new-item-unit"
+                      style={{ display: 'block', fontWeight: 600, fontSize: 13, color: 'var(--primary-dark-green)', marginBottom: 6 }}
+                    >
+                      {language === 'ta' ? 'அளவீட்டு அலகு (Unit) *' : 'Unit *'}
+                    </label>
+                    <select
+                      id="select-new-item-unit"
+                      required
+                      value={newItemFormUnit}
+                      onChange={e => setNewItemFormUnit(e.target.value)}
+                      disabled={savingDispatchNewItem}
+                      style={{ width: '100%', height: 38, padding: '6px 12px', fontSize: 14, borderRadius: 6, border: '1px solid var(--border-color)' }}
+                    >
+                      {DISPATCH_SUPPORTED_UNITS.map(u => (
+                        <option key={u} value={u}>
+                          {u} {translateUnit(u) !== u ? `— ${translateUnit(u)}` : ''}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12, marginTop: 20 }}>
+                    <button
+                      type="button"
+                      className="secondary"
+                      onClick={handleCloseDispatchNewItemModal}
+                      disabled={savingDispatchNewItem}
+                      id="btn-cancel-new-item"
+                      style={{ height: 36, padding: '0 16px', borderRadius: 6, fontSize: 13 }}
+                    >
+                      {language === 'ta' ? 'ரத்துசெய்' : 'Cancel'}
+                    </button>
+                    <button
+                      type="submit"
+                      className="primary"
+                      disabled={savingDispatchNewItem}
+                      id="btn-save-new-item"
+                      style={{ height: 36, padding: '0 18px', fontWeight: 700, borderRadius: 6, fontSize: 13, background: 'var(--primary-dark-green)', color: '#ffffff' }}
+                    >
+                      {savingDispatchNewItem
+                        ? (language === 'ta' ? 'சேமிக்கிறது...' : 'Saving...')
+                        : (language === 'ta' ? 'பொருளை சேமிக்கவும்' : 'Save Item')}
+                    </button>
+                  </div>
+                </form>
               </div>
             </div>
           )}
@@ -4096,6 +4336,13 @@ export function StorePortal({ activeTab }) {
             >
               {t('3. Branch-wise Dispatch Report', '3. Branch-wise Dispatch Report')} ({dispatchReport.length})
             </button>
+            <button
+              type="button"
+              className={`subnav-btn ${reportSubTab === 'branch-requests' ? 'active' : ''}`}
+              onClick={() => setReportSubTab('branch-requests')}
+            >
+              {t('4. Branch Requests Report', '4. Branch Requests Report')} ({branchReqReport.length})
+            </button>
           </div>
 
           {/* SECTION 1: Order Report */}
@@ -4479,49 +4726,79 @@ export function StorePortal({ activeTab }) {
                 </div>
               </div>
 
-              {/* Independent Date Filter + Branch Selector */}
+              {/* Independent Date Filter + Branch & Category Selector */}
               <DateFilterBar
                 label="Dispatch Date Filter"
                 selectedDate={dispatchFilterDate}
                 onDateChange={(newDate) => {
                   setDispatchFilterDate(newDate);
                   setDispatchIsAllDates(false);
-                  loadDispatchReport(newDate, false, dispatchFilterBranch);
+                  loadDispatchReport(newDate, false, dispatchFilterBranch, dispatchFilterCategory);
                 }}
                 isAllDates={dispatchIsAllDates}
                 onToggleAllDates={(all) => {
                   setDispatchIsAllDates(all);
-                  loadDispatchReport(dispatchFilterDate, all, dispatchFilterBranch);
+                  loadDispatchReport(dispatchFilterDate, all, dispatchFilterBranch, dispatchFilterCategory);
                 }}
                 availableDates={dispatchAvailableDates}
                 totalCount={dispatchReport.length}
                 extraControls={
-                  <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
-                    <label style={{ fontSize: '13px', fontWeight: '600', color: 'var(--primary-dark-green)' }}>
-                      🏢 {t('Branch:', 'Branch:')}
-                    </label>
-                    <select
-                      value={dispatchFilterBranch}
-                      onChange={(e) => {
-                        const b = e.target.value;
-                        setDispatchFilterBranch(b);
-                        loadDispatchReport(dispatchFilterDate, dispatchIsAllDates, b);
-                      }}
-                      style={{
-                        padding: '6px 10px',
-                        border: '1px solid var(--border-color, #E5DDC9)',
-                        borderRadius: '6px',
-                        background: '#fff',
-                        fontSize: '13px',
-                        color: 'var(--dark-text)',
-                        cursor: 'pointer'
-                      }}
-                    >
-                      <option value="">{t('All Branches', 'All Branches')}</option>
-                      {branches.map(b => (
-                        <option key={b.id || b.name} value={b.name}>{b.name}</option>
-                      ))}
-                    </select>
+                  <div style={{ display: 'inline-flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+                    <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                      <label style={{ fontSize: '13px', fontWeight: '600', color: 'var(--primary-dark-green)' }}>
+                        🏢 {t('Branch:', 'Branch:')}
+                      </label>
+                      <select
+                        value={dispatchFilterBranch}
+                        onChange={(e) => {
+                          const b = e.target.value;
+                          setDispatchFilterBranch(b);
+                          loadDispatchReport(dispatchFilterDate, dispatchIsAllDates, b, dispatchFilterCategory);
+                        }}
+                        style={{
+                          padding: '6px 10px',
+                          border: '1px solid var(--border-color, #E5DDC9)',
+                          borderRadius: '6px',
+                          background: '#fff',
+                          fontSize: '13px',
+                          color: 'var(--dark-text)',
+                          cursor: 'pointer'
+                        }}
+                      >
+                        <option value="">{t('All Branches', 'All Branches')}</option>
+                        {branches.map(b => (
+                          <option key={b.id || b.name} value={b.name}>{b.name}</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                      <label style={{ fontSize: '13px', fontWeight: '600', color: 'var(--primary-dark-green)' }}>
+                        🏷️ {t('Category:', 'Category:')}
+                      </label>
+                      <select
+                        value={dispatchFilterCategory}
+                        onChange={(e) => {
+                          const cat = e.target.value;
+                          setDispatchFilterCategory(cat);
+                          loadDispatchReport(dispatchFilterDate, dispatchIsAllDates, dispatchFilterBranch, cat);
+                        }}
+                        style={{
+                          padding: '6px 10px',
+                          border: '1px solid var(--border-color, #E5DDC9)',
+                          borderRadius: '6px',
+                          background: '#fff',
+                          fontSize: '13px',
+                          color: 'var(--dark-text)',
+                          cursor: 'pointer'
+                        }}
+                      >
+                        <option value="">{t('All Categories', 'All Categories')}</option>
+                        {BRANCH_ORDER_CATEGORIES.map(c => (
+                          <option key={c} value={c}>{translateCategory(c)}</option>
+                        ))}
+                      </select>
+                    </div>
                   </div>
                 }
               />
@@ -4538,11 +4815,11 @@ export function StorePortal({ activeTab }) {
                     onResetToday={() => {
                       setDispatchIsAllDates(false);
                       setDispatchFilterDate(getTodayDateString());
-                      loadDispatchReport(getTodayDateString(), false, dispatchFilterBranch);
+                      loadDispatchReport(getTodayDateString(), false, dispatchFilterBranch, dispatchFilterCategory);
                     }}
                     onShowAll={() => {
                       setDispatchIsAllDates(true);
-                      loadDispatchReport(dispatchFilterDate, true, dispatchFilterBranch);
+                      loadDispatchReport(dispatchFilterDate, true, dispatchFilterBranch, dispatchFilterCategory);
                     }}
                   />
                 </div>
@@ -4555,6 +4832,7 @@ export function StorePortal({ activeTab }) {
                           <tr>
                             <th>{t('Dispatch Date and Time', 'Dispatch Date and Time')}</th>
                             <th>{t('Branch Name', 'Branch Name')}</th>
+                            <th>{t('Category', 'Category')}</th>
                             <th>{t('Item Name', 'Item Name')}</th>
                             <th>{t('Unit', 'Unit')}</th>
                             <th style={{ textAlign: 'right' }}>{t('Requested Quantity', 'Requested Quantity')}</th>
@@ -4569,6 +4847,13 @@ export function StorePortal({ activeTab }) {
                               <tr key={d.id}>
                                 <td>{formatDisplayDateTime(d.dispatchDateTime || d.createdAt || d.dispatchDate)}</td>
                                 <td><b>{d.branchName}</b></td>
+                                <td>
+                                  {d.category ? (
+                                    <span className="category-badge">{translateCategory(d.category)}</span>
+                                  ) : (
+                                    <span className="muted">—</span>
+                                  )}
+                                </td>
                                 <td>{translateItem(d.itemName)}</td>
                                 <td>{translateUnit(d.unit)}</td>
                                 <td style={{ textAlign: 'right' }}>
@@ -4604,6 +4889,244 @@ export function StorePortal({ activeTab }) {
                   }
 
                   return renderDispatchTable(dispatchReport);
+                })()
+              )}
+            </div>
+          )}
+
+          {/* SECTION 4: Branch Requests Report */}
+          {(reportSubTab === 'all' || reportSubTab === 'branch-requests') && (
+            <div className="card" style={{ marginBottom: 24 }}>
+              <div className="card-header" style={{ marginBottom: 12 }}>
+                <div>
+                  <h3 className="card-title">{t('4. Branch Requests Report', '4. Branch Requests Report')}</h3>
+                  <p className="muted" style={{ margin: '4px 0 0' }}>
+                    {language === 'ta'
+                      ? 'கிளை மேலாளர்களின் உருப்படி கோரிக்கைகள், வகை வாரியான விவரங்கள் மற்றும் விநியோக நிலை.'
+                      : 'Item requests submitted by branch managers, classified by category with fulfillment and delivery status.'}
+                  </p>
+                </div>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button
+                    type="button"
+                    className="secondary small"
+                    onClick={handleExportBranchRequests}
+                  >
+                    {t('⬇ Export CSV', '⬇ Export CSV')}
+                  </button>
+                  <button
+                    type="button"
+                    className="primary small"
+                    onClick={handleExportBranchRequestsPdf}
+                  >
+                    {t('📄 Export PDF', '📄 Export PDF')}
+                  </button>
+                </div>
+              </div>
+
+              {/* Independent Date Filter + Branch & Category Selector */}
+              <DateFilterBar
+                label="Branch Requests Date Filter"
+                selectedDate={branchReqFilterDate}
+                onDateChange={(newDate) => {
+                  setBranchReqFilterDate(newDate);
+                  setBranchReqIsAllDates(false);
+                  loadBranchReqReport(newDate, false, branchReqFilterBranch, branchReqFilterCategory);
+                }}
+                isAllDates={branchReqIsAllDates}
+                onToggleAllDates={(all) => {
+                  setBranchReqIsAllDates(all);
+                  loadBranchReqReport(branchReqFilterDate, all, branchReqFilterBranch, branchReqFilterCategory);
+                }}
+                availableDates={branchReqAvailableDates}
+                totalCount={branchReqReport.length}
+                extraControls={
+                  <div style={{ display: 'inline-flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+                    <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                      <label style={{ fontSize: '13px', fontWeight: '600', color: 'var(--primary-dark-green)' }}>
+                        🏢 {t('Branch:', 'Branch:')}
+                      </label>
+                      <select
+                        value={branchReqFilterBranch}
+                        onChange={(e) => {
+                          const b = e.target.value;
+                          setBranchReqFilterBranch(b);
+                          loadBranchReqReport(branchReqFilterDate, branchReqIsAllDates, b, branchReqFilterCategory);
+                        }}
+                        style={{
+                          padding: '6px 10px',
+                          border: '1px solid var(--border-color, #E5DDC9)',
+                          borderRadius: '6px',
+                          background: '#fff',
+                          fontSize: '13px',
+                          color: 'var(--dark-text)',
+                          cursor: 'pointer'
+                        }}
+                      >
+                        <option value="">{t('All Branches', 'All Branches')}</option>
+                        {branches.map(b => (
+                          <option key={b.id || b.name} value={b.name}>{b.name}</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                      <label style={{ fontSize: '13px', fontWeight: '600', color: 'var(--primary-dark-green)' }}>
+                        🏷️ {t('Category:', 'Category:')}
+                      </label>
+                      <select
+                        value={branchReqFilterCategory}
+                        onChange={(e) => {
+                          const cat = e.target.value;
+                          setBranchReqFilterCategory(cat);
+                          loadBranchReqReport(branchReqFilterDate, branchReqIsAllDates, branchReqFilterBranch, cat);
+                        }}
+                        style={{
+                          padding: '6px 10px',
+                          border: '1px solid var(--border-color, #E5DDC9)',
+                          borderRadius: '6px',
+                          background: '#fff',
+                          fontSize: '13px',
+                          color: 'var(--dark-text)',
+                          cursor: 'pointer'
+                        }}
+                      >
+                        <option value="">{t('All Categories', 'All Categories')}</option>
+                        {BRANCH_ORDER_CATEGORIES.map(c => (
+                          <option key={c} value={c}>{translateCategory(c)}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                }
+              />
+
+              {/* Category-wise Summary Breakdown Chips */}
+              {branchReqReport.length > 0 && (() => {
+                const catMap = {};
+                branchReqReport.forEach(r => {
+                  const cat = r.category || 'Uncategorized';
+                  if (!catMap[cat]) catMap[cat] = { count: 0, requestedQty: 0 };
+                  catMap[cat].count += 1;
+                  catMap[cat].requestedQty += Number(r.requestedQuantity || 0);
+                });
+                const catEntries = Object.entries(catMap);
+                return (
+                  <div style={{ margin: '14px 0 18px' }}>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--primary-dark-green)', marginBottom: 8 }}>
+                      📊 {t('Category-wise Summary Breakdown:', 'Category-wise Summary Breakdown:')}
+                    </div>
+                    <div className="category-summary-grid">
+                      {catEntries.map(([cat, data]) => (
+                        <div key={cat} className="category-summary-chip">
+                          <span className="category-badge">{cat === 'Uncategorized' ? t('Uncategorized', 'Uncategorized') : translateCategory(cat)}</span>
+                          <span style={{ fontSize: 13, color: 'var(--dark-text)' }}>
+                            <b>{data.count}</b> {t('items', 'items')} • <b>{data.requestedQty.toFixed(1).replace(/\.0$/, '')}</b> {t('total requested', 'total requested')}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {branchReqReport.length === 0 ? (
+                <div style={{ padding: '16px 0' }}>
+                  <EmptyDateMessage
+                    date={branchReqIsAllDates ? null : branchReqFilterDate}
+                    message={loadingBranchReqReport
+                      ? t('loading', 'Loading branch requests report...')
+                      : (language === 'ta'
+                          ? 'தேர்ந்தெடுக்கப்பட்ட தேதி மற்றும் வடிகட்டிகளுக்கு எந்த கிளை கோரிக்கைகளும் இல்லை.'
+                          : 'No branch request records found for selected filters.')}
+                    onResetToday={() => {
+                      setBranchReqIsAllDates(false);
+                      setBranchReqFilterDate(getTodayDateString());
+                      loadBranchReqReport(getTodayDateString(), false, branchReqFilterBranch, branchReqFilterCategory);
+                    }}
+                    onShowAll={() => {
+                      setBranchReqIsAllDates(true);
+                      loadBranchReqReport(branchReqFilterDate, true, branchReqFilterBranch, branchReqFilterCategory);
+                    }}
+                  />
+                </div>
+              ) : (
+                (() => {
+                  const renderReqTable = (items) => (
+                    <div className="table-wrap">
+                      <table>
+                        <thead>
+                          <tr>
+                            <th>{t('Request Date', 'Request Date')}</th>
+                            <th>{t('Branch Name', 'Branch Name')}</th>
+                            <th>{t('Category', 'Category')}</th>
+                            <th>{t('Item Name', 'Item Name')}</th>
+                            <th>{t('Unit', 'Unit')}</th>
+                            <th style={{ textAlign: 'right' }}>{t('Requested Quantity', 'Requested Quantity')}</th>
+                            <th style={{ textAlign: 'right' }}>{t('Dispatched Quantity', 'Dispatched Quantity')}</th>
+                            <th style={{ textAlign: 'right' }}>{t('Confirmed Received Quantity', 'Confirmed Received Quantity')}</th>
+                            <th style={{ textAlign: 'right' }}>{t('Remaining Quantity', 'Remaining Quantity')}</th>
+                            <th style={{ textAlign: 'center' }}>{t('Status', 'Status')}</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {items.map(r => {
+                            const isCompleted = (r.status || '').toUpperCase() === 'COMPLETED';
+                            const isPartial = (r.status || '').toUpperCase() === 'PARTIALLY_DELIVERED';
+                            return (
+                              <tr key={r.id || `${r.branchName}_${r.itemName}_${r.date}`}>
+                                <td>{formatDisplayDate(r.date)}</td>
+                                <td><b>{r.branchName}</b></td>
+                                <td>
+                                  {r.category ? (
+                                    <span className="category-badge">{translateCategory(r.category)}</span>
+                                  ) : (
+                                    <span className="muted">—</span>
+                                  )}
+                                </td>
+                                <td><b>{translateItem(r.itemName)}</b></td>
+                                <td>{translateUnit(r.unit)}</td>
+                                <td style={{ textAlign: 'right' }}>
+                                  <span style={{ fontWeight: 600 }}>{r.requestedQuantity}</span>
+                                </td>
+                                <td style={{ textAlign: 'right' }}>
+                                  <span style={{ fontWeight: 600, color: 'var(--primary-dark-green)' }}>
+                                    {r.dispatchedQuantity || 0}
+                                  </span>
+                                </td>
+                                <td style={{ textAlign: 'right' }}>
+                                  <span style={{ fontWeight: 600, color: 'var(--green)' }}>
+                                    {r.acknowledgedReceivedQuantity || 0}
+                                  </span>
+                                </td>
+                                <td style={{ textAlign: 'right' }}>
+                                  <span style={{ fontWeight: 600, color: (r.remainingQuantity > 0 ? '#b91c1c' : '#555') }}>
+                                    {r.remainingQuantity || 0}
+                                  </span>
+                                </td>
+                                <td style={{ textAlign: 'center' }}>
+                                  <span className={`badge ${isCompleted ? 'badge-completed' : (isPartial ? 'badge-ordered' : 'badge-pending')}`}>
+                                    {translateStatus(r.status || 'PENDING')}
+                                  </span>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  );
+
+                  if (branchReqIsAllDates) {
+                    return groupByDate(branchReqReport, r => r.date, language).map(dateGroup => (
+                      <div key={dateGroup.date} style={{ marginBottom: 20 }}>
+                        <DateSectionHeader date={dateGroup.date} count={dateGroup.items.length} unit={t('requests', 'requests')} />
+                        {renderReqTable(dateGroup.items)}
+                      </div>
+                    ));
+                  }
+
+                  return renderReqTable(branchReqReport);
                 })()
               )}
             </div>
@@ -4661,6 +5184,7 @@ export function StorePortal({ activeTab }) {
                   {selectedItemActivity.activity && selectedItemActivity.activity.length > 0 ? (
                     selectedItemActivity.activity.map(tx => {
                       const isReceipt = (tx.type || '').toUpperCase() === 'RECEIPT';
+                      const isDeficit = (tx.type || '').toUpperCase() === 'DISPATCH_DEFICIT_ADJUSTMENT';
                       return (
                         <tr key={tx.id}>
                           <td>
@@ -4669,17 +5193,23 @@ export function StorePortal({ activeTab }) {
                               : '—'}
                           </td>
                           <td>
-                            <span className={`badge ${isReceipt ? 'badge-completed' : 'badge-ordered'}`}>
-                              {isReceipt ? t('↓ Goods Receipt', '↓ Goods Receipt') : t('↑ Branch Dispatch', '↑ Branch Dispatch')}
-                            </span>
+                            {isReceipt ? (
+                              <span className="badge badge-completed">{t('↓ Goods Receipt', '↓ Goods Receipt')}</span>
+                            ) : isDeficit ? (
+                              <span className="badge" style={{ background: '#fee2e2', color: '#b91c1c', border: '1px solid #fca5a5' }}>
+                                ⚠️ {t('Stock Deficit', 'Stock Deficit')}
+                              </span>
+                            ) : (
+                              <span className="badge badge-ordered">{t('↑ Branch Dispatch', '↑ Branch Dispatch')}</span>
+                            )}
                           </td>
                           <td style={{ textAlign: 'right' }}>
-                            <span style={{ fontWeight: 700, color: isReceipt ? 'var(--green)' : 'var(--primary-dark-green)' }}>
+                            <span style={{ fontWeight: 700, color: isReceipt ? 'var(--green)' : (isDeficit ? '#b91c1c' : 'var(--primary-dark-green)') }}>
                               {isReceipt ? '+' : '-'}{tx.quantity} {translateUnit(selectedItemActivity.unit)}
                             </span>
                           </td>
                           <td style={{ textAlign: 'right' }}>
-                            <span style={{ fontWeight: 600 }}>
+                            <span style={{ fontWeight: 700, color: tx.balanceAfter < 0 ? '#b91c1c' : 'inherit' }}>
                               {tx.balanceAfter} {translateUnit(selectedItemActivity.unit)}
                             </span>
                           </td>
@@ -4821,7 +5351,12 @@ export function StorePortal({ activeTab }) {
           >
             <div className="modal-header">
               <div>
-                <h3>{t('Request History —', 'Request History —')} {translateItem(historyModalItem.item)}</h3>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                  <h3 style={{ margin: 0 }}>{t('Request History —', 'Request History —')} {translateItem(historyModalItem.item)}</h3>
+                  {historyModalItem.category && (
+                    <span className="category-badge">{translateCategory(historyModalItem.category)}</span>
+                  )}
+                </div>
                 <p className="muted" style={{ margin: '4px 0 0', fontSize: 13 }}>
                   {t('Branch:', 'Branch:')} <b>{selectedBranch}</b> • {t('Date:', 'Date:')} <b>{formatDisplayDate(historyModalItem.formattedDate || historyModalItem.requestDate)}</b>
                 </p>
@@ -4848,6 +5383,7 @@ export function StorePortal({ activeTab }) {
                   <tr>
                     <th>{t('Request Date', 'Request Date')}</th>
                     <th>{t('Request Time', 'Request Time')}</th>
+                    <th>{t('Category', 'Category')}</th>
                     <th>{t('Item Name', 'Item Name')}</th>
                     <th>{t('Unit', 'Unit')}</th>
                     <th style={{ textAlign: 'right' }}>{t('Requested Quantity', 'Requested Quantity')}</th>
@@ -4865,6 +5401,13 @@ export function StorePortal({ activeTab }) {
                             <b>{h.requestTime}</b>
                           )}
                         </td>
+                        <td>
+                          {h.category ? (
+                            <span className="category-badge">{translateCategory(h.category)}</span>
+                          ) : (
+                            <span className="muted">—</span>
+                          )}
+                        </td>
                         <td><b>{translateItem(h.item)}</b></td>
                         <td>{translateUnit(h.unit)}</td>
                         <td style={{ textAlign: 'right' }}><b>{h.requested}</b></td>
@@ -4872,14 +5415,14 @@ export function StorePortal({ activeTab }) {
                     ))
                   ) : (
                     <tr>
-                      <td colSpan="5" className="empty">{t('No individual request entries found.', 'No individual request entries found.')}</td>
+                      <td colSpan="6" className="empty">{t('No individual request entries found.', 'No individual request entries found.')}</td>
                     </tr>
                   )}
                 </tbody>
                 {historyModalItem.history && historyModalItem.history.length > 1 && (
                   <tfoot>
                     <tr style={{ background: 'var(--cream-surface)', fontWeight: 700 }}>
-                      <td colSpan="4">{t('Total Combined Requested Quantity', 'Total Combined Requested Quantity')}</td>
+                      <td colSpan="5">{t('Total Combined Requested Quantity', 'Total Combined Requested Quantity')}</td>
                       <td style={{ textAlign: 'right', color: 'var(--green)' }}>
                         {historyModalItem.totalRequestedQuantity} {translateUnit(historyModalItem.unit)}
                       </td>

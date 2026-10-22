@@ -27,10 +27,10 @@ public interface BranchRequestRepository extends JpaRepository<BranchRequest, Lo
     @Query("SELECT r FROM BranchRequest r WHERE r.organisationId = ?1 AND LOWER(r.branch) = LOWER(?2) AND LOWER(r.item) = LOWER(?3) AND r.requested > r.dispatched ORDER BY r.id ASC")
     List<BranchRequest> findOutstandingForOrganisationAndBranchAndItem(Long organisationId, String branch, String item);
 
-    @Query("SELECT r FROM BranchRequest r WHERE r.requested > r.dispatched")
+    @Query("SELECT r FROM BranchRequest r WHERE r.requested > r.dispatched ORDER BY r.branch ASC, r.id ASC")
     List<BranchRequest> findAllOutstanding();
 
-    @Query("SELECT r FROM BranchRequest r WHERE r.organisationId = ?1 AND r.requested > r.dispatched")
+    @Query("SELECT r FROM BranchRequest r WHERE r.organisationId = ?1 AND r.requested > r.dispatched ORDER BY r.branch ASC, r.id ASC")
     List<BranchRequest> findAllOutstandingByOrganisationId(Long organisationId);
 
     int countByOrganisationId(Long organisationId);

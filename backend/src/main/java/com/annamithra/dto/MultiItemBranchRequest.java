@@ -8,6 +8,7 @@ public class MultiItemBranchRequest {
     public static class ItemLine {
         public String itemName;
         public String unit;
+        public String category;
         public int requestedQuantity;
         public boolean isNewItem;
     }

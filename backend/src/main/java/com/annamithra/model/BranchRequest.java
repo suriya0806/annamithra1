@@ -34,6 +34,8 @@ public class BranchRequest {
     @Column(nullable = false)
     public int requested;
 
+    public String category;
+
     public int dispatched = 0; // Already Dispatched Quantity
 
     public int received = 0; // Confirmed Received Quantity
