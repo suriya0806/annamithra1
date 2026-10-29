@@ -52,13 +52,47 @@ public class DataInitializer implements CommandLineRunner {
         String[] tables = {
             "app_users", "user_sessions", "branch", "item", "purchase_order",
             "purchase_order_header", "purchase_receipt", "branch_request",
-            "dispatch", "dispatch_return", "inventory_transaction"
+            "dispatch", "dispatch_return", "inventory_transaction", "item_category"
         };
         for (String table : tables) {
             try {
                 jdbcTemplate.execute("ALTER TABLE " + table + " ADD COLUMN IF NOT EXISTS organisation_id BIGINT");
             } catch (Exception ignored) {}
         }
+
+        // Add category and audit columns for inventory items & transactions
+        try {
+            jdbcTemplate.execute("ALTER TABLE item ADD COLUMN IF NOT EXISTS category VARCHAR(100)");
+        } catch (Exception ignored) {}
+        try {
+            jdbcTemplate.execute("ALTER TABLE inventory_transaction ADD COLUMN IF NOT EXISTS category VARCHAR(100)");
+        } catch (Exception ignored) {}
+        try {
+            jdbcTemplate.execute("ALTER TABLE inventory_transaction ADD COLUMN IF NOT EXISTS created_by_admin_id BIGINT");
+        } catch (Exception ignored) {}
+        // Create item_category table if not exists
+        try {
+            jdbcTemplate.execute("CREATE TABLE IF NOT EXISTS item_category (" +
+                "id BIGSERIAL PRIMARY KEY, " +
+                "organisation_id BIGINT, " +
+                "name VARCHAR(100) NOT NULL, " +
+                "active BOOLEAN DEFAULT TRUE, " +
+                "created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, " +
+                "created_by VARCHAR(128), " +
+                "updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP" +
+                ")");
+        } catch (Exception ignored) {}
+
+        // Add category_id, created_by, updated_at to item table if not exists
+        try {
+            jdbcTemplate.execute("ALTER TABLE item ADD COLUMN IF NOT EXISTS category_id BIGINT");
+        } catch (Exception ignored) {}
+        try {
+            jdbcTemplate.execute("ALTER TABLE item ADD COLUMN IF NOT EXISTS created_by VARCHAR(128)");
+        } catch (Exception ignored) {}
+        try {
+            jdbcTemplate.execute("ALTER TABLE item ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP");
+        } catch (Exception ignored) {}
 
         // 3. Drop single-column unique constraints that block multi-tenancy
         try {
@@ -224,6 +258,57 @@ public class DataInitializer implements CommandLineRunner {
         try {
             jdbcTemplate.execute("UPDATE dispatch SET dispatch_number = CONCAT('DSP-', id) WHERE dispatch_number IS NULL OR TRIM(dispatch_number) = ''");
         } catch (Exception ignored) {}
+        // Seed default item categories
+        String[] defaultCategories = {
+            "Dairy", "Pulses", "Vegetables", "Groceries", "Tea/Coffee",
+            "Vada Stall", "Sweet/Savouries", "Dosa Kal", "Chinese",
+            "Idly", "Front Office", "Parcel", "Dishwasher"
+        };
+        for (String catName : defaultCategories) {
+            try {
+                jdbcTemplate.update("INSERT INTO item_category (organisation_id, name, active, created_by, created_at, updated_at) " +
+                    "SELECT 1, ?, true, 'System', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP " +
+                    "WHERE NOT EXISTS (SELECT 1 FROM item_category WHERE organisation_id = 1 AND LOWER(TRIM(name)) = LOWER(?))",
+                    catName, catName);
+            } catch (Exception ignored) {}
+        }
+
+        // Backfill item.category_id based on matching category name
+        try {
+            jdbcTemplate.execute("UPDATE item i " +
+                "SET category_id = c.id " +
+                "FROM item_category c " +
+                "WHERE i.category_id IS NULL " +
+                "  AND (i.organisation_id = c.organisation_id OR (i.organisation_id IS NULL AND c.organisation_id = 1)) " +
+                "  AND LOWER(TRIM(i.category)) = LOWER(TRIM(c.name))");
+        } catch (Exception ignored) {}
+
+        // Migrate quantity columns to NUMERIC(12, 3) to support fractional/decimal quantities
+        String[] decimalMigrations = {
+            "ALTER TABLE item ALTER COLUMN stock TYPE NUMERIC(12,3) USING stock::NUMERIC(12,3)",
+            "ALTER TABLE branch_request ALTER COLUMN requested TYPE NUMERIC(12,3) USING requested::NUMERIC(12,3)",
+            "ALTER TABLE branch_request ALTER COLUMN dispatched TYPE NUMERIC(12,3) USING dispatched::NUMERIC(12,3)",
+            "ALTER TABLE branch_request ALTER COLUMN received TYPE NUMERIC(12,3) USING received::NUMERIC(12,3)",
+            "ALTER TABLE dispatch ALTER COLUMN quantity TYPE NUMERIC(12,3) USING quantity::NUMERIC(12,3)",
+            "ALTER TABLE dispatch ALTER COLUMN acknowledged_quantity TYPE NUMERIC(12,3) USING acknowledged_quantity::NUMERIC(12,3)",
+            "ALTER TABLE dispatch ALTER COLUMN shortage_quantity TYPE NUMERIC(12,3) USING shortage_quantity::NUMERIC(12,3)",
+            "ALTER TABLE dispatch ALTER COLUMN returned_quantity TYPE NUMERIC(12,3) USING returned_quantity::NUMERIC(12,3)",
+            "ALTER TABLE dispatch_return ALTER COLUMN return_quantity TYPE NUMERIC(12,3) USING return_quantity::NUMERIC(12,3)",
+            "ALTER TABLE purchase_order ALTER COLUMN quantity TYPE NUMERIC(12,3) USING quantity::NUMERIC(12,3)",
+            "ALTER TABLE purchase_order ALTER COLUMN required_quantity TYPE NUMERIC(12,3) USING required_quantity::NUMERIC(12,3)",
+            "ALTER TABLE purchase_order ALTER COLUMN received_qty TYPE NUMERIC(12,3) USING received_qty::NUMERIC(12,3)",
+            "ALTER TABLE purchase_receipt ALTER COLUMN received_qty TYPE NUMERIC(12,3) USING received_qty::NUMERIC(12,3)",
+            "ALTER TABLE inventory_transaction ALTER COLUMN quantity TYPE NUMERIC(12,3) USING quantity::NUMERIC(12,3)",
+            "ALTER TABLE inventory_transaction ALTER COLUMN balance_after TYPE NUMERIC(12,3) USING balance_after::NUMERIC(12,3)",
+            "ALTER TABLE branch_order_draft ALTER COLUMN total_quantity TYPE NUMERIC(12,3) USING total_quantity::NUMERIC(12,3)"
+        };
+        for (String sql : decimalMigrations) {
+            try {
+                jdbcTemplate.execute(sql);
+            } catch (Exception ignored) {}
+        }
+
+
     }
 
     @Override

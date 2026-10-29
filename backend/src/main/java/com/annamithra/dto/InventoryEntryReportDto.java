@@ -7,10 +7,12 @@ public class InventoryEntryReportDto {
     public LocalDateTime receiptDate;
     public String orderNumber;
     public String itemName;
+    public String category;
     public String unit;
     public int quantityReceived;
     public Integer updatedStockBalance;
     public String receivedBy;
+    public Long createdByAdminId;
     public String referenceType;
 
     public InventoryEntryReportDto() {}
@@ -24,6 +26,20 @@ public class InventoryEntryReportDto {
         this.quantityReceived = quantityReceived;
         this.updatedStockBalance = updatedStockBalance;
         this.receivedBy = receivedBy;
+        this.referenceType = referenceType;
+    }
+
+    public InventoryEntryReportDto(Long id, LocalDateTime receiptDate, String orderNumber, String itemName, String category, String unit, int quantityReceived, Integer updatedStockBalance, String receivedBy, Long createdByAdminId, String referenceType) {
+        this.id = id;
+        this.receiptDate = receiptDate;
+        this.orderNumber = orderNumber;
+        this.itemName = itemName;
+        this.category = category;
+        this.unit = unit;
+        this.quantityReceived = quantityReceived;
+        this.updatedStockBalance = updatedStockBalance;
+        this.receivedBy = receivedBy;
+        this.createdByAdminId = createdByAdminId;
         this.referenceType = referenceType;
     }
 }

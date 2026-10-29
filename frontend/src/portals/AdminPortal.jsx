@@ -6,6 +6,8 @@ import { downloadOrderPdf, parseOrderDateTime } from '../utils/pdfGenerator';
 import DateFilterBar, { DateSectionHeader, EmptyDateMessage } from '../components/DateFilterBar';
 import { useAddItemShortcut } from '../utils/useAddItemShortcut';
 import { useLanguage } from '../i18n/LanguageContext';
+import { ReportsView } from '../components/ReportsView';
+import { AddItemsView } from '../components/AddItemsView';
 import {
   getTodayDateString,
   toLocalDateString,
@@ -1103,6 +1105,13 @@ export function AdminPortal({ activeTab }) {
       )}
 
       {/* =========================================================================
+          ADD ITEMS MODULE (ITEM MASTER & REUSABLE CATEGORIES)
+          ========================================================================= */}
+      {activeTab === 'add-items' && (
+        <AddItemsView userRole="Organisation Admin" />
+      )}
+
+      {/* =========================================================================
           ORDER TAB
           ========================================================================= */}
       {activeTab === 'order' && (
@@ -1822,6 +1831,13 @@ export function AdminPortal({ activeTab }) {
           </section>
         );
       })()}
+
+      {/* =========================================================================
+          REPORTS TAB
+          ========================================================================= */}
+      {activeTab === 'reports' && (
+        <ReportsView userRole="Organisation Admin" />
+      )}
 
       {/* =========================================================================
           EDIT ACCOUNT / RESET PASSWORD MODAL

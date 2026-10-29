@@ -36,6 +36,18 @@ public class BranchRequest {
 
     public String category;
 
+    @com.fasterxml.jackson.annotation.JsonProperty("department")
+    public String getDepartment() {
+        return category;
+    }
+
+    @com.fasterxml.jackson.annotation.JsonProperty("department")
+    public void setDepartment(String dep) {
+        if (dep != null && !dep.isBlank()) {
+            this.category = dep;
+        }
+    }
+
     public int dispatched = 0; // Already Dispatched Quantity
 
     public int received = 0; // Confirmed Received Quantity

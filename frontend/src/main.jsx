@@ -59,7 +59,7 @@ function AppContent() {
         setActiveTab('branch-requests');
       }
     } catch (err) {
-      setAlert({ type: 'error', message: err.message || t('Login failed. Please check credentials.') });
+      setAlert({ type: 'error', message: err.message || t('Invalid username or password.') });
     } finally {
       setSubmitting(false);
     }

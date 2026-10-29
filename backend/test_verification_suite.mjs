@@ -12,8 +12,27 @@ async function runTest() {
   const storeAuth = (await req('/auth/login', { method: 'POST', body: JSON.stringify({ username: 'store@manager', password: '1234', role: 'Store Manager' }) })).data;
   const b1Auth = (await req('/auth/login', { method: 'POST', body: JSON.stringify({ username: 'Branch1', password: '1234', role: 'Branch Manager' }) })).data;
 
+  // Dynamically submit two branch requests for Rice to test combination & history
+  const submitRes1 = await req('/branch-requests', {
+    method: 'POST',
+    headers: { Authorization: 'Bearer ' + b1Auth.token },
+    body: JSON.stringify({
+      items: [{ itemName: 'Rice', unit: 'KG', department: 'Groceries', requestedQuantity: 3 }]
+    })
+  });
+  const req1 = submitRes1.data[0];
+
+  const submitRes2 = await req('/branch-requests', {
+    method: 'POST',
+    headers: { Authorization: 'Bearer ' + b1Auth.token },
+    body: JSON.stringify({
+      items: [{ itemName: 'Rice', unit: 'KG', department: 'Groceries', requestedQuantity: 4 }]
+    })
+  });
+  const req2 = submitRes2.data[0];
+
   let sections = (await req('/branch-requests?branch=Branch 1', { headers: { Authorization: 'Bearer ' + storeAuth.token } })).data;
-  const todaySection = sections.find(s => s.formattedDate.includes('18 October') || s.requestDate === '2026-10-18');
+  const todaySection = sections[0];
   console.log('Today Section found:', todaySection.formattedDate);
   const rice = todaySection.items.find(i => i.item.toLowerCase() === 'rice');
   console.log('Rice Total Requested:', rice.totalRequestedQuantity, 'Unit:', rice.unit);
@@ -26,10 +45,10 @@ async function runTest() {
     headers: { Authorization: 'Bearer ' + storeAuth.token },
     body: JSON.stringify({
       branchName: 'Branch 1',
-      items: [{ requestId: 22, itemName: 'Rice', unit: 'KG', dispatchQty: 3, isAdditional: false }]
+      items: [{ requestId: req1.id, itemName: 'Rice', unit: 'KG', dispatchQty: 3, isAdditional: false }]
     })
   });
-  console.log('Dispatched 3 KG for request 22. Status:', dispatchRes1.status);
+  console.log('Dispatched 3 KG for request', req1.id, 'Status:', dispatchRes1.status);
 
   sections = (await req('/branch-requests?branch=Branch 1', { headers: { Authorization: 'Bearer ' + storeAuth.token } })).data;
   const riceAfterDispatch1 = sections[0].items.find(i => i.item.toLowerCase() === 'rice');
@@ -63,10 +82,10 @@ async function runTest() {
     headers: { Authorization: 'Bearer ' + storeAuth.token },
     body: JSON.stringify({
       branchName: 'Branch 1',
-      items: [{ requestId: 23, itemName: 'Rice', unit: 'KG', dispatchQty: 4, isAdditional: false }]
+      items: [{ requestId: req2.id, itemName: 'Rice', unit: 'KG', dispatchQty: 4, isAdditional: false }]
     })
   });
-  console.log('Dispatched 4 KG for request 23. Status:', dispatchRes2.status);
+  console.log('Dispatched 4 KG for request', req2.id, 'Status:', dispatchRes2.status);
 
   const d2Id = dispatchRes2.data[0].id;
   const ackRes2 = await req('/dispatches/' + d2Id + '/acknowledge', {
@@ -88,5 +107,6 @@ async function runTest() {
   sections.forEach((s, idx) => {
     console.log('Section [' + idx + ']: Date: ' + s.formattedDate + ' (reqDate: ' + s.requestDate + '), Item count: ' + s.items.length);
   });
+  console.log('\n=== VERIFICATION SUITE COMPLETED SUCCESSFULLY ===');
 }
 runTest();

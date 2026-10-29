@@ -57,6 +57,113 @@ export function getFullUrl(endpoint) {
   return `${CLEAN_BASE_URL}${path}`;
 }
 
+// Sanitize error messages across the application to ensure clean, human-readable feedback
+// without leaking SQL queries, database constraints, stack traces, or technical code.
+export function sanitizeErrorMessage(rawError, status, endpoint = '') {
+  const errorText = typeof rawError === 'string' ? rawError : (rawError?.message || '');
+  const lower = errorText.toLowerCase().trim();
+  const lowerEndpoint = (endpoint || '').toLowerCase();
+
+  // 1. Network / Connection errors
+  if (lower.includes('failed to fetch') || 
+      lower.includes('networkerror') || 
+      lower.includes('load failed') ||
+      lower.includes('connection refused') ||
+      lower.includes('connection failed') ||
+      lower.includes('network error') ||
+      lower.includes('err_connection_refused')) {
+    return 'Connection failed.';
+  }
+
+  // 2. Technical / SQL / DB constraint errors detection
+  const isTechnical = 
+    lower.includes('could not execute statement') ||
+    lower.includes('syntax error') ||
+    lower.includes('violates unique constraint') ||
+    lower.includes('duplicate key value') ||
+    lower.includes('foreign key constraint') ||
+    lower.includes('psqlexception') ||
+    lower.includes('org.hibernate') ||
+    lower.includes('sql [') ||
+    lower.includes('insert into') ||
+    lower.includes('select ') ||
+    lower.includes('update ') ||
+    lower.includes('delete from') ||
+    lower.includes('constraint [') ||
+    lower.includes('stack trace') ||
+    lower.includes('exception') ||
+    lower.includes('server error (500)');
+
+  // Duplicate category
+  if (lower.includes('category already exists') ||
+      ((lower.includes('duplicate') || lower.includes('unique') || lower.includes('already exists')) && lower.includes('category'))) {
+    return 'Category already exists.';
+  }
+
+  // 3. Duplicate item
+  if (lower.includes('item already exists') ||
+      ((lower.includes('duplicate') || lower.includes('unique') || lower.includes('already exists')) &&
+       (lower.includes('item') || lowerEndpoint.includes('item') || lowerEndpoint.includes('branch-request')))) {
+    return 'Item already exists.';
+  }
+
+  // 4. Duplicate username / branch / org
+  if (lower.includes('username already exists') || lower.includes('user with this manager user id already exists') ||
+      ((lower.includes('duplicate') || lower.includes('unique') || lower.includes('already exists')) && lower.includes('user'))) {
+    return 'Username already exists.';
+  }
+  if (lower.includes('branch already exists') ||
+      ((lower.includes('duplicate') || lower.includes('unique') || lower.includes('already exists')) && lower.includes('branch'))) {
+    return 'Branch already exists.';
+  }
+  if (lower.includes('organisation already exists') ||
+      ((lower.includes('duplicate') || lower.includes('unique') || lower.includes('already exists')) && lower.includes('organisation'))) {
+    return 'Organisation already exists.';
+  }
+
+  // 5. Order submission failure
+  if (lowerEndpoint.includes('branch-requests') || lowerEndpoint.includes('purchase-orders')) {
+    if (lower.includes('order submission failed') || isTechnical || status === 500) {
+      return 'Order submission failed.';
+    }
+  }
+
+  // 6. Login / Authentication failure
+  if (lowerEndpoint.includes('/auth/login') || status === 401 ||
+      lower.includes('invalid username or password') || lower.includes('bad credentials') || lower.includes('unauthorized')) {
+    return 'Invalid username or password.';
+  }
+
+  // 7. Validation errors
+  if (status === 400 || 
+      lower.includes('please check the entered details') ||
+      lower.includes('validation error') ||
+      lower.includes('cannot be blank') ||
+      lower.includes('is required') ||
+      lower.includes('must be positive') ||
+      lower.includes('must be greater than') ||
+      lower.includes('invalid category')) {
+    if (isTechnical || lower.includes('validation') || lower.length > 80) {
+      return 'Please check the entered details.';
+    }
+    return errorText;
+  }
+
+  // 8. If technical code was detected, sanitize to clean fallback
+  if (isTechnical) {
+    if (status === 409) return 'Item already exists.';
+    if (status === 400) return 'Please check the entered details.';
+    return 'Operation failed. Please try again.';
+  }
+
+  // 9. Short, clean business message
+  if (errorText && errorText.length < 120) {
+    return errorText;
+  }
+
+  return 'Operation failed. Please try again.';
+}
+
 async function request(endpoint, options = {}) {
   const url = getFullUrl(endpoint);
   const { token } = getStoredAuth();
@@ -66,21 +173,42 @@ async function request(endpoint, options = {}) {
     ...(options.headers || {})
   };
 
-  const response = await fetch(url, {
-    ...options,
-    headers
-  });
+  let response;
+  try {
+    response = await fetch(url, {
+      ...options,
+      headers
+    });
+  } catch (netErr) {
+    // Keep detailed errors in developer logs for debugging
+    console.error(`[API Network Error] fetch failed for ${endpoint}:`, netErr);
+    const err = new Error('Connection failed.');
+    err.status = 0;
+    err.isNetworkError = true;
+    err.originalError = netErr;
+    throw err;
+  }
 
   if (!response.ok) {
-    let errorMsg = `Server error (${response.status})`;
+    let rawError = `Server error (${response.status})`;
     try {
       const errJson = await response.json();
-      errorMsg = errJson.message || errJson.error || errorMsg;
+      rawError = errJson.message || errJson.error || rawError;
     } catch {
-      // not JSON
+      try {
+        rawError = await response.text();
+      } catch {
+        // use fallback
+      }
     }
-    const err = new Error(errorMsg);
+
+    // Keep detailed errors in developer logs for debugging
+    console.error(`[API HTTP Error ${response.status}] for ${endpoint}:`, rawError);
+
+    const cleanMsg = sanitizeErrorMessage(rawError, response.status, endpoint);
+    const err = new Error(cleanMsg);
     err.status = response.status;
+    err.rawMessage = rawError;
     throw err;
   }
 
@@ -111,11 +239,37 @@ export const api = {
 
   checkHealth: () => request('/api/health'),
 
-  // Catalog & Inventory
-  getItems: () => request('/api/items'),
+  // Catalog & Item Master
+  getItems: (organisationId) => {
+    return request('/api/items' + (organisationId ? `?organisationId=${organisationId}` : ''));
+  },
   createItem: (itemData) => request('/api/items', {
     method: 'POST',
     body: JSON.stringify(itemData)
+  }),
+  updateItem: (id, itemData) => request(`/api/items/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(itemData)
+  }),
+
+  // Categories
+  getCategories: (includeInactive = false, organisationId) => {
+    const params = new URLSearchParams();
+    if (includeInactive) params.append('includeInactive', 'true');
+    if (organisationId) params.append('organisationId', organisationId);
+    const qs = params.toString();
+    return request(`/api/categories${qs ? `?${qs}` : ''}`);
+  },
+  createCategory: (catData) => request('/api/categories', {
+    method: 'POST',
+    body: JSON.stringify(catData)
+  }),
+  updateCategory: (id, catData) => request(`/api/categories/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(catData)
+  }),
+  deleteCategory: (id, force = false) => request(`/api/categories/${id}${force ? '?force=true' : ''}`, {
+    method: 'DELETE'
   }),
   receiveDirectGoods: (receiptData) => request('/api/inventory/receive', {
     method: 'POST',
@@ -125,15 +279,30 @@ export const api = {
     method: 'POST',
     body: JSON.stringify(stockData)
   }),
+  addInventoryEntry: (entryData) => request('/api/inventory/entry', {
+    method: 'POST',
+    body: JSON.stringify(entryData)
+  }),
   getCentralInventory: () => request('/api/inventory'),
-  getCentralInventoryTransactions: (date, item, fromDate, toDate) => {
+  getCentralInventoryTransactions: (date, item, fromDate, toDate, category) => {
     const params = new URLSearchParams();
     if (date) params.append('date', date);
     if (fromDate) params.append('fromDate', fromDate);
     if (toDate) params.append('toDate', toDate);
     if (item) params.append('item', item);
+    if (category && category !== 'ALL') params.append('category', category);
     const qs = params.toString();
     return request(`/api/inventory/transactions${qs ? `?${qs}` : ''}`);
+  },
+  getInventoryEntries: (date, item, fromDate, toDate, category) => {
+    const params = new URLSearchParams();
+    if (date) params.append('date', date);
+    if (fromDate) params.append('fromDate', fromDate);
+    if (toDate) params.append('toDate', toDate);
+    if (item) params.append('item', item);
+    if (category && category !== 'ALL') params.append('category', category);
+    const qs = params.toString();
+    return request(`/api/inventory/entries${qs ? `?${qs}` : ''}`);
   },
 
   // Branches
@@ -309,6 +478,7 @@ export const api = {
     });
   },
 
+
   // Dispatches & Acknowledgements
   dispatchItems: (branchName, items) => request('/api/dispatches/prepare', {
     method: 'POST',
@@ -379,12 +549,13 @@ export const api = {
     const qs = params.toString();
     return request(`/api/reports/purchase-orders${qs ? `?${qs}` : ''}`);
   },
-  getInventoryEntryReport: ({ date, fromDate, toDate, search } = {}) => {
+  getInventoryEntryReport: ({ date, fromDate, toDate, search, category } = {}) => {
     const params = new URLSearchParams();
     if (date) params.append('date', date);
     if (fromDate) params.append('fromDate', fromDate);
     if (toDate) params.append('toDate', toDate);
     if (search) params.append('search', search);
+    if (category && category !== 'ALL') params.append('category', category);
     const qs = params.toString();
     return request(`/api/reports/inventory-entries${qs ? `?${qs}` : ''}`);
   },

@@ -10,6 +10,7 @@ public class BranchOrderDraftDto {
         public String itemName;
         public String unit;
         public String category;
+        public String department;
         public int requestedQuantity;
         public boolean isNewItem;
 
@@ -19,8 +20,15 @@ public class BranchOrderDraftDto {
             this.itemName = itemName;
             this.unit = unit;
             this.category = category;
+            this.department = category;
             this.requestedQuantity = requestedQuantity;
             this.isNewItem = isNewItem;
+        }
+
+        public String getEffectiveDepartment() {
+            if (department != null && !department.isBlank()) return department.trim();
+            if (category != null && !category.isBlank()) return category.trim();
+            return null;
         }
     }
 

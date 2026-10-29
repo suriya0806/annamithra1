@@ -39,13 +39,16 @@ export function TopNavbar({ user, activeTab, onSelectTab, onLogout }) {
         return [
           { id: 'branches', label: t('Branches'), icon: '🌿' },
           { id: 'accounts', label: t('Account Management'), icon: '👥' },
+          { id: 'add-items', label: t('Add Items'), icon: '🏷️' },
           { id: 'order', label: t('Order'), icon: '📋' },
+          { id: 'reports', label: t('Reports'), icon: '📊' },
           { id: 'history', label: t('History'), icon: '📜' }
         ];
       case 'Store Manager':
         return [
           { id: 'branch-requests', label: t('Dispatch', 'Dispatch'), icon: '🚚' },
           { id: 'central-inventory', label: t('Central Inventory'), icon: '📦' },
+          { id: 'add-items', label: t('Add Items'), icon: '🏷️' },
           { id: 'entry-items', label: t('Entry Items'), icon: '📥' },
           { id: 'order', label: t('Order'), icon: '📋' },
           { id: 'reports', label: t('Reports'), icon: '📊' }
@@ -98,6 +101,7 @@ export function TopNavbar({ user, activeTab, onSelectTab, onLogout }) {
           {navItems.map((item) => (
             <button
               key={item.id}
+              id={`nav-${item.id}`}
               type="button"
               className={`nav-item ${activeTab === item.id ? 'active' : ''}`}
               onClick={() => handleNavClick(item.id)}

@@ -1,11 +1,14 @@
 import React from 'react';
+import { sanitizeErrorMessage } from '../api';
 
 export function Alert({ type = 'info', message, onDismiss }) {
   if (!message) return null;
 
+  const displayMessage = type === 'error' ? sanitizeErrorMessage(message) : message;
+
   return (
     <div className={`notice ${type}`}>
-      <span>{message}</span>
+      <span>{displayMessage}</span>
       {onDismiss && (
         <button
           type="button"

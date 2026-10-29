@@ -15,6 +15,8 @@ public class InventoryTransaction {
     @Column(nullable = false)
     public String itemName;
 
+    public String category;
+
     @Column(nullable = false)
     public String unit;
 
@@ -24,7 +26,7 @@ public class InventoryTransaction {
     @Column(nullable = false)
     public int quantity;
 
-    public String referenceType; // "PURCHASE_RECEIPT", "DISPATCH"
+    public String referenceType; // "PURCHASE_RECEIPT", "DISPATCH", "DIRECT_STOCK_ENTRY"
     public Long referenceId;
 
     @Column(nullable = false)
@@ -32,6 +34,7 @@ public class InventoryTransaction {
 
     public LocalDateTime transactionDate = LocalDateTime.now();
     public String performedBy;
+    public Long createdByAdminId;
 
     public InventoryTransaction() {}
 
@@ -56,5 +59,19 @@ public class InventoryTransaction {
         this.referenceId = referenceId;
         this.balanceAfter = balanceAfter;
         this.performedBy = performedBy;
+    }
+
+    public InventoryTransaction(Long organisationId, String itemName, String category, String unit, String type, int quantity, String referenceType, Long referenceId, int balanceAfter, String performedBy, Long createdByAdminId) {
+        this.organisationId = organisationId;
+        this.itemName = itemName;
+        this.category = category;
+        this.unit = unit;
+        this.type = type;
+        this.quantity = quantity;
+        this.referenceType = referenceType;
+        this.referenceId = referenceId;
+        this.balanceAfter = balanceAfter;
+        this.performedBy = performedBy;
+        this.createdByAdminId = createdByAdminId;
     }
 }

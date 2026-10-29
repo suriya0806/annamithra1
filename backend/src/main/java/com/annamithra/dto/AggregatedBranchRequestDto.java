@@ -11,10 +11,11 @@ public class AggregatedBranchRequestDto {
     public String item;
     public String unit;
     public String category;
-    public int totalRequestedQuantity;
-    public int alreadyDispatchedQuantity;
-    public int confirmedReceivedQuantity;
-    public int remainingToDispatch;
+    public String department;
+    public double totalRequestedQuantity;
+    public double alreadyDispatchedQuantity;
+    public double confirmedReceivedQuantity;
+    public double remainingToDispatch;
     public String deliveryStatus;       // COMPLETED, PARTIALLY_DELIVERED, PENDING
     public String deliveryStatusLabel;  // "Delivered / Completed", "Partially Delivered", "Pending Acknowledgement", "Pending"
     public List<BranchRequestHistoryDto> history = new ArrayList<>();
@@ -23,8 +24,8 @@ public class AggregatedBranchRequestDto {
 
     public AggregatedBranchRequestDto(String branch, LocalDate requestDate, String formattedDate,
                                      String item, String unit,
-                                     int totalRequestedQuantity, int alreadyDispatchedQuantity,
-                                     int confirmedReceivedQuantity, int remainingToDispatch,
+                                     double totalRequestedQuantity, double alreadyDispatchedQuantity,
+                                     double confirmedReceivedQuantity, double remainingToDispatch,
                                      String deliveryStatus, String deliveryStatusLabel,
                                      List<BranchRequestHistoryDto> history) {
         this(branch, requestDate, formattedDate, item, unit, null, totalRequestedQuantity, alreadyDispatchedQuantity, confirmedReceivedQuantity, remainingToDispatch, deliveryStatus, deliveryStatusLabel, history);
@@ -32,8 +33,8 @@ public class AggregatedBranchRequestDto {
 
     public AggregatedBranchRequestDto(String branch, LocalDate requestDate, String formattedDate,
                                      String item, String unit, String category,
-                                     int totalRequestedQuantity, int alreadyDispatchedQuantity,
-                                     int confirmedReceivedQuantity, int remainingToDispatch,
+                                     double totalRequestedQuantity, double alreadyDispatchedQuantity,
+                                     double confirmedReceivedQuantity, double remainingToDispatch,
                                      String deliveryStatus, String deliveryStatusLabel,
                                      List<BranchRequestHistoryDto> history) {
         this.branch = branch;
@@ -42,6 +43,7 @@ public class AggregatedBranchRequestDto {
         this.item = item;
         this.unit = unit;
         this.category = category;
+        this.department = category;
         this.totalRequestedQuantity = totalRequestedQuantity;
         this.alreadyDispatchedQuantity = alreadyDispatchedQuantity;
         this.confirmedReceivedQuantity = confirmedReceivedQuantity;

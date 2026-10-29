@@ -1750,3 +1750,501 @@ export async function downloadBranchOrderListPdf({
     }
   }
 }
+
+// =========================================================================
+// SIMPLIFIED OPERATIONAL REPORT PDF & CSV EXPORTERS
+// =========================================================================
+
+const THEME = {
+  darkGreen: [0, 59, 43],       // #003B2B
+  secondaryGreen: [7, 84, 61],  // #07543D
+  gold: [212, 166, 59],         // #D4A63B
+  creamSurface: [251, 247, 236],// #FBF7EC
+  headerBg: [245, 239, 224],    // #F5EFE0
+  borderTone: [229, 221, 201],  // #E5DDC9
+  darkText: [23, 53, 43],       // #17352B
+  mutedText: [102, 102, 102],
+  rowAlt: [252, 250, 243]
+};
+
+function drawReportHeader(doc, title, subtitle, dateLabel) {
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const marginX = 36;
+
+  // Header Banner
+  doc.setFillColor(...THEME.darkGreen);
+  doc.rect(0, 0, pageWidth, 52, 'F');
+
+  doc.setFillColor(...THEME.gold);
+  doc.rect(0, 52, pageWidth, 3.5, 'F');
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(15);
+  doc.setTextColor(255, 255, 255);
+  doc.text(`Annamithra — ${title}`, marginX, 32);
+
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(8.5);
+  doc.setTextColor(230, 240, 235);
+  const genStr = `Generated: ${new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}`;
+  doc.text(genStr, pageWidth - marginX - doc.getTextWidth(genStr), 32);
+
+  // Scope box
+  const boxY = 66;
+  const boxWidth = pageWidth - (marginX * 2);
+  doc.setFillColor(...THEME.creamSurface);
+  doc.roundedRect(marginX, boxY, boxWidth, 34, 4, 4, 'FD');
+  doc.setDrawColor(...THEME.borderTone);
+  doc.setLineWidth(1);
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(9);
+  doc.setTextColor(...THEME.darkGreen);
+  doc.text(subtitle, marginX + 12, boxY + 15);
+
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(8.5);
+  doc.setTextColor(...THEME.mutedText);
+  doc.text(`Date Scope: ${dateLabel || 'All Dates'}`, marginX + 12, boxY + 27);
+
+  return boxY + 44;
+}
+
+function drawReportFooter(doc, pageNum, totalPages) {
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const pageHeight = doc.internal.pageSize.getHeight();
+  const marginX = 36;
+  const footerY = pageHeight - 22;
+
+  doc.setDrawColor(...THEME.borderTone);
+  doc.setLineWidth(0.5);
+  doc.line(marginX, footerY - 8, pageWidth - marginX, footerY - 8);
+
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(8);
+  doc.setTextColor(...THEME.mutedText);
+  doc.text('Annamithra Food & Restaurant Management • Confidential', marginX, footerY);
+
+  const pageStr = `Page ${pageNum} of ${totalPages}`;
+  doc.text(pageStr, pageWidth - marginX - doc.getTextWidth(pageStr), footerY);
+}
+
+/**
+ * 1. Simple Inventory Report PDF
+ * Columns: Item Name, Unit, Current Stock, Last Updated Date
+ */
+export async function downloadSimpleInventoryPdf({ items = [], dateLabel = 'All Dates' } = {}) {
+  const doc = new jsPDF({ unit: 'pt', format: 'a4', orientation: 'portrait' });
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const pageHeight = doc.internal.pageSize.getHeight();
+  const marginX = 36;
+  const tableWidth = pageWidth - (marginX * 2);
+
+  const colWidths = { idx: 28, item: 235, unit: 65, stock: 85, updated: 110 };
+  const totalStock = items.reduce((sum, it) => sum + (Number(it.currentStock) || 0), 0);
+
+  const subtitle = `Total Items: ${items.length}   |   Total Central Stock: ${totalStock.toLocaleString()}`;
+  let currentY = drawReportHeader(doc, 'Inventory Report', subtitle, dateLabel);
+
+  const drawHeaders = (y) => {
+    doc.setFillColor(...THEME.headerBg);
+    doc.rect(marginX, y, tableWidth, 22, 'F');
+    doc.setDrawColor(...THEME.borderTone);
+    doc.rect(marginX, y, tableWidth, 22, 'S');
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(8.5);
+    doc.setTextColor(...THEME.darkGreen);
+
+    let x = marginX + 4;
+    doc.text('#', x, y + 14); x += colWidths.idx;
+    doc.text('Item Name', x, y + 14); x += colWidths.item;
+    doc.text('Unit', x, y + 14); x += colWidths.unit;
+    doc.text('Current Stock', x + colWidths.stock - 8, y + 14, { align: 'right' }); x += colWidths.stock;
+    doc.text('Last Updated', x, y + 14);
+
+    return y + 22;
+  };
+
+  currentY = drawHeaders(currentY);
+
+  if (items.length === 0) {
+    doc.setFillColor(255, 255, 255);
+    doc.rect(marginX, currentY, tableWidth, 30, 'FD');
+    doc.setFont('helvetica', 'italic');
+    doc.setFontSize(9);
+    doc.setTextColor(...THEME.mutedText);
+    doc.text('No inventory records found matching the selected filter criteria.', marginX + 12, currentY + 18);
+  } else {
+    items.forEach((it, idx) => {
+      if (currentY + 20 > pageHeight - 45) {
+        doc.addPage();
+        currentY = drawHeaders(36);
+      }
+
+      doc.setFillColor(...(idx % 2 === 1 ? THEME.rowAlt : [255, 255, 255]));
+      doc.rect(marginX, currentY, tableWidth, 20, 'F');
+      doc.setDrawColor(...THEME.borderTone);
+      doc.setLineWidth(0.5);
+      doc.line(marginX, currentY + 20, marginX + tableWidth, currentY + 20);
+
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(8.5);
+      doc.setTextColor(...THEME.darkText);
+
+      let x = marginX + 4;
+      doc.text(String(idx + 1), x, currentY + 13); x += colWidths.idx;
+
+      const itemDisplay = String(it.itemName || it.name || '—');
+      doc.text(itemDisplay.length > 38 ? itemDisplay.slice(0, 36) + '..' : itemDisplay, x, currentY + 13);
+      x += colWidths.item;
+
+      doc.text(String(it.unit || '—'), x, currentY + 13); x += colWidths.unit;
+
+      doc.setFont('helvetica', 'bold');
+      const stockVal = Number(it.currentStock) || 0;
+      doc.text(stockVal.toLocaleString(), x + colWidths.stock - 8, currentY + 13, { align: 'right' });
+      x += colWidths.stock;
+
+      doc.setFont('helvetica', 'normal');
+      const dateDisplay = String(it.formattedLastUpdated || it.lastUpdated || '—');
+      doc.text(dateDisplay.length > 22 ? dateDisplay.slice(0, 20) + '..' : dateDisplay, x, currentY + 13);
+
+      currentY += 20;
+    });
+
+    // Summary Row
+    if (currentY + 24 > pageHeight - 45) {
+      doc.addPage();
+      currentY = 36;
+    }
+    doc.setFillColor(...THEME.headerBg);
+    doc.rect(marginX, currentY, tableWidth, 22, 'FD');
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(9);
+    doc.setTextColor(...THEME.darkGreen);
+    doc.text(`Total Items: ${items.length}`, marginX + 8, currentY + 15);
+    doc.text(`Total Stock: ${totalStock.toLocaleString()}`, marginX + tableWidth - 12, currentY + 15, { align: 'right' });
+  }
+
+  const pageCount = doc.internal.getNumberOfPages();
+  for (let i = 1; i <= pageCount; i++) {
+    doc.setPage(i);
+    drawReportFooter(doc, i, pageCount);
+  }
+
+  const filename = `Annamithra_Inventory_Report_${new Date().toISOString().slice(0, 10)}.pdf`;
+  doc.save(filename);
+  return true;
+}
+
+/**
+ * 2. Simple Branch Request Report PDF
+ * Columns: Branch Name, Item Name, Requested Quantity, Request Date, Status
+ */
+export async function downloadSimpleBranchRequestPdf({ items = [], branch = 'All Branches', dateLabel = 'All Dates' } = {}) {
+  const doc = new jsPDF({ unit: 'pt', format: 'a4', orientation: 'portrait' });
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const pageHeight = doc.internal.pageSize.getHeight();
+  const marginX = 36;
+  const tableWidth = pageWidth - (marginX * 2);
+
+  const colWidths = { idx: 24, branch: 95, dept: 75, item: 140, unit: 38, qty: 52, date: 50, status: 49 };
+  const totalQty = items.reduce((sum, it) => sum + (Number(it.requestedQuantity) || 0), 0);
+
+  const subtitle = `Branch: ${branch || 'All Branches'}   |   Total Requests: ${items.length}   |   Total Requested: ${totalQty.toLocaleString()}`;
+  let currentY = drawReportHeader(doc, 'Branch Request Report', subtitle, dateLabel);
+
+  const drawHeaders = (y) => {
+    doc.setFillColor(...THEME.headerBg);
+    doc.rect(marginX, y, tableWidth, 22, 'F');
+    doc.setDrawColor(...THEME.borderTone);
+    doc.rect(marginX, y, tableWidth, 22, 'S');
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(8.5);
+    doc.setTextColor(...THEME.darkGreen);
+
+    let x = marginX + 4;
+    doc.text('#', x, y + 14); x += colWidths.idx;
+    doc.text('Branch Name', x, y + 14); x += colWidths.branch;
+    doc.text('Department', x, y + 14); x += colWidths.dept;
+    doc.text('Item Name', x, y + 14); x += colWidths.item;
+    doc.text('Unit', x, y + 14); x += colWidths.unit;
+    doc.text('Requested', x + colWidths.qty - 6, y + 14, { align: 'right' }); x += colWidths.qty;
+    doc.text('Date', x, y + 14); x += colWidths.date;
+    doc.text('Status', x, y + 14);
+
+    return y + 22;
+  };
+
+  currentY = drawHeaders(currentY);
+
+  if (items.length === 0) {
+    doc.setFillColor(255, 255, 255);
+    doc.rect(marginX, currentY, tableWidth, 30, 'FD');
+    doc.setFont('helvetica', 'italic');
+    doc.setFontSize(9);
+    doc.setTextColor(...THEME.mutedText);
+    doc.text('No branch request records found matching the selected filter criteria.', marginX + 12, currentY + 18);
+  } else {
+    items.forEach((it, idx) => {
+      if (currentY + 20 > pageHeight - 45) {
+        doc.addPage();
+        currentY = drawHeaders(36);
+      }
+
+      doc.setFillColor(...(idx % 2 === 1 ? THEME.rowAlt : [255, 255, 255]));
+      doc.rect(marginX, currentY, tableWidth, 20, 'F');
+      doc.setDrawColor(...THEME.borderTone);
+      doc.setLineWidth(0.5);
+      doc.line(marginX, currentY + 20, marginX + tableWidth, currentY + 20);
+
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(8.5);
+      doc.setTextColor(...THEME.darkText);
+
+      let x = marginX + 4;
+      doc.text(String(idx + 1), x, currentY + 13); x += colWidths.idx;
+
+      const brName = String(it.branchName || it.branch || '—');
+      doc.text(brName.length > 15 ? brName.slice(0, 13) + '..' : brName, x, currentY + 13);
+      x += colWidths.branch;
+
+      const deptName = String(it.department || it.category || 'Not specified');
+      doc.text(deptName.length > 13 ? deptName.slice(0, 11) + '..' : deptName, x, currentY + 13);
+      x += colWidths.dept;
+
+      const itName = String(it.itemName || it.item || '—');
+      doc.text(itName.length > 22 ? itName.slice(0, 20) + '..' : itName, x, currentY + 13);
+      x += colWidths.item;
+
+      doc.text(String(it.unit || '—'), x, currentY + 13); x += colWidths.unit;
+
+      doc.setFont('helvetica', 'bold');
+      const reqVal = Number(it.requestedQuantity) || 0;
+      doc.text(reqVal.toLocaleString(), x + colWidths.qty - 6, currentY + 13, { align: 'right' });
+      x += colWidths.qty;
+
+      doc.setFont('helvetica', 'normal');
+      const dateDisplay = String(it.formattedDate || it.date || '—');
+      doc.text(dateDisplay.length > 12 ? dateDisplay.slice(0, 10) + '..' : dateDisplay, x, currentY + 13);
+      x += colWidths.date;
+
+      const st = String(it.meaningfulStatus || it.status || '—');
+      doc.text(st.length > 11 ? st.slice(0, 9) + '..' : st, x, currentY + 13);
+
+      currentY += 20;
+    });
+
+    // Summary Row
+    if (currentY + 24 > pageHeight - 45) {
+      doc.addPage();
+      currentY = 36;
+    }
+    doc.setFillColor(...THEME.headerBg);
+    doc.rect(marginX, currentY, tableWidth, 22, 'FD');
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(9);
+    doc.setTextColor(...THEME.darkGreen);
+    doc.text(`Total Requests: ${items.length}`, marginX + 8, currentY + 15);
+    doc.text(`Total Requested Qty: ${totalQty.toLocaleString()}`, marginX + tableWidth - 12, currentY + 15, { align: 'right' });
+  }
+
+  const pageCount = doc.internal.getNumberOfPages();
+  for (let i = 1; i <= pageCount; i++) {
+    doc.setPage(i);
+    drawReportFooter(doc, i, pageCount);
+  }
+
+  const filename = `Annamithra_Branch_Request_Report_${new Date().toISOString().slice(0, 10)}.pdf`;
+  doc.save(filename);
+  return true;
+}
+
+/**
+ * 3. Simple Dispatch Report PDF
+ * Columns: Branch Name, Item Name, Dispatched Quantity, Dispatch Date, Acknowledgement Status
+ */
+export async function downloadSimpleDispatchPdf({ items = [], branch = 'All Branches', dateLabel = 'All Dates' } = {}) {
+  const doc = new jsPDF({ unit: 'pt', format: 'a4', orientation: 'portrait' });
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const pageHeight = doc.internal.pageSize.getHeight();
+  const marginX = 36;
+  const tableWidth = pageWidth - (marginX * 2);
+
+  const colWidths = { idx: 26, branch: 105, item: 165, unit: 45, qty: 65, date: 55, status: 62 };
+  const totalQty = items.reduce((sum, it) => sum + (Number(it.dispatchedQuantity) || 0), 0);
+
+  const subtitle = `Branch: ${branch || 'All Branches'}   |   Total Dispatches: ${items.length}   |   Total Dispatched: ${totalQty.toLocaleString()}`;
+  let currentY = drawReportHeader(doc, 'Dispatch Report', subtitle, dateLabel);
+
+  const drawHeaders = (y) => {
+    doc.setFillColor(...THEME.headerBg);
+    doc.rect(marginX, y, tableWidth, 22, 'F');
+    doc.setDrawColor(...THEME.borderTone);
+    doc.rect(marginX, y, tableWidth, 22, 'S');
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(8.5);
+    doc.setTextColor(...THEME.darkGreen);
+
+    let x = marginX + 4;
+    doc.text('#', x, y + 14); x += colWidths.idx;
+    doc.text('Branch Name', x, y + 14); x += colWidths.branch;
+    doc.text('Item Name', x, y + 14); x += colWidths.item;
+    doc.text('Unit', x, y + 14); x += colWidths.unit;
+    doc.text('Dispatched', x + colWidths.qty - 6, y + 14, { align: 'right' }); x += colWidths.qty;
+    doc.text('Date', x, y + 14); x += colWidths.date;
+    doc.text('Ack Status', x, y + 14);
+
+    return y + 22;
+  };
+
+  currentY = drawHeaders(currentY);
+
+  if (items.length === 0) {
+    doc.setFillColor(255, 255, 255);
+    doc.rect(marginX, currentY, tableWidth, 30, 'FD');
+    doc.setFont('helvetica', 'italic');
+    doc.setFontSize(9);
+    doc.setTextColor(...THEME.mutedText);
+    doc.text('No dispatch records found matching the selected filter criteria.', marginX + 12, currentY + 18);
+  } else {
+    items.forEach((it, idx) => {
+      if (currentY + 20 > pageHeight - 45) {
+        doc.addPage();
+        currentY = drawHeaders(36);
+      }
+
+      doc.setFillColor(...(idx % 2 === 1 ? THEME.rowAlt : [255, 255, 255]));
+      doc.rect(marginX, currentY, tableWidth, 20, 'F');
+      doc.setDrawColor(...THEME.borderTone);
+      doc.setLineWidth(0.5);
+      doc.line(marginX, currentY + 20, marginX + tableWidth, currentY + 20);
+
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(8.5);
+      doc.setTextColor(...THEME.darkText);
+
+      let x = marginX + 4;
+      doc.text(String(idx + 1), x, currentY + 13); x += colWidths.idx;
+
+      const brName = String(it.branchName || '—');
+      doc.text(brName.length > 17 ? brName.slice(0, 15) + '..' : brName, x, currentY + 13);
+      x += colWidths.branch;
+
+      const itName = String(it.itemName || '—');
+      doc.text(itName.length > 26 ? itName.slice(0, 24) + '..' : itName, x, currentY + 13);
+      x += colWidths.item;
+
+      doc.text(String(it.unit || '—'), x, currentY + 13); x += colWidths.unit;
+
+      doc.setFont('helvetica', 'bold');
+      const dispVal = Number(it.dispatchedQuantity) || 0;
+      doc.text(dispVal.toLocaleString(), x + colWidths.qty - 6, currentY + 13, { align: 'right' });
+      x += colWidths.qty;
+
+      doc.setFont('helvetica', 'normal');
+      const dateDisplay = String(it.formattedDate || it.dispatchDate || '—');
+      doc.text(dateDisplay.length > 12 ? dateDisplay.slice(0, 10) + '..' : dateDisplay, x, currentY + 13);
+      x += colWidths.date;
+
+      const ackSt = String(it.meaningfulStatus || it.acknowledgementStatus || it.status || '—');
+      doc.text(ackSt.length > 14 ? ackSt.slice(0, 12) + '..' : ackSt, x, currentY + 13);
+
+      currentY += 20;
+    });
+
+    // Summary Row
+    if (currentY + 24 > pageHeight - 45) {
+      doc.addPage();
+      currentY = 36;
+    }
+    doc.setFillColor(...THEME.headerBg);
+    doc.rect(marginX, currentY, tableWidth, 22, 'FD');
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(9);
+    doc.setTextColor(...THEME.darkGreen);
+    doc.text(`Total Dispatches: ${items.length}`, marginX + 8, currentY + 15);
+    doc.text(`Total Dispatched Qty: ${totalQty.toLocaleString()}`, marginX + tableWidth - 12, currentY + 15, { align: 'right' });
+  }
+
+  const pageCount = doc.internal.getNumberOfPages();
+  for (let i = 1; i <= pageCount; i++) {
+    doc.setPage(i);
+    drawReportFooter(doc, i, pageCount);
+  }
+
+  const filename = `Annamithra_Dispatch_Report_${new Date().toISOString().slice(0, 10)}.pdf`;
+  doc.save(filename);
+  return true;
+}
+
+/**
+ * Universal CSV Export for Simplified Reports
+ */
+export function exportReportCsv({ reportType, items = [], filename = 'report.csv' }) {
+  if (!items || items.length === 0) {
+    alert('No records found matching filters to export.');
+    return false;
+  }
+
+  let headers = [];
+  let rows = [];
+
+  const escapeCsv = (val) => {
+    if (val === null || val === undefined) return '';
+    const s = String(val).replace(/"/g, '""');
+    return (s.search(/("|,|\n|\r)/g) >= 0) ? `"${s}"` : s;
+  };
+
+  if (reportType === 'inventory') {
+    headers = ['Item Name', 'Unit', 'Current Stock', 'Last Updated Date'];
+    rows = items.map(it => [
+      escapeCsv(it.itemName || it.name),
+      escapeCsv(it.unit),
+      escapeCsv(it.currentStock),
+      escapeCsv(it.formattedLastUpdated || it.lastUpdated)
+    ]);
+  } else if (reportType === 'requests') {
+    headers = ['Branch Name', 'Department', 'Item Name', 'Unit', 'Requested Quantity', 'Request Date', 'Status'];
+    rows = items.map(it => [
+      escapeCsv(it.branchName || it.branch),
+      escapeCsv(it.department || it.category || 'Not specified'),
+      escapeCsv(it.itemName || it.item),
+      escapeCsv(it.unit),
+      escapeCsv(it.requestedQuantity),
+      escapeCsv(it.formattedDate || it.date),
+      escapeCsv(it.meaningfulStatus || it.status)
+    ]);
+  } else if (reportType === 'dispatches') {
+    headers = ['Branch Name', 'Item Name', 'Unit', 'Dispatched Quantity', 'Dispatch Date', 'Acknowledgement Status'];
+    rows = items.map(it => [
+      escapeCsv(it.branchName),
+      escapeCsv(it.itemName),
+      escapeCsv(it.unit),
+      escapeCsv(it.dispatchedQuantity),
+      escapeCsv(it.formattedDate || it.dispatchDate),
+      escapeCsv(it.meaningfulStatus || it.acknowledgementStatus || it.status)
+    ]);
+  }
+
+  const csvContent = '\uFEFF' + [
+    headers.join(','),
+    ...rows.map(r => r.join(','))
+  ].join('\r\n');
+
+  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.setAttribute('href', url);
+  link.setAttribute('download', filename);
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+  return true;
+}
+
+

@@ -11,19 +11,20 @@ public class BranchRequestReportDto {
     public String itemName;
     public String unit;
     public String category;
-    public int requestedQuantity;
-    public int dispatchedQuantity;
-    public int acknowledgedReceivedQuantity;
-    public int remainingQuantity;
+    public String department;
+    public double requestedQuantity;
+    public double dispatchedQuantity;
+    public double acknowledgedReceivedQuantity;
+    public double remainingQuantity;
     public String status;
 
     public BranchRequestReportDto() {}
 
-    public BranchRequestReportDto(Long id, LocalDate date, LocalDateTime createdAt, String branchName, String itemName, String unit, int requestedQuantity, int dispatchedQuantity, int acknowledgedReceivedQuantity, int remainingQuantity, String status) {
+    public BranchRequestReportDto(Long id, LocalDate date, LocalDateTime createdAt, String branchName, String itemName, String unit, double requestedQuantity, double dispatchedQuantity, double acknowledgedReceivedQuantity, double remainingQuantity, String status) {
         this(id, date, createdAt, branchName, itemName, unit, null, requestedQuantity, dispatchedQuantity, acknowledgedReceivedQuantity, remainingQuantity, status);
     }
 
-    public BranchRequestReportDto(Long id, LocalDate date, LocalDateTime createdAt, String branchName, String itemName, String unit, String category, int requestedQuantity, int dispatchedQuantity, int acknowledgedReceivedQuantity, int remainingQuantity, String status) {
+    public BranchRequestReportDto(Long id, LocalDate date, LocalDateTime createdAt, String branchName, String itemName, String unit, String category, double requestedQuantity, double dispatchedQuantity, double acknowledgedReceivedQuantity, double remainingQuantity, String status) {
         this.id = id;
         this.date = date;
         this.createdAt = createdAt;
@@ -31,6 +32,7 @@ public class BranchRequestReportDto {
         this.itemName = itemName;
         this.unit = unit;
         this.category = category;
+        this.department = (category != null && !category.isBlank()) ? category.trim() : "Not specified";
         this.requestedQuantity = requestedQuantity;
         this.dispatchedQuantity = dispatchedQuantity;
         this.acknowledgedReceivedQuantity = acknowledgedReceivedQuantity;

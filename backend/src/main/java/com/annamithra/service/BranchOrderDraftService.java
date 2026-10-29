@@ -151,10 +151,12 @@ public class BranchOrderDraftService {
                 line.itemName = item.itemName != null ? item.itemName.trim() : "";
                 line.unit = (item.unit != null && !item.unit.isBlank()) ? item.unit.trim().toUpperCase() : "KG";
 
-                String cat = item.category != null ? item.category.trim() : "Groceries";
+                String cat = item.getEffectiveDepartment() != null ? item.getEffectiveDepartment() : (item.category != null ? item.category.trim() : "Groceries");
                 boolean valid = BranchRequestService.ALLOWED_CATEGORIES.stream()
                     .anyMatch(c -> c.equalsIgnoreCase(cat));
-                line.category = valid ? cat : "Groceries";
+                String finalDept = valid ? cat : "Groceries";
+                line.category = finalDept;
+                line.department = finalDept;
 
                 line.requestedQuantity = item.requestedQuantity;
                 line.isNewItem = item.isNewItem;
@@ -199,8 +201,9 @@ public class BranchOrderDraftService {
             String unit = line.unit != null && !line.unit.isBlank() ? line.unit.trim().toUpperCase() : "KG";
 
             String category = "Groceries";
-            if (line.category != null && !line.category.isBlank()) {
-                String cTrim = line.category.trim();
+            String rawDept = line.getEffectiveDepartment();
+            if (rawDept != null && !rawDept.isBlank()) {
+                String cTrim = rawDept.trim();
                 boolean matches = BranchRequestService.ALLOWED_CATEGORIES.stream()
                     .anyMatch(c -> c.equalsIgnoreCase(cTrim));
                 if (matches) {
@@ -247,6 +250,17 @@ public class BranchOrderDraftService {
     }
 
     private DraftResponse toResponse(BranchOrderDraft draft, List<DraftItemLine> items) {
+        if (items != null) {
+            for (DraftItemLine item : items) {
+                if (item != null) {
+                    String dept = item.getEffectiveDepartment();
+                    if (dept != null) {
+                        item.department = dept;
+                        item.category = dept;
+                    }
+                }
+            }
+        }
         DraftResponse res = new DraftResponse();
         res.id = draft.id;
         res.organisationId = draft.organisationId;

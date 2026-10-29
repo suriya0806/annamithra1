@@ -12,29 +12,29 @@ public class BranchDispatchReportDto {
     public String itemName;
     public String unit;
     public String category;
-    public int requestedQuantity;
-    public int dispatchedQuantity;
-    public int acknowledgedQuantity;
-    public int pendingAcknowledgementQuantity;
+    public double requestedQuantity;
+    public double dispatchedQuantity;
+    public double acknowledgedQuantity;
+    public double pendingAcknowledgementQuantity;
     public String status;
     public LocalDateTime acknowledgedAt;
     public String acknowledgedBy;
 
-    public int shortageQuantity;
+    public double shortageQuantity;
     public String acknowledgementStatus;
     public String acknowledgementRemarks;
 
     public BranchDispatchReportDto() {}
 
-    public BranchDispatchReportDto(Long id, String dispatchNumber, LocalDate dispatchDate, LocalDateTime dispatchDateTime, String branchName, String itemName, String unit, int requestedQuantity, int dispatchedQuantity, int acknowledgedQuantity, int pendingAcknowledgementQuantity, String status, LocalDateTime acknowledgedAt, String acknowledgedBy) {
+    public BranchDispatchReportDto(Long id, String dispatchNumber, LocalDate dispatchDate, LocalDateTime dispatchDateTime, String branchName, String itemName, String unit, double requestedQuantity, double dispatchedQuantity, double acknowledgedQuantity, double pendingAcknowledgementQuantity, String status, LocalDateTime acknowledgedAt, String acknowledgedBy) {
         this(id, dispatchNumber, dispatchDate, dispatchDateTime, branchName, itemName, unit, null, requestedQuantity, dispatchedQuantity, acknowledgedQuantity, pendingAcknowledgementQuantity, status, acknowledgedAt, acknowledgedBy, 0, null, null);
     }
 
-    public BranchDispatchReportDto(Long id, String dispatchNumber, LocalDate dispatchDate, LocalDateTime dispatchDateTime, String branchName, String itemName, String unit, String category, int requestedQuantity, int dispatchedQuantity, int acknowledgedQuantity, int pendingAcknowledgementQuantity, String status, LocalDateTime acknowledgedAt, String acknowledgedBy) {
+    public BranchDispatchReportDto(Long id, String dispatchNumber, LocalDate dispatchDate, LocalDateTime dispatchDateTime, String branchName, String itemName, String unit, String category, double requestedQuantity, double dispatchedQuantity, double acknowledgedQuantity, double pendingAcknowledgementQuantity, String status, LocalDateTime acknowledgedAt, String acknowledgedBy) {
         this(id, dispatchNumber, dispatchDate, dispatchDateTime, branchName, itemName, unit, category, requestedQuantity, dispatchedQuantity, acknowledgedQuantity, pendingAcknowledgementQuantity, status, acknowledgedAt, acknowledgedBy, 0, null, null);
     }
 
-    public BranchDispatchReportDto(Long id, String dispatchNumber, LocalDate dispatchDate, LocalDateTime dispatchDateTime, String branchName, String itemName, String unit, String category, int requestedQuantity, int dispatchedQuantity, int acknowledgedQuantity, int pendingAcknowledgementQuantity, String status, LocalDateTime acknowledgedAt, String acknowledgedBy, int shortageQuantity, String acknowledgementStatus, String acknowledgementRemarks) {
+    public BranchDispatchReportDto(Long id, String dispatchNumber, LocalDate dispatchDate, LocalDateTime dispatchDateTime, String branchName, String itemName, String unit, String category, double requestedQuantity, double dispatchedQuantity, double acknowledgedQuantity, double pendingAcknowledgementQuantity, String status, LocalDateTime acknowledgedAt, String acknowledgedBy, double shortageQuantity, String acknowledgementStatus, String acknowledgementRemarks) {
         this.id = id;
         this.dispatchNumber = dispatchNumber;
         this.dispatchDate = dispatchDate;

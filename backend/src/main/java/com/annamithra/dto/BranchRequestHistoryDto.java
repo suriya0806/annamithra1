@@ -12,24 +12,25 @@ public class BranchRequestHistoryDto {
     public String item;
     public String unit;
     public String category;
-    public int requested;
-    public int dispatched;
-    public int received;
+    public String department;
+    public double requested;
+    public double dispatched;
+    public double received;
     public String status;
 
     public BranchRequestHistoryDto() {}
 
     public BranchRequestHistoryDto(Long id, LocalDate requestDate, String formattedDate,
                                   String requestTime, LocalDateTime createdAt,
-                                  String item, String unit, int requested,
-                                  int dispatched, int received, String status) {
+                                  String item, String unit, double requested,
+                                  double dispatched, double received, String status) {
         this(id, requestDate, formattedDate, requestTime, createdAt, item, unit, null, requested, dispatched, received, status);
     }
 
     public BranchRequestHistoryDto(Long id, LocalDate requestDate, String formattedDate,
                                   String requestTime, LocalDateTime createdAt,
-                                  String item, String unit, String category, int requested,
-                                  int dispatched, int received, String status) {
+                                  String item, String unit, String category, double requested,
+                                  double dispatched, double received, String status) {
         this.id = id;
         this.requestDate = requestDate;
         this.formattedDate = formattedDate;
@@ -38,6 +39,7 @@ public class BranchRequestHistoryDto {
         this.item = item;
         this.unit = unit;
         this.category = category;
+        this.department = category;
         this.requested = requested;
         this.dispatched = dispatched;
         this.received = received;

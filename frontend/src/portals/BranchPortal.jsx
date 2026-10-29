@@ -178,7 +178,8 @@ export function BranchPortal({ user, activeTab, onSelectTab }) {
       const saved = await api.saveBranchDraft(name, orderItemsList.map(it => ({
         itemName: it.itemName,
         unit: it.unit,
-        category: it.category,
+        category: it.category || it.department,
+        department: it.department || it.category,
         requestedQuantity: it.requestedQuantity,
         isNewItem: it.isNewItem
       })));
@@ -393,6 +394,7 @@ export function BranchPortal({ user, activeTab, onSelectTab }) {
             unit: (draftItem.unit || 'KG').trim().toUpperCase(),
             requestedQuantity: parseInt(draftItem.requestedQuantity, 10) || 1,
             category: validCategory,
+          department: validCategory,
             isNewItem: draftItem.isNewItem || false
           });
         }
@@ -717,7 +719,7 @@ export function BranchPortal({ user, activeTab, onSelectTab }) {
   // Add Item to Order List
   const handleAddItemToOrderList = () => {
     if (!selectedCategory) {
-      showAlert('error', language === 'ta' ? 'தயவுசெய்து வகையைத் தேர்ந்தெடுக்கவும் (Category).' : 'Please select a Category before adding an item.');
+      showAlert('error', language === 'ta' ? 'தயவுசெய்து பிரிவைத் தேர்ந்தெடுக்கவும் (Department).' : 'Please select a Department before adding an item.');
       categorySelectRef.current?.focus();
       return;
     }
@@ -837,7 +839,7 @@ export function BranchPortal({ user, activeTab, onSelectTab }) {
         return;
       }
       if (!it.category || !it.category.trim()) {
-        showAlert('error', `Category is missing for "${it.itemName}". Please select a category.`);
+        showAlert('error', `Department is missing for "${it.itemName}". Please select a department.`);
         return;
       }
     }
@@ -876,6 +878,7 @@ export function BranchPortal({ user, activeTab, onSelectTab }) {
           itemName: it.itemName.trim(),
           unit: (it.unit || 'KG').trim().toUpperCase(),
           category: validCategory,
+          department: validCategory,
           requestedQuantity: parseInt(it.requestedQuantity, 10) || 1,
           isNewItem: Boolean(it.isNewItem)
         };
@@ -1098,7 +1101,7 @@ export function BranchPortal({ user, activeTab, onSelectTab }) {
                 {/* Category Selection Dropdown */}
                 <div className="branch-category-field" style={{ marginBottom: 14 }}>
                   <label htmlFor="branch-item-category-select" style={{ display: 'block', fontWeight: 600, fontSize: 13, color: 'var(--primary-dark-green)', marginBottom: 6 }}>
-                    {t('Category', 'Category')} *
+                    {t('Department', 'Department')} *
                   </label>
                   <select
                     id="branch-item-category-select"
@@ -1118,7 +1121,7 @@ export function BranchPortal({ user, activeTab, onSelectTab }) {
                       fontWeight: selectedCategory ? 600 : 400
                     }}
                   >
-                    <option value="">{language === 'ta' ? '-- வகையைத் தேர்ந்தெடுக்கவும் (Select Category) --' : '-- Select Category --'}</option>
+                    <option value="">{language === 'ta' ? '-- பிரிவைத் தேர்ந்தெடுக்கவும் (Select Department) --' : '-- Select Department --'}</option>
                     {BRANCH_ORDER_CATEGORIES.map(cat => (
                       <option key={cat} value={cat}>
                         {translateCategory(cat)}
@@ -1296,7 +1299,7 @@ export function BranchPortal({ user, activeTab, onSelectTab }) {
                   <thead>
                     <tr>
                       <th>{t('Item Name')}</th>
-                      <th>{t('Category')}</th>
+                      <th>{t('Department')}</th>
                       <th>{t('Unit')}</th>
                       <th style={{ textAlign: 'center', width: 140 }}>{t('Requested Quantity')}</th>
                       <th style={{ textAlign: 'center', width: 90 }}>{t('Action')}</th>
@@ -1547,7 +1550,7 @@ export function BranchPortal({ user, activeTab, onSelectTab }) {
                       <tr>
                         <th style={{ width: 36 }}>#</th>
                         <th>{t('Item Name')}</th>
-                        <th>{t('Category')}</th>
+                        <th>{t('Department')}</th>
                         <th>{t('Unit')}</th>
                         <th style={{ textAlign: 'right' }}>{t('Requested Quantity')}</th>
                       </tr>
@@ -3202,7 +3205,7 @@ export function BranchPortal({ user, activeTab, onSelectTab }) {
                 <thead>
                   <tr>
                     <th>{t('Item Name')}</th>
-                    <th>{t('Category')}</th>
+                    <th>{t('Department')}</th>
                     <th>{t('Unit')}</th>
                     <th style={{ textAlign: 'center', width: 110 }}>{t('Quantity')}</th>
                     <th style={{ textAlign: 'center', width: 70 }}>{t('Action')}</th>

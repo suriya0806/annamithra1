@@ -77,11 +77,12 @@ public class BranchRequestService {
             if (line.requestedQuantity <= 0) {
                 throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Requested quantity must be positive for " + line.itemName);
             }
-            if (line.category == null || line.category.isBlank()) {
-                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Category is required for " + line.itemName);
+            String effectiveDept = line.getEffectiveDepartment();
+            if (effectiveDept == null || effectiveDept.isBlank()) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Department is required for " + line.itemName);
             }
 
-            String trimmedCat = line.category.trim();
+            String trimmedCat = effectiveDept.trim();
             String matchedCat = ALLOWED_CATEGORIES.stream()
                 .filter(c -> c.equalsIgnoreCase(trimmedCat))
                 .findFirst()
