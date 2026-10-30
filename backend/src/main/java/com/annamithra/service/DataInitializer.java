@@ -258,6 +258,72 @@ public class DataInitializer implements CommandLineRunner {
         try {
             jdbcTemplate.execute("UPDATE dispatch SET dispatch_number = CONCAT('DSP-', id) WHERE dispatch_number IS NULL OR TRIM(dispatch_number) = ''");
         } catch (Exception ignored) {}
+        // Create department table if not exists
+        try {
+            jdbcTemplate.execute("CREATE TABLE IF NOT EXISTS department (" +
+                "id BIGSERIAL PRIMARY KEY, " +
+                "organisation_id BIGINT, " +
+                "name VARCHAR(100) NOT NULL, " +
+                "active BOOLEAN DEFAULT TRUE, " +
+                "created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, " +
+                "created_by VARCHAR(128), " +
+                "updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP" +
+                ")");
+        } catch (Exception ignored) {}
+
+        // Add department column to branch_request, dispatch, branch_order_draft
+        try {
+            jdbcTemplate.execute("ALTER TABLE branch_request ADD COLUMN IF NOT EXISTS department VARCHAR(100)");
+        } catch (Exception ignored) {}
+        try {
+            jdbcTemplate.execute("ALTER TABLE dispatch ADD COLUMN IF NOT EXISTS department VARCHAR(100)");
+        } catch (Exception ignored) {}
+        try {
+            jdbcTemplate.execute("ALTER TABLE branch_order_draft ADD COLUMN IF NOT EXISTS department VARCHAR(100)");
+        } catch (Exception ignored) {}
+
+        // Seed default departments for organisation 1
+        String[] defaultDepartments = {
+            "General", "Front Office", "Kitchen", "Tea/Coffee", "Vada Stall", "Sweet/Savouries",
+            "Bakery", "Parcel", "Dishwasher", "Dining Hall", "Vegetables", "Groceries"
+        };
+        for (String deptName : defaultDepartments) {
+            try {
+                jdbcTemplate.update("INSERT INTO department (organisation_id, name, active, created_by, created_at, updated_at) " +
+                    "SELECT 1, ?, true, 'System', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP " +
+                    "WHERE NOT EXISTS (SELECT 1 FROM department WHERE organisation_id = 1 AND LOWER(TRIM(name)) = LOWER(?))",
+                    deptName, deptName);
+                jdbcTemplate.update("UPDATE department SET name = ? WHERE organisation_id = 1 AND LOWER(TRIM(name)) = LOWER(?)",
+                    deptName, deptName);
+            } catch (Exception ignored) {}
+        }
+
+        // Import any existing distinct departments from branch_request into department table
+        try {
+            jdbcTemplate.execute("INSERT INTO department (organisation_id, name, active, created_by, created_at, updated_at) " +
+                "SELECT DISTINCT br.organisation_id, TRIM(COALESCE(br.department, br.category)), true, 'System', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP " +
+                "FROM branch_request br " +
+                "WHERE COALESCE(br.department, br.category) IS NOT NULL AND TRIM(COALESCE(br.department, br.category)) != '' AND br.organisation_id IS NOT NULL " +
+                "  AND NOT EXISTS ( " +
+                "      SELECT 1 FROM department d " +
+                "      WHERE d.organisation_id = br.organisation_id AND LOWER(TRIM(d.name)) = LOWER(TRIM(COALESCE(br.department, br.category))) " +
+                "  )");
+        } catch (Exception ignored) {}
+
+        // Backfill branch_request.department from category if department is null
+        try {
+            jdbcTemplate.execute("UPDATE branch_request SET department = category WHERE department IS NULL AND category IS NOT NULL");
+        } catch (Exception ignored) {}
+
+        // Backfill dispatch.department from linked branch_request or item category
+        try {
+            jdbcTemplate.execute("UPDATE dispatch d SET department = br.department " +
+                "FROM branch_request br WHERE d.request_id = br.id AND d.department IS NULL AND br.department IS NOT NULL");
+        } catch (Exception ignored) {}
+        try {
+            jdbcTemplate.execute("UPDATE dispatch SET department = 'General' WHERE department IS NULL OR TRIM(department) = ''");
+        } catch (Exception ignored) {}
+
         // Seed default item categories
         String[] defaultCategories = {
             "Dairy", "Pulses", "Vegetables", "Groceries", "Tea/Coffee",
@@ -269,6 +335,8 @@ public class DataInitializer implements CommandLineRunner {
                 jdbcTemplate.update("INSERT INTO item_category (organisation_id, name, active, created_by, created_at, updated_at) " +
                     "SELECT 1, ?, true, 'System', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP " +
                     "WHERE NOT EXISTS (SELECT 1 FROM item_category WHERE organisation_id = 1 AND LOWER(TRIM(name)) = LOWER(?))",
+                    catName, catName);
+                jdbcTemplate.update("UPDATE item_category SET name = ? WHERE organisation_id = 1 AND LOWER(TRIM(name)) = LOWER(?)",
                     catName, catName);
             } catch (Exception ignored) {}
         }
@@ -305,7 +373,9 @@ public class DataInitializer implements CommandLineRunner {
         for (String sql : decimalMigrations) {
             try {
                 jdbcTemplate.execute(sql);
-            } catch (Exception ignored) {}
+            } catch (Exception e) {
+                System.out.println("Notice for migration [" + sql + "]: " + e.getMessage());
+            }
         }
 
 

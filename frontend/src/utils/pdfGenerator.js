@@ -1509,6 +1509,7 @@ export async function downloadBranchRequestsPdf({
 export async function downloadBranchOrderListPdf({
   organisationName = 'Annamithra',
   branchName = 'Branch',
+  department = '',
   date = '',
   items = [],
   isDraft = false,
@@ -1520,7 +1521,7 @@ export async function downloadBranchOrderListPdf({
   const ITEMS_PER_PAGE = 18;
   const safeItems = Array.isArray(items) ? items : [];
   const totalPages = Math.max(1, Math.ceil(safeItems.length / ITEMS_PER_PAGE));
-  const totalQuantity = safeItems.reduce((acc, it) => acc + (Number(it.requestedQuantity ?? it.quantity) || 0), 0);
+  const totalQuantity = Math.round(safeItems.reduce((acc, it) => acc + (Number(it.requestedQuantity ?? it.quantity) || 0), 0) * 1000) / 1000;
   const totalItemCount = safeItems.length;
 
   const pdf = new jsPDF({
@@ -1576,7 +1577,7 @@ export async function downloadBranchOrderListPdf({
           const rowNum = startIdx + idx + 1;
           const rawName = String(it.itemName || it.item || '').trim();
           const translatedName = isTa ? translateItemName(rawName) : rawName;
-          const rawCategory = String(it.category || 'General').trim();
+          const rawDepartment = String(it.department || it.category || department || 'General').trim();
           const rawUnit = String(it.unit || 'KG').trim();
           const translatedUnit = isTa ? translateUnitName(rawUnit) : rawUnit;
           const qty = Number(it.requestedQuantity ?? it.quantity) || 0;
@@ -1593,7 +1594,7 @@ export async function downloadBranchOrderListPdf({
               </td>
               <td style="padding: 9px 12px; border: 1px solid #E5DDC9; font-size: 12.5px; color: #4b5563;">
                 <span style="background: #e2ece9; color: #003B2B; padding: 2px 8px; border-radius: 4px; font-weight: 600; font-size: 11px;">
-                  ${rawCategory}
+                  ${rawDepartment}
                 </span>
               </td>
               <td style="padding: 9px 12px; text-align: center; border: 1px solid #E5DDC9; color: #5A6962; font-size: 12.5px; font-weight: 600;">
@@ -1662,10 +1663,10 @@ export async function downloadBranchOrderListPdf({
               </div>
               <div>
                 <span style="color: #5A6962; font-size: 11px; text-transform: uppercase; font-weight: 700; display: block; margin-bottom: 2px;">
-                  ${isDraft ? (isTa ? 'வரைவு பெயர்' : 'Draft Name') : (isTa ? 'மொத்த உருப்படிகள்' : 'Total Items')}
+                  ${isTa ? 'பிரிவு (Department)' : 'Department'}
                 </span>
                 <strong style="color: #003B2B; font-size: 14px;">
-                  ${isDraft ? (draftName || 'Draft') : `${totalItemCount} ${isTa ? 'உருப்படிகள்' : 'Items'}`}
+                  ${department || (safeItems[0] && (safeItems[0].department || safeItems[0].category)) || 'General'}
                 </strong>
               </div>
             </div>
@@ -1682,7 +1683,7 @@ export async function downloadBranchOrderListPdf({
                   ${isTa ? 'பொருளின் பெயர் (Item Name)' : 'Item Name'}
                 </th>
                 <th style="padding: 10px 12px; text-align: left; font-size: 12.5px; font-weight: 700; border: 1px solid #003B2B; width: 140px;">
-                  ${isTa ? 'வகை (Category)' : 'Category'}
+                  ${isTa ? 'பிரிவு (Department)' : 'Department'}
                 </th>
                 <th style="padding: 10px 12px; text-align: center; font-size: 12.5px; font-weight: 700; border: 1px solid #003B2B; width: 90px;">
                   ${isTa ? 'அலகு (Unit)' : 'Unit'}
@@ -2219,9 +2220,10 @@ export function exportReportCsv({ reportType, items = [], filename = 'report.csv
       escapeCsv(it.meaningfulStatus || it.status)
     ]);
   } else if (reportType === 'dispatches') {
-    headers = ['Branch Name', 'Item Name', 'Unit', 'Dispatched Quantity', 'Dispatch Date', 'Acknowledgement Status'];
+    headers = ['Branch Name', 'Department', 'Item Name', 'Unit', 'Dispatched Quantity', 'Dispatch Date', 'Acknowledgement Status'];
     rows = items.map(it => [
       escapeCsv(it.branchName),
+      escapeCsv(it.department || it.category || 'Not specified'),
       escapeCsv(it.itemName),
       escapeCsv(it.unit),
       escapeCsv(it.dispatchedQuantity),

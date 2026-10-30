@@ -22,14 +22,14 @@ public class PurchaseReceipt {
     public String unit;
 
     @Column(nullable = false)
-    public int receivedQty;
+    public double receivedQty;
 
     public LocalDateTime receiptDate = LocalDateTime.now();
     public String receivedBy;
 
     public PurchaseReceipt() {}
 
-    public PurchaseReceipt(Long purchaseOrderId, String itemName, String unit, int receivedQty, String receivedBy) {
+    public PurchaseReceipt(Long purchaseOrderId, String itemName, String unit, double receivedQty, String receivedBy) {
         this.purchaseOrderId = purchaseOrderId;
         this.itemName = itemName;
         this.unit = unit;
@@ -37,7 +37,7 @@ public class PurchaseReceipt {
         this.receivedBy = receivedBy;
     }
 
-    public PurchaseReceipt(Long organisationId, Long purchaseOrderId, String itemName, String unit, int receivedQty, String receivedBy) {
+    public PurchaseReceipt(Long organisationId, Long purchaseOrderId, String itemName, String unit, double receivedQty, String receivedBy) {
         this.organisationId = organisationId;
         this.purchaseOrderId = purchaseOrderId;
         this.itemName = itemName;

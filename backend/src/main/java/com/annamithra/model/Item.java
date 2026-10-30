@@ -25,7 +25,7 @@ public class Item {
     public String unit;
 
     @Column(nullable = false)
-    public int stock = 0;
+    public double stock = 0.0;
 
     public LocalDateTime createdAt = LocalDateTime.now();
 
@@ -35,20 +35,20 @@ public class Item {
 
     public Item() {}
 
-    public Item(String name, String unit, int stock) {
+    public Item(String name, String unit, double stock) {
         this.name = name;
         this.unit = unit;
         this.stock = stock;
     }
 
-    public Item(Long organisationId, String name, String unit, int stock) {
+    public Item(Long organisationId, String name, String unit, double stock) {
         this.organisationId = organisationId;
         this.name = name;
         this.unit = unit;
         this.stock = stock;
     }
 
-    public Item(Long organisationId, String name, String unit, int stock, String category) {
+    public Item(Long organisationId, String name, String unit, double stock, String category) {
         this.organisationId = organisationId;
         this.name = name;
         this.unit = unit;
@@ -56,7 +56,7 @@ public class Item {
         this.category = category;
     }
 
-    public Item(Long organisationId, String name, String unit, int stock, String category, Long categoryId, String createdBy) {
+    public Item(Long organisationId, String name, String unit, double stock, String category, Long categoryId, String createdBy) {
         this.organisationId = organisationId;
         this.name = name;
         this.unit = unit;

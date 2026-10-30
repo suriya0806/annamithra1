@@ -204,7 +204,7 @@ public class InventoryService {
         String cleanedName = rawItemName.trim();
         String cleanedUnit = req.unit.trim();
         String cleanedCategory = (req.category != null && !req.category.isBlank()) ? req.category.trim() : null;
-        int qtyToAdd = req.quantity;
+        double qtyToAdd = req.quantity;
         String user = (username != null && !username.isBlank()) ? username : "Store Manager";
 
         Optional<Item> existingOpt;
@@ -308,8 +308,8 @@ public class InventoryService {
 
         if (!activeOrders.isEmpty()) {
             PurchaseOrder po = activeOrders.get(0);
-            int remaining = Math.max(0, po.quantity - po.receivedQty);
-            int qtyToReceive = Math.min(req.receivedQty, remaining);
+            double remaining = Math.max(0.0, po.quantity - po.receivedQty);
+            double qtyToReceive = Math.min(req.receivedQty, remaining);
 
             PurchaseOrder updatedPo = purchaseOrderService.receiveOrderGoods(po.id, qtyToReceive, user, organisationId);
             Item updatedItem = (organisationId != null

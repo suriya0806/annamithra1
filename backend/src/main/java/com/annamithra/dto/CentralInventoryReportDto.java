@@ -25,7 +25,7 @@ public class CentralInventoryReportDto {
         this.totalQuantityDispatched = totalQuantityDispatched;
     }
 
-    public CentralInventoryReportDto(Long itemId, String itemName, String unit, int currentStock, int totalQuantityReceived, int totalQuantityDispatched, LocalDateTime lastUpdated) {
+    public CentralInventoryReportDto(Long itemId, String itemName, String unit, double currentStock, double totalQuantityReceived, double totalQuantityDispatched, LocalDateTime lastUpdated) {
         this(itemId, itemName, unit, currentStock, totalQuantityReceived, totalQuantityDispatched);
         this.lastUpdated = lastUpdated;
     }

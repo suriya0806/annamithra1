@@ -24,13 +24,13 @@ public class InventoryTransaction {
     public String type; // "RECEIPT", "DISPATCH"
 
     @Column(nullable = false)
-    public int quantity;
+    public double quantity;
 
     public String referenceType; // "PURCHASE_RECEIPT", "DISPATCH", "DIRECT_STOCK_ENTRY"
     public Long referenceId;
 
     @Column(nullable = false)
-    public int balanceAfter;
+    public double balanceAfter;
 
     public LocalDateTime transactionDate = LocalDateTime.now();
     public String performedBy;
@@ -38,7 +38,7 @@ public class InventoryTransaction {
 
     public InventoryTransaction() {}
 
-    public InventoryTransaction(String itemName, String unit, String type, int quantity, String referenceType, Long referenceId, int balanceAfter, String performedBy) {
+    public InventoryTransaction(String itemName, String unit, String type, double quantity, String referenceType, Long referenceId, double balanceAfter, String performedBy) {
         this.itemName = itemName;
         this.unit = unit;
         this.type = type;
@@ -49,7 +49,7 @@ public class InventoryTransaction {
         this.performedBy = performedBy;
     }
 
-    public InventoryTransaction(Long organisationId, String itemName, String unit, String type, int quantity, String referenceType, Long referenceId, int balanceAfter, String performedBy) {
+    public InventoryTransaction(Long organisationId, String itemName, String unit, String type, double quantity, String referenceType, Long referenceId, double balanceAfter, String performedBy) {
         this.organisationId = organisationId;
         this.itemName = itemName;
         this.unit = unit;
@@ -61,7 +61,7 @@ public class InventoryTransaction {
         this.performedBy = performedBy;
     }
 
-    public InventoryTransaction(Long organisationId, String itemName, String category, String unit, String type, int quantity, String referenceType, Long referenceId, int balanceAfter, String performedBy, Long createdByAdminId) {
+    public InventoryTransaction(Long organisationId, String itemName, String category, String unit, String type, double quantity, String referenceType, Long referenceId, double balanceAfter, String performedBy, Long createdByAdminId) {
         this.organisationId = organisationId;
         this.itemName = itemName;
         this.category = category;

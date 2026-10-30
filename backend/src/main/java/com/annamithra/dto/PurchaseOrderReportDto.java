@@ -9,16 +9,16 @@ public class PurchaseOrderReportDto {
     public String orderNumber;
     public String itemName;
     public String unit;
-    public int quantityOrdered;
-    public int actualReceived;
-    public int remainingToReceive;
+    public double quantityOrdered;
+    public double actualReceived;
+    public double remainingToReceive;
     public String status;
     public LocalDate orderDate;
     public LocalDateTime createdAt;
 
     public PurchaseOrderReportDto() {}
 
-    public PurchaseOrderReportDto(Long id, Long headerId, String orderNumber, String itemName, String unit, int quantityOrdered, int actualReceived, int remainingToReceive, String status, LocalDate orderDate, LocalDateTime createdAt) {
+    public PurchaseOrderReportDto(Long id, Long headerId, String orderNumber, String itemName, String unit, double quantityOrdered, double actualReceived, double remainingToReceive, String status, LocalDate orderDate, LocalDateTime createdAt) {
         this.id = id;
         this.headerId = headerId;
         this.orderNumber = orderNumber;

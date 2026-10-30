@@ -92,12 +92,12 @@ public class DispatchService {
                     ? requestRepo.findOutstandingForOrganisationAndBranchAndItem(orgId, branchName, line.itemName)
                     : requestRepo.findOutstandingForBranchAndItem(branchName, line.itemName);
 
-                int needed = line.dispatchQty;
+                double needed = line.dispatchQty;
                 for (BranchRequest br : unfulfilled) {
                     if (needed <= 0) break;
-                    int rem = br.getRemainingToDispatch();
+                    double rem = br.getRemainingToDispatch();
                     if (rem <= 0) continue;
-                    int toAlloc = Math.min(needed, rem);
+                    double toAlloc = Math.min(needed, rem);
                     PrepareDispatchRequest.DispatchItemLine sub = new PrepareDispatchRequest.DispatchItemLine();
                     sub.requestId = br.id;
                     sub.itemName = br.item;
@@ -136,7 +136,7 @@ public class DispatchService {
                     throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Access denied: Request belongs to another organisation");
                 }
 
-                int remainingToDispatch = br.getRemainingToDispatch();
+                double remainingToDispatch = br.getRemainingToDispatch();
                 if (line.dispatchQty > remainingToDispatch) {
                     throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
                         "Dispatch quantity (" + line.dispatchQty + ") for " + br.item + " exceeds outstanding requested amount (" + remainingToDispatch + ")");
@@ -146,18 +146,18 @@ public class DispatchService {
         }
 
         // 2. Lookup or initialize item records in central warehouse (stock does NOT restrict dispatch)
-        Map<String, Integer> totalItemQuantities = new HashMap<>();
+        Map<String, Double> totalItemQuantities = new HashMap<>();
         Map<String, String> itemUnits = new HashMap<>();
         for (PrepareDispatchRequest.DispatchItemLine line : validLines) {
             String key = line.itemName.trim().toLowerCase();
-            totalItemQuantities.put(key, totalItemQuantities.getOrDefault(key, 0) + line.dispatchQty);
+            totalItemQuantities.put(key, totalItemQuantities.getOrDefault(key, 0.0) + line.dispatchQty);
             if (line.unit != null && !line.unit.isBlank()) {
                 itemUnits.put(key, line.unit.trim().toUpperCase());
             }
         }
 
         Map<String, Item> itemMap = new HashMap<>();
-        for (Map.Entry<String, Integer> entry : totalItemQuantities.entrySet()) {
+        for (Map.Entry<String, Double> entry : totalItemQuantities.entrySet()) {
             String fallbackUnit = itemUnits.getOrDefault(entry.getKey(), "KG");
             Item item = (orgId != null)
                 ? itemRepo.findByOrganisationIdAndNameIgnoreCase(orgId, entry.getKey())
@@ -182,7 +182,7 @@ public class DispatchService {
             String itemKey = line.itemName.trim().toLowerCase();
             Item item = itemMap.get(itemKey);
 
-            int previousStock = item.stock;
+            double previousStock = item.stock;
             // Deduct actual quantity from central warehouse transparently (reflects accurate stock / deficit)
             item.stock -= line.dispatchQty;
             itemRepo.save(item);
@@ -194,6 +194,14 @@ public class DispatchService {
             dispatch.createdAt = now;
             dispatch.branchName = branchName;
             dispatch.itemName = item.name;
+            if (line.requestId != null && requestMap.containsKey(line.requestId)) {
+                BranchRequest br = requestMap.get(line.requestId);
+                dispatch.department = br.getDepartment() != null ? br.getDepartment() : "General";
+            } else if (line.department != null && !line.department.isBlank()) {
+                dispatch.department = line.department.trim();
+            } else {
+                dispatch.department = (item.category != null && !item.category.isBlank()) ? item.category.trim() : "General";
+            }
             dispatch.unit = (line.unit != null && !line.unit.isBlank()) ? line.unit.trim().toUpperCase() : item.unit;
             dispatch.quantity = line.dispatchQty;
             dispatch.isAdditional = line.isAdditional || (line.requestId == null);
@@ -223,7 +231,7 @@ public class DispatchService {
 
             // Preserve an explicit stock adjustment / deficit record when dispatch exceeds available stock
             if (previousStock < line.dispatchQty) {
-                int deficit = line.dispatchQty - Math.max(0, previousStock);
+                double deficit = line.dispatchQty - Math.max(0.0, previousStock);
                 InventoryTransaction adjustTx = new InventoryTransaction(
                     orgId,
                     item.name,
@@ -323,7 +331,7 @@ public class DispatchService {
 
     // Branch Manager: Confirm physical receipt (acknowledge)
     @Transactional
-    public Dispatch acknowledgeDispatch(Long dispatchId, Integer actualReceivedQty, String remarks, String managerBranch, String managerUsername, Long orgId) {
+    public Dispatch acknowledgeDispatch(Long dispatchId, Double actualReceivedQty, String remarks, String managerBranch, String managerUsername, Long orgId) {
         if (dispatchId == null) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Dispatch ID cannot be null");
         }
@@ -341,7 +349,7 @@ public class DispatchService {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Delivery has already been acknowledged");
         }
 
-        int receivedQty = (actualReceivedQty != null) ? actualReceivedQty : d.quantity;
+        double receivedQty = (actualReceivedQty != null) ? actualReceivedQty : d.quantity;
         if (receivedQty < 0) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Actual received quantity cannot be negative");
         }
@@ -349,7 +357,7 @@ public class DispatchService {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Actual received quantity (" + receivedQty + " " + d.unit + ") cannot exceed dispatched quantity (" + d.quantity + " " + d.unit + ")");
         }
 
-        int shortage = d.quantity - receivedQty;
+        double shortage = d.quantity - receivedQty;
 
         d.status = "ACKNOWLEDGED";
         d.acknowledgedQuantity = receivedQty;
@@ -382,7 +390,7 @@ public class DispatchService {
 
     // Branch Manager: Return item to central store
     @Transactional
-    public Dispatch returnDispatch(Long dispatchId, int returnQty, String reason, String managerBranch, String managerUsername, Long orgId) {
+    public Dispatch returnDispatch(Long dispatchId, double returnQty, String reason, String managerBranch, String managerUsername, Long orgId) {
         if (dispatchId == null) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Dispatch ID cannot be null");
         }
@@ -400,8 +408,8 @@ public class DispatchService {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Access denied: Cannot access delivery from another organisation");
         }
 
-        int alreadyReturned = d.returnedQuantity;
-        int availableToReturn = d.quantity - alreadyReturned;
+        double alreadyReturned = d.returnedQuantity;
+        double availableToReturn = d.quantity - alreadyReturned;
 
         if (returnQty > availableToReturn) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,

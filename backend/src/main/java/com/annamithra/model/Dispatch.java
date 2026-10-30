@@ -26,24 +26,27 @@ public class Dispatch {
     @Column(nullable = false)
     public String itemName;
 
+    @Column(length = 100)
+    public String department;
+
     public String unit = "KG";
 
     @Column(nullable = false)
-    public int quantity; // Dispatched Quantity
+    public double quantity; // Dispatched Quantity
 
     public boolean isAdditional = false;
 
     @Column(nullable = false)
     public String status = "PENDING"; // PENDING, ACKNOWLEDGED
 
-    public int acknowledgedQuantity = 0; // Actual received quantity
-    public int shortageQuantity = 0; // Dispatched - Actual Received
+    public double acknowledgedQuantity = 0; // Actual received quantity
+    public double shortageQuantity = 0; // Dispatched - Actual Received
     public String acknowledgementStatus; // FULLY_RECEIVED, PARTIALLY_RECEIVED, NOT_RECEIVED
     public String acknowledgementRemarks; // Remarks explaining shortage or damage
     public LocalDateTime acknowledgedAt;
     public String acknowledgedBy;
 
-    public int returnedQuantity = 0;
+    public double returnedQuantity = 0;
     public LocalDateTime returnedAt;
     public String returnReason;
 
@@ -51,11 +54,13 @@ public class Dispatch {
 
     public Dispatch() {}
 
-    public int getPendingAcknowledgementQuantity() {
+    public double getPendingAcknowledgementQuantity() {
         return "ACKNOWLEDGED".equalsIgnoreCase(status) ? 0 : quantity;
     }
 
-    public int getAvailableToReturn() {
+    public String getItem() { return itemName; }
+
+    public double getAvailableToReturn() {
         return Math.max(0, quantity - returnedQuantity);
     }
 }

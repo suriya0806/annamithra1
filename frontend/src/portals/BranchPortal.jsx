@@ -14,6 +14,7 @@ import {
 } from '../utils/dateGrouping';
 
 export const BRANCH_ORDER_CATEGORIES = [
+  'General',
   'Vegetables',
   'Groceries',
   'Tea/Coffee',
@@ -43,7 +44,13 @@ export function BranchPortal({ user, activeTab, onSelectTab }) {
   const [catalogueItems, setCatalogueItems] = useState([]);
   const [loading, setLoading] = useState(false);
 
-  // 1. Order Items states
+  // 1. Order Items states (Department-first workflow)
+  const [selectedDepartment, setSelectedDepartment] = useState('');
+  const [availableDepartments, setAvailableDepartments] = useState([]);
+  const [departmentsLoading, setDepartmentsLoading] = useState(false);
+  const [showDeptConfirmModal, setShowDeptConfirmModal] = useState(false);
+  const [pendingDepartment, setPendingDepartment] = useState('');
+  const deptSelectRef = useRef(null);
   const [selectedCategory, setSelectedCategory] = useState('');
   const categorySelectRef = useRef(null);
   const [searchQuery, setSearchQuery] = useState('');
@@ -175,14 +182,15 @@ export function BranchPortal({ user, activeTab, onSelectTab }) {
     try {
       setSavingDraft(true);
       const name = (newDraftNameInput || '').trim() || `Draft #${savedDrafts.length + 1} (${getTodayDateString()})`;
+      const effDept = selectedDepartment || orderItemsList[0]?.department || orderItemsList[0]?.category || 'General';
       const saved = await api.saveBranchDraft(name, orderItemsList.map(it => ({
         itemName: it.itemName,
         unit: it.unit,
-        category: it.category || it.department,
-        department: it.department || it.category,
+        category: effDept,
+        department: effDept,
         requestedQuantity: it.requestedQuantity,
         isNewItem: it.isNewItem
-      })));
+      })), effDept);
 
       showAlert('success', language === 'ta'
         ? `✓ வரைவு "${saved.draftName || name}" வெற்றிகரமாக சேமிக்கப்பட்டது! வரைவுகள் பக்கத்தில் எந்த நேரமும் அணுகலாம்.`
@@ -264,7 +272,7 @@ export function BranchPortal({ user, activeTab, onSelectTab }) {
   };
 
   const handleUpdateEditDraftItemQty = (index, qty) => {
-    const val = parseInt(qty, 10);
+    const val = parseFloat(qty);
     setEditDraftItems(prev => prev.map((item, i) => {
       if (i === index) {
         return { ...item, requestedQuantity: isNaN(val) ? 0 : val };
@@ -284,7 +292,8 @@ export function BranchPortal({ user, activeTab, onSelectTab }) {
       return;
     }
     for (const it of editDraftItems) {
-      if (!it.requestedQuantity || it.requestedQuantity <= 0) {
+      const q = parseFloat(it.requestedQuantity);
+      if (isNaN(q) || q <= 0) {
         showAlert('error', `Requested quantity for "${it.itemName}" must be greater than 0.`);
         return;
       }
@@ -292,7 +301,7 @@ export function BranchPortal({ user, activeTab, onSelectTab }) {
 
     try {
       setSavingEditDraft(true);
-      const updated = await api.updateBranchDraft(viewingDraft.id, editDraftName, editDraftItems);
+      const updated = await api.updateBranchDraft(viewingDraft.id, editDraftName, editDraftItems.map(it => ({ ...it, requestedQuantity: parseFloat(it.requestedQuantity) })));
       showAlert('success', language === 'ta' ? '✓ வரைவு மாற்றங்கள் வெற்றிகரமாக சேமிக்கப்பட்டன!' : '✓ Draft changes saved successfully!');
       setViewingDraft(updated);
       await loadSavedDrafts();
@@ -369,32 +378,37 @@ export function BranchPortal({ user, activeTab, onSelectTab }) {
     // Track original draft source so it can be preserved and only marked as moved after successful order submission
     setActiveDraftSourceId(draft.id);
 
+    // Restore selected department from draft or first item
+    const restoredDept = (draft.department || draft.items?.[0]?.department || draft.items?.[0]?.category || '').trim();
+    if (restoredDept) {
+      setSelectedDepartment(restoredDept);
+    }
+
     setOrderItemsList(prev => {
       const nextList = [...prev];
+      const effectiveDept = restoredDept || selectedDepartment || 'General';
       draft.items.forEach(draftItem => {
-        let itemCat = (draftItem.category || '').trim();
-        const matched = BRANCH_ORDER_CATEGORIES.find(c => c.toLowerCase() === itemCat.toLowerCase());
-        const validCategory = matched || 'Groceries';
+        const itemDept = (draftItem.department || draftItem.category || effectiveDept).trim();
 
         const matchIdx = nextList.findIndex(
-          x => x.itemName.trim().toLowerCase() === draftItem.itemName.trim().toLowerCase() &&
-               (x.category || '').trim().toLowerCase() === validCategory.toLowerCase()
+          x => x.itemName.trim().toLowerCase() === draftItem.itemName.trim().toLowerCase()
         );
         if (matchIdx >= 0) {
           nextList[matchIdx] = {
             ...nextList[matchIdx],
-            requestedQuantity: parseInt(draftItem.requestedQuantity, 10) || nextList[matchIdx].requestedQuantity,
+            requestedQuantity: parseFloat(draftItem.requestedQuantity) || nextList[matchIdx].requestedQuantity,
             unit: (draftItem.unit || nextList[matchIdx].unit || 'KG').trim().toUpperCase(),
-            category: validCategory
+            department: itemDept,
+            category: itemDept
           };
         } else {
           nextList.push({
             id: Date.now() + Math.random(),
             itemName: draftItem.itemName.trim(),
             unit: (draftItem.unit || 'KG').trim().toUpperCase(),
-            requestedQuantity: parseInt(draftItem.requestedQuantity, 10) || 1,
-            category: validCategory,
-          department: validCategory,
+            requestedQuantity: parseFloat(draftItem.requestedQuantity) || 1,
+            department: itemDept,
+            category: itemDept,
             isNewItem: draftItem.isNewItem || false
           });
         }
@@ -433,6 +447,70 @@ export function BranchPortal({ user, activeTab, onSelectTab }) {
     } finally {
       setDeletingDraft(false);
     }
+  };
+
+  // Load departments from database/configuration
+  const loadDepartments = async () => {
+    try {
+      setDepartmentsLoading(true);
+      const data = await api.getDepartments();
+      if (Array.isArray(data) && data.length > 0) {
+        setAvailableDepartments(data);
+      } else {
+        setAvailableDepartments(BRANCH_ORDER_CATEGORIES.map(name => ({ id: name, name })));
+      }
+    } catch (err) {
+      console.error('Failed to load departments', err);
+      setAvailableDepartments(BRANCH_ORDER_CATEGORIES.map(name => ({ id: name, name })));
+    } finally {
+      setDepartmentsLoading(false);
+    }
+  };
+
+  // Department change with confirmation when items exist in list
+  const handleDepartmentSelectChange = (newDept) => {
+    if (newDept === selectedDepartment) return;
+    if (!newDept) {
+      if (orderItemsList.length > 0) {
+        setPendingDepartment('');
+        setShowDeptConfirmModal(true);
+      } else {
+        setSelectedDepartment('');
+      }
+      return;
+    }
+
+    if (orderItemsList.length > 0) {
+      setPendingDepartment(newDept);
+      setShowDeptConfirmModal(true);
+    } else {
+      setSelectedDepartment(newDept);
+      setTimeout(() => {
+        itemInputRef.current?.focus();
+      }, 50);
+    }
+  };
+
+  const handleConfirmDepartmentChange = () => {
+    const targetDept = pendingDepartment;
+    setSelectedDepartment(targetDept);
+    if (targetDept) {
+      setOrderItemsList(prev => prev.map(item => ({
+        ...item,
+        department: targetDept,
+        category: targetDept
+      })));
+    }
+    setShowDeptConfirmModal(false);
+    setPendingDepartment('');
+    setTimeout(() => {
+      itemInputRef.current?.focus();
+    }, 50);
+  };
+
+  const handleCancelDepartmentChange = () => {
+    setShowDeptConfirmModal(false);
+    setPendingDepartment('');
   };
 
   // Load items catalogue
@@ -496,11 +574,13 @@ export function BranchPortal({ user, activeTab, onSelectTab }) {
 
   useEffect(() => {
     loadCatalogue();
+    loadDepartments();
   }, []);
 
   useEffect(() => {
     if (activeTab === 'order-items') {
       loadCatalogue();
+      loadDepartments();
       loadMyRequests(requestFilterDate, requestIsAllDates);
       loadSavedDrafts();
     } else if (activeTab === 'drafts') {
@@ -512,27 +592,31 @@ export function BranchPortal({ user, activeTab, onSelectTab }) {
     }
   }, [activeTab, requestFilterDate, requestIsAllDates, deliveryDate, deliveryIsAllDates, historyDate, historyIsAllDates, historyFromDate, historyToDate]);
 
-  // 1. Auto-focus Item Name whenever Order Items tab is opened or active
+  // 1. Auto-focus Department (if not selected) or Item Name whenever Order Items tab is opened or active
   useEffect(() => {
     if (activeTab === 'order-items') {
-      const focusItemInput = () => {
+      const focusInitialInput = () => {
         if (!showConfirmModal && !showNewItemModal) {
           const activeEl = document.activeElement;
           // Do not steal focus if user is already focused on an input inside the page
-          if (activeEl !== itemInputRef.current && activeEl !== qtyInputRef.current) {
-            itemInputRef.current?.focus();
+          if (activeEl !== itemInputRef.current && activeEl !== qtyInputRef.current && activeEl !== deptSelectRef.current) {
+            if (!selectedDepartment) {
+              deptSelectRef.current?.focus();
+            } else {
+              itemInputRef.current?.focus();
+            }
           }
         }
       };
 
-      const raf = requestAnimationFrame(focusItemInput);
-      const timer = setTimeout(focusItemInput, 50);
+      const raf = requestAnimationFrame(focusInitialInput);
+      const timer = setTimeout(focusInitialInput, 50);
       return () => {
         cancelAnimationFrame(raf);
         clearTimeout(timer);
       };
     }
-  }, [activeTab]);
+  }, [activeTab, selectedDepartment]);
 
   // Focus confirmation modal when opened
   useEffect(() => {
@@ -716,11 +800,11 @@ export function BranchPortal({ user, activeTab, onSelectTab }) {
     }
   };
 
-  // Add Item to Order List
+  // Add Item to Order List (requires selectedDepartment first)
   const handleAddItemToOrderList = () => {
-    if (!selectedCategory) {
-      showAlert('error', language === 'ta' ? 'தயவுசெய்து பிரிவைத் தேர்ந்தெடுக்கவும் (Department).' : 'Please select a Department before adding an item.');
-      categorySelectRef.current?.focus();
+    if (!selectedDepartment) {
+      showAlert('error', language === 'ta' ? 'தயவுசெய்து முதலில் ஆர்டர் செய்யும் துறையைத் தேர்ந்தெடுக்கவும்.' : 'Please select an Ordering Department above before adding items.');
+      deptSelectRef.current?.focus();
       return;
     }
 
@@ -731,7 +815,7 @@ export function BranchPortal({ user, activeTab, onSelectTab }) {
       return;
     }
 
-    const q = parseInt(requestedQty, 10);
+    const q = parseFloat(requestedQty);
     if (isNaN(q) || q <= 0) {
       showAlert('error', 'Requested Quantity must be a positive number greater than 0');
       qtyInputRef.current?.focus();
@@ -749,18 +833,17 @@ export function BranchPortal({ user, activeTab, onSelectTab }) {
       }
     }
 
-    // Prevent duplicate item lines in the same unsent request list (same name and category)
+    // Prevent duplicate item lines in the same unsent request list
     const existingIndex = orderItemsList.findIndex(
-      x => x.itemName.trim().toLowerCase() === finalName.toLowerCase() &&
-           (!x.category || x.category.toLowerCase() === selectedCategory.toLowerCase())
+      x => x.itemName.trim().toLowerCase() === finalName.toLowerCase()
     );
     if (existingIndex >= 0) {
       const existing = orderItemsList[existingIndex];
-      const updatedQty = existing.requestedQuantity + q;
+      const updatedQty = Math.round((Number(existing.requestedQuantity) + q) * 1000) / 1000;
       showAlert('warning', `"${finalName}" is already in your request list. Updated its quantity to ${updatedQty}. You can edit it directly in the table.`);
       setOrderItemsList(prev => prev.map((item, idx) => {
         if (idx === existingIndex) {
-          return { ...item, requestedQuantity: updatedQty, category: selectedCategory || item.category };
+          return { ...item, requestedQuantity: updatedQty, department: selectedDepartment, category: selectedDepartment };
         }
         return item;
       }));
@@ -775,20 +858,21 @@ export function BranchPortal({ user, activeTab, onSelectTab }) {
       return;
     }
 
-    // Add new row to unsent items
+    // Add new row to unsent items with selectedDepartment
     setOrderItemsList(prev => [
       ...prev,
       {
         id: Date.now() + Math.random(),
         itemName: finalName,
-        category: selectedCategory,
+        department: selectedDepartment,
+        category: selectedDepartment,
         unit: finalUnit,
         requestedQuantity: q,
         isNewItem: !selectedItem && !catalogueItems.some(it => it.name.toLowerCase() === finalName.toLowerCase())
       }
     ]);
 
-    showAlert('success', `✓ Added ${q} ${finalUnit} of "${finalName}" (${translateCategory(selectedCategory)}) to request list.`);
+    showAlert('success', `✓ Added ${q} ${finalUnit} of "${finalName}" (${translateCategory(selectedDepartment)}) to request list.`);
 
     // Clear entry fields and return focus automatically to Item Name input ready for next item
     setSearchQuery('');
@@ -806,7 +890,7 @@ export function BranchPortal({ user, activeTab, onSelectTab }) {
   };
 
   const handleUpdateOrderItemQty = (id, newQty) => {
-    const val = parseInt(newQty, 10);
+    const val = parseFloat(newQty);
     setOrderItemsList(prev => prev.map(item => {
       if (item.id === id) {
         return { ...item, requestedQuantity: isNaN(val) ? 0 : val };
@@ -825,7 +909,7 @@ export function BranchPortal({ user, activeTab, onSelectTab }) {
     setConfirmOrderError('');
 
     for (const it of orderItemsList) {
-      const q = parseInt(it.requestedQuantity, 10);
+      const q = parseFloat(it.requestedQuantity);
       if (isNaN(q) || q <= 0) {
         showAlert('error', `Requested quantity for "${it.itemName}" must be a positive number greater than 0.`);
         return;
@@ -838,10 +922,16 @@ export function BranchPortal({ user, activeTab, onSelectTab }) {
         showAlert('error', `Unit cannot be blank for "${it.itemName}".`);
         return;
       }
-      if (!it.category || !it.category.trim()) {
+      if (!it.department && !it.category && !selectedDepartment) {
         showAlert('error', `Department is missing for "${it.itemName}". Please select a department.`);
         return;
       }
+    }
+
+    if (!selectedDepartment && orderItemsList.length > 0) {
+      showAlert('error', 'Please select an Ordering Department before confirming your order.');
+      deptSelectRef.current?.focus();
+      return;
     }
 
     setShowConfirmModal(true);
@@ -869,22 +959,20 @@ export function BranchPortal({ user, activeTab, onSelectTab }) {
 
     try {
       setSubmittingBranchOrder(true);
+      const effectiveDept = selectedDepartment || orderItemsList[0]?.department || orderItemsList[0]?.category || 'General';
       const payloadItems = orderItemsList.map(it => {
-        let cat = (it.category || '').trim();
-        const matched = BRANCH_ORDER_CATEGORIES.find(c => c.toLowerCase() === cat.toLowerCase());
-        const validCategory = matched || (selectedCategory && BRANCH_ORDER_CATEGORIES.includes(selectedCategory) ? selectedCategory : 'Groceries');
-
+        const itemDept = it.department || it.category || effectiveDept;
         return {
           itemName: it.itemName.trim(),
           unit: (it.unit || 'KG').trim().toUpperCase(),
-          category: validCategory,
-          department: validCategory,
-          requestedQuantity: parseInt(it.requestedQuantity, 10) || 1,
+          category: itemDept,
+          department: itemDept,
+          requestedQuantity: parseFloat(it.requestedQuantity),
           isNewItem: Boolean(it.isNewItem)
         };
       });
 
-      await api.submitBranchRequest(payloadItems);
+      await api.submitBranchRequest(payloadItems, effectiveDept);
 
       // If this order was loaded from a draft, mark the draft as moved in DB only after successful submission!
       if (activeDraftSourceId) {
@@ -947,7 +1035,7 @@ export function BranchPortal({ user, activeTab, onSelectTab }) {
       return;
     }
 
-    const rQty = parseInt(actualReceivedQty, 10);
+    const rQty = parseFloat(actualReceivedQty);
     if (isNaN(rQty)) {
       setAckError(language === 'ta' ? 'செல்லுபடியாகும் எண்ணை உள்ளிடவும்.' : 'Please enter a valid number.');
       ackQtyInputRef.current?.focus();
@@ -1028,7 +1116,7 @@ export function BranchPortal({ user, activeTab, onSelectTab }) {
     if (!returnModalItem) return;
     if (isSubmittingReturn) return; // Prevent repeated double submission
 
-    const qty = parseInt(returnQty, 10);
+    const qty = parseFloat(returnQty);
     const alreadyReturned = returnModalItem.returnedQuantity || 0;
     const available = returnModalItem.quantity - alreadyReturned;
 
@@ -1089,45 +1177,100 @@ export function BranchPortal({ user, activeTab, onSelectTab }) {
                   type="button"
                   className="secondary small"
                   id="btn-add-new-catalogue-item"
-                  style={{ whiteSpace: 'nowrap', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 6 }}
-                  onClick={() => handleOpenNewItemModal(searchQuery)}
-                  title="Add a new item to catalogue (F5 shortcut)"
+                  disabled={!selectedDepartment}
+                  style={{
+                    whiteSpace: 'nowrap',
+                    fontWeight: 600,
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    opacity: !selectedDepartment ? 0.6 : 1,
+                    cursor: !selectedDepartment ? 'not-allowed' : 'pointer'
+                  }}
+                  onClick={() => {
+                    if (!selectedDepartment) {
+                      showAlert('error', language === 'ta' ? 'முதலில் ஆர்டர் செய்யும் துறையைத் தேர்ந்தெடுக்கவும்.' : 'Please select an Ordering Department above before adding a new item.');
+                      deptSelectRef.current?.focus();
+                      return;
+                    }
+                    handleOpenNewItemModal(searchQuery);
+                  }}
+                  title={!selectedDepartment ? 'Select department above first' : 'Add a new item to catalogue (F5 shortcut)'}
                 >
                   <span>➕</span> {t('Add New Item')} <kbd style={{ fontSize: 10, opacity: 0.85, padding: '1px 5px', background: 'rgba(0,0,0,0.06)', borderRadius: 3 }}>F5</kbd>
                 </button>
               </div>
 
               <div className="branch-form-fields">
-                {/* Category Selection Dropdown */}
-                <div className="branch-category-field" style={{ marginBottom: 14 }}>
-                  <label htmlFor="branch-item-category-select" style={{ display: 'block', fontWeight: 600, fontSize: 13, color: 'var(--primary-dark-green)', marginBottom: 6 }}>
-                    {t('Department', 'Department')} *
-                  </label>
-                  <select
-                    id="branch-item-category-select"
-                    ref={categorySelectRef}
-                    value={selectedCategory}
-                    onChange={e => setSelectedCategory(e.target.value)}
-                    required
-                    style={{
-                      width: '100%',
-                      height: 40,
-                      padding: '6px 12px',
-                      fontSize: 14,
+                {/* 1. Department Selection Dropdown (Immediately ABOVE Item Name) */}
+                <div className="branch-department-field" style={{ marginBottom: 14 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                    <label
+                      htmlFor="branch-order-department-select"
+                      style={{ fontWeight: 600, fontSize: 13, color: 'var(--primary-dark-green)', margin: 0 }}
+                    >
+                      {t('Department', 'துறை (Department)')} *
+                    </label>
+                    {selectedDepartment && (
+                      <span style={{
+                        fontSize: 11,
+                        background: '#bbf7d0',
+                        color: '#14532d',
+                        padding: '1px 6px',
+                        borderRadius: 10,
+                        fontWeight: 700
+                      }}>
+                        ✓ {t('Selected', 'தேர்ந்தெடுக்கப்பட்டது')}
+                      </span>
+                    )}
+                  </div>
+
+                  {departmentsLoading ? (
+                    <div style={{ fontSize: 13, color: '#6b7280', padding: '6px 0' }}>
+                      ⏳ {t('Loading departments...', 'துறைகள் ஏற்றப்படுகின்றன...')}
+                    </div>
+                  ) : availableDepartments.length === 0 ? (
+                    <div style={{
+                      padding: '8px 12px',
+                      background: '#fee2e2',
+                      border: '1px solid #fca5a5',
                       borderRadius: 6,
-                      border: '1.5px solid var(--border-color)',
-                      backgroundColor: '#ffffff',
-                      color: selectedCategory ? 'var(--primary-dark-green)' : '#666',
-                      fontWeight: selectedCategory ? 600 : 400
-                    }}
-                  >
-                    <option value="">{language === 'ta' ? '-- பிரிவைத் தேர்ந்தெடுக்கவும் (Select Department) --' : '-- Select Department --'}</option>
-                    {BRANCH_ORDER_CATEGORIES.map(cat => (
-                      <option key={cat} value={cat}>
-                        {translateCategory(cat)}
-                      </option>
-                    ))}
-                  </select>
+                      color: '#991b1b',
+                      fontSize: 12.5,
+                      fontWeight: 600
+                    }}>
+                      ⚠️ {t('No departments available. Please configure departments in the database.', 'கிடைக்கக்கூடிய துறைகள் இல்லை. தரவுத்தளத்தில் துறைகளை உள்ளமைக்கவும்.')}
+                    </div>
+                  ) : (
+                    <select
+                      id="branch-order-department-select"
+                      ref={deptSelectRef}
+                      value={selectedDepartment}
+                      onChange={e => handleDepartmentSelectChange(e.target.value)}
+                      required
+                      style={{
+                        width: '100%',
+                        height: 40,
+                        padding: '6px 12px',
+                        fontSize: 14,
+                        borderRadius: 6,
+                        border: selectedDepartment ? '1.5px solid #22c55e' : '1.5px solid #f59e0b',
+                        backgroundColor: '#ffffff',
+                        color: selectedDepartment ? '#15803d' : '#666',
+                        fontWeight: selectedDepartment ? 600 : 400
+                      }}
+                    >
+                      <option value="">{language === 'ta' ? '-- துறையைத் தேர்ந்தெடுக்கவும் (Select Department) --' : '-- Select Department --'}</option>
+                      {availableDepartments.map(dept => {
+                        const deptName = typeof dept === 'string' ? dept : dept.name;
+                        return (
+                          <option key={deptName} value={deptName}>
+                            🏢 {translateCategory(deptName)}
+                          </option>
+                        );
+                      })}
+                    </select>
+                  )}
                 </div>
 
                 {/* Searchable Autocomplete Item Name Input */}
@@ -1139,15 +1282,24 @@ export function BranchPortal({ user, activeTab, onSelectTab }) {
                         id="branch-item-search-input"
                         ref={itemInputRef}
                         type="text"
+                        disabled={!selectedDepartment}
                         autoComplete="off"
-                        placeholder={language === 'ta' ? 'பொருளின் பெயரை உள்ளிடவும் (எ.கா. தயிர்)...' : 'Type item name (e.g. Cu for Curd)...'}
+                        placeholder={!selectedDepartment
+                          ? (language === 'ta' ? 'முதலில் மேலே உள்ள துறையைத் தேர்ந்தெடுக்கவும்...' : 'Select an Ordering Department above first...')
+                          : (language === 'ta' ? 'பொருளின் பெயரை உள்ளிடவும் (எ.கா. தயிர்)...' : 'Type item name (e.g. Cu for Curd)...')}
                         value={searchQuery}
                         onChange={e => {
                           setSearchQuery(e.target.value);
                           setSelectedItem(null);
                           setShowSuggestions(true);
                         }}
-                        onFocus={() => setShowSuggestions(true)}
+                        onFocus={() => {
+                          if (!selectedDepartment) {
+                            deptSelectRef.current?.focus();
+                            return;
+                          }
+                          setShowSuggestions(true);
+                        }}
                         onKeyDown={handleItemInputKeyDown}
                       />
                       {searchQuery && (
@@ -1231,8 +1383,10 @@ export function BranchPortal({ user, activeTab, onSelectTab }) {
                       id="branch-item-qty-input"
                       ref={qtyInputRef}
                       type="number"
-                      min="1"
-                      placeholder={t('Enter Quantity')}
+                      min="0.001"
+                      step="any"
+                      disabled={!selectedDepartment}
+                      placeholder={!selectedDepartment ? (language === 'ta' ? 'முதலில் துறையைத் தேர்ந்தெடுக்கவும்' : 'Select department first') : t('Enter Quantity')}
                       value={requestedQty}
                       onChange={e => setRequestedQty(e.target.value)}
                       onKeyDown={e => {
@@ -1251,7 +1405,13 @@ export function BranchPortal({ user, activeTab, onSelectTab }) {
                   type="button"
                   className="secondary"
                   id="btn-add-item-to-order-list"
-                  style={{ width: '100%', justifyContent: 'center' }}
+                  disabled={!selectedDepartment}
+                  style={{
+                    width: '100%',
+                    justifyContent: 'center',
+                    opacity: !selectedDepartment ? 0.6 : 1,
+                    cursor: !selectedDepartment ? 'not-allowed' : 'pointer'
+                  }}
                   onClick={handleAddItemToOrderList}
                 >
                   {t('+ Add Item to Order List (Enter)', '+ கோரிக்கை பட்டியலில் சேர் (Enter)')}
@@ -1334,7 +1494,8 @@ export function BranchPortal({ user, activeTab, onSelectTab }) {
                           <td style={{ textAlign: 'center' }}>
                             <input
                               type="number"
-                              min="1"
+                              min="0.001"
+                      step="any"
                               className="qty-input"
                               value={item.requestedQuantity}
                               onChange={e => handleUpdateOrderItemQty(item.id, e.target.value)}
@@ -1414,7 +1575,8 @@ export function BranchPortal({ user, activeTab, onSelectTab }) {
                           </button>
                           <input
                             type="number"
-                            min="1"
+                            min="0.001"
+                      step="any"
                             className="mobile-stepper-input"
                             value={item.requestedQuantity}
                             onChange={e => handleUpdateOrderItemQty(item.id, e.target.value)}
@@ -1485,6 +1647,57 @@ export function BranchPortal({ user, activeTab, onSelectTab }) {
               </div>
             </div>
           </div>
+
+          {/* CONFIRM DEPARTMENT CHANGE MODAL */}
+          {showDeptConfirmModal && (
+            <div className="modal-overlay" style={{ zIndex: 1100 }}>
+              <div className="modal-content" style={{ maxWidth: 460, padding: '24px 28px', borderRadius: 10, background: '#ffffff', boxShadow: '0 10px 25px rgba(0,0,0,0.15)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
+                  <div style={{ width: 42, height: 42, borderRadius: '50%', background: '#fef3c7', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22, color: '#d97706', flexShrink: 0 }}>
+                    ⚠️
+                  </div>
+                  <div>
+                    <h3 style={{ margin: 0, fontSize: 17, color: 'var(--primary-dark-green)', fontWeight: 700 }}>
+                      {t('Change Ordering Department?', 'ஆர்டர் செய்யும் துறையை மாற்றவா?')}
+                    </h3>
+                    <p style={{ margin: '4px 0 0', fontSize: 13, color: '#6b7280' }}>
+                      {t('You have existing items in your order request.', 'உங்கள் கோரிக்கை பட்டியலில் பொருட்கள் உள்ளன.')}
+                    </p>
+                  </div>
+                </div>
+
+                <div style={{ background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: 8, padding: '12px 16px', marginBottom: 20, fontSize: 13.5, lineHeight: 1.5, color: '#374151' }}>
+                  <p style={{ margin: '0 0 8px' }}>
+                    {language === 'ta'
+                      ? `தற்போது பட்டியலில் ${orderItemsList.length} பொருட்கள் உள்ளன. துறையை "${selectedDepartment || 'பொது'}" என்பதிலிருந்து "${pendingDepartment || '—'}" என மாற்ற விரும்புகிறீர்களா?`
+                      : `You have ${orderItemsList.length} item(s) in your current order list. Would you like to change the department from "${selectedDepartment || 'None'}" to "${pendingDepartment || 'None'}" for all items in this order?`}
+                  </p>
+                  <p style={{ margin: 0, fontSize: 12.5, color: '#059669', fontWeight: 600 }}>
+                    ✓ {t('All entered items, quantities, and units will be preserved.', 'உள்ளிடப்பட்ட அனைத்து பொருட்கள், அளவுகள் மற்றும் அலகுகள் பாதுகாக்கப்படும்.')}
+                  </p>
+                </div>
+
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
+                  <button
+                    type="button"
+                    className="secondary"
+                    onClick={handleCancelDepartmentChange}
+                    style={{ padding: '8px 16px', fontWeight: 600 }}
+                  >
+                    {t('Keep Current Department', 'தற்போதைய துறையை வைத்திரு')}
+                  </button>
+                  <button
+                    type="button"
+                    className="primary"
+                    onClick={handleConfirmDepartmentChange}
+                    style={{ padding: '8px 18px', fontWeight: 700 }}
+                  >
+                    {t('Yes, Update Department', 'ஆம், துறையை மாற்று')}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Confirm Order Modal Popup */}
           {showConfirmModal && (
@@ -2006,18 +2219,34 @@ export function BranchPortal({ user, activeTab, onSelectTab }) {
                             {t('Branch')}: <b>{draft.branchName}</b>
                           </span>
                         </div>
-                        <span
-                          className="badge"
-                          style={{
-                            fontSize: 10,
-                            fontWeight: 700,
-                            background: isMoved ? '#e0e7ff' : '#FEF3C7',
-                            color: isMoved ? '#3730a3' : '#b45309',
-                            border: isMoved ? '1px solid #c7d2fe' : '1px solid #FCD34D'
-                          }}
-                        >
-                          {isMoved ? (language === 'ta' ? '✓ ஆர்டருக்கு மாற்றப்பட்டது' : '✓ MOVED TO ORDER') : (language === 'ta' ? 'வரைவு' : 'DRAFT')}
-                        </span>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                          {(draft.department || draft.items?.[0]?.department || draft.items?.[0]?.category) && (
+                            <span
+                              className="badge"
+                              style={{
+                                fontSize: 10.5,
+                                fontWeight: 700,
+                                background: '#ecfdf5',
+                                color: '#065f46',
+                                border: '1px solid #a7f3d0'
+                              }}
+                            >
+                              🏢 {translateCategory(draft.department || draft.items?.[0]?.department || draft.items?.[0]?.category)}
+                            </span>
+                          )}
+                          <span
+                            className="badge"
+                            style={{
+                              fontSize: 10,
+                              fontWeight: 700,
+                              background: isMoved ? '#e0e7ff' : '#FEF3C7',
+                              color: isMoved ? '#3730a3' : '#b45309',
+                              border: isMoved ? '1px solid #c7d2fe' : '1px solid #FCD34D'
+                            }}
+                          >
+                            {isMoved ? (language === 'ta' ? '✓ ஆர்டருக்கு மாற்றப்பட்டது' : '✓ MOVED TO ORDER') : (language === 'ta' ? 'வரைவு' : 'DRAFT')}
+                          </span>
+                        </div>
                       </div>
 
                       <div style={{ padding: '12px 14px', flex: 1 }}>
@@ -3232,7 +3461,8 @@ export function BranchPortal({ user, activeTab, onSelectTab }) {
                         <td style={{ textAlign: 'center' }}>
                           <input
                             type="number"
-                            min="1"
+                            min="0.001"
+                      step="any"
                             value={item.requestedQuantity}
                             onChange={e => handleUpdateEditDraftItemQty(idx, e.target.value)}
                             disabled={savingEditDraft}
@@ -3550,7 +3780,8 @@ export function BranchPortal({ user, activeTab, onSelectTab }) {
                     <input
                       ref={returnQtyInputRef}
                       type="number"
-                      min="1"
+                      min="0.001"
+                      step="any"
                       max={returnModalItem.quantity - (returnModalItem.returnedQuantity || 0)}
                       placeholder={t('Enter quantity', 'Enter quantity')}
                       value={returnQty}
@@ -3596,7 +3827,7 @@ export function BranchPortal({ user, activeTab, onSelectTab }) {
                 <button
                   type="submit"
                   className="primary"
-                  disabled={isSubmittingReturn || !returnQty || parseInt(returnQty, 10) <= 0}
+                  disabled={isSubmittingReturn || !returnQty || parseFloat(returnQty) <= 0}
                   style={{ fontWeight: 600 }}
                 >
                   {isSubmittingReturn ? t('Processing Return...', 'Processing Return...') : t('Confirm Return', 'Confirm Return')}
@@ -3610,7 +3841,7 @@ export function BranchPortal({ user, activeTab, onSelectTab }) {
       {/* Acknowledge Delivery Receipt & Shortage Modal */}
       {showAckModal && ackModalItem && (() => {
         const dispatched = ackModalItem.quantity || 0;
-        const parsedVal = actualReceivedQty === '' ? NaN : parseInt(actualReceivedQty, 10);
+        const parsedVal = actualReceivedQty === '' ? NaN : parseFloat(actualReceivedQty);
         const isValidNum = !isNaN(parsedVal);
         const receivedNum = isValidNum ? parsedVal : 0;
         const computedShortage = isValidNum ? dispatched - parsedVal : dispatched;
@@ -3739,7 +3970,7 @@ export function BranchPortal({ user, activeTab, onSelectTab }) {
                         type="number"
                         min="0"
                         max={dispatched}
-                        step="1"
+                        step="any"
                         placeholder={t('Enter received quantity', 'Enter received quantity')}
                         value={actualReceivedQty}
                         onChange={e => {

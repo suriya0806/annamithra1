@@ -3,15 +3,15 @@ package com.annamithra.dto;
 public class ConsolidatedItemDto {
     public String itemName;
     public String unit;
-    public int totalRequiredQuantity; // Outstanding requirement quantity
-    public int availableStock;
-    public int totalBranchRequirement;
-    public int alreadyAllocatedQuantity;
-    public int outstandingRequirement;
+    public double totalRequiredQuantity; // Outstanding requirement quantity
+    public double availableStock;
+    public double totalBranchRequirement;
+    public double alreadyAllocatedQuantity;
+    public double outstandingRequirement;
 
     public ConsolidatedItemDto() {}
 
-    public ConsolidatedItemDto(String itemName, String unit, int totalRequiredQuantity, int availableStock) {
+    public ConsolidatedItemDto(String itemName, String unit, double totalRequiredQuantity, double availableStock) {
         this.itemName = itemName;
         this.unit = unit;
         this.totalRequiredQuantity = totalRequiredQuantity;
@@ -21,7 +21,7 @@ public class ConsolidatedItemDto {
         this.outstandingRequirement = totalRequiredQuantity;
     }
 
-    public ConsolidatedItemDto(String itemName, String unit, int outstandingRequirement, int availableStock, int totalBranchRequirement, int alreadyAllocatedQuantity) {
+    public ConsolidatedItemDto(String itemName, String unit, double outstandingRequirement, double availableStock, double totalBranchRequirement, double alreadyAllocatedQuantity) {
         this.itemName = itemName;
         this.unit = unit;
         this.totalRequiredQuantity = outstandingRequirement;

@@ -37,3 +37,7 @@ Thumbs.db
 
 # Scratch / Temp
 scratch/
+.settings/
+**/.settings/
+.project
+.classpath

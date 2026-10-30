@@ -347,7 +347,7 @@ export function AdminPortal({ activeTab }) {
     if (!newItemName.trim()) {
       return showAlert('error', 'Please enter an Item Name');
     }
-    const q = parseInt(newItemQty, 10);
+    const q = parseFloat(newItemQty);
     if (isNaN(q) || q <= 0) {
       return showAlert('error', 'Quantity to Order must be a positive number');
     }
@@ -1186,7 +1186,8 @@ export function AdminPortal({ activeTab }) {
                     {t('Quantity to Order', 'ஆர்டர் அளவு')} *
                     <input
                       type="number"
-                      min="1"
+                      min="0.001"
+                      step="any"
                       placeholder="e.g. 50"
                       value={newItemQty}
                       onChange={e => setNewItemQty(e.target.value)}

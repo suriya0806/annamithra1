@@ -24,10 +24,13 @@ public class BranchOrderDraft {
 
     public int itemCount = 0;
 
-    public int totalQuantity = 0;
+    public double totalQuantity = 0.0;
 
     @Column(columnDefinition = "TEXT", nullable = false)
     public String itemsJson = "[]";
+
+    @Column(length = 100)
+    public String department;
 
     public LocalDateTime createdAt = LocalDateTime.now();
 
@@ -37,7 +40,7 @@ public class BranchOrderDraft {
 
     public BranchOrderDraft() {}
 
-    public BranchOrderDraft(Long organisationId, Long branchId, String branchName, String draftName, String status, int itemCount, int totalQuantity, String itemsJson, String createdBy) {
+    public BranchOrderDraft(Long organisationId, Long branchId, String branchName, String draftName, String status, int itemCount, double totalQuantity, String itemsJson, String createdBy) {
         this.organisationId = organisationId;
         this.branchId = branchId;
         this.branchName = branchName;

@@ -29,27 +29,34 @@ public class BranchRequestService {
     private final ItemRepository itemRepo;
     private final DispatchRepository dispatchRepo;
     private final PurchaseOrderRepository orderRepo;
+    private final DepartmentService departmentService;
 
     public static final List<String> ALLOWED_CATEGORIES = List.of(
-        "Vegetables",
-        "Groceries",
+        "General",
+        "Front Office",
+        "Kitchen",
         "Tea/Coffee",
         "Vada Stall",
         "Sweet/Savouries",
+        "Bakery",
+        "Parcel",
+        "Dishwasher",
+        "Dining Hall",
+        "Vegetables",
+        "Groceries",
         "Dosa Kal",
         "Chinese",
-        "Idly",
-        "Front Office",
-        "Parcel",
-        "Dishwasher"
+        "Idly"
     );
 
     public BranchRequestService(BranchRequestRepository requestRepo, ItemRepository itemRepo,
-                                DispatchRepository dispatchRepo, PurchaseOrderRepository orderRepo) {
+                                DispatchRepository dispatchRepo, PurchaseOrderRepository orderRepo,
+                                DepartmentService departmentService) {
         this.requestRepo = requestRepo;
         this.itemRepo = itemRepo;
         this.dispatchRepo = dispatchRepo;
         this.orderRepo = orderRepo;
+        this.departmentService = departmentService;
     }
 
     @Transactional
@@ -79,19 +86,32 @@ public class BranchRequestService {
             }
             String effectiveDept = line.getEffectiveDepartment();
             if (effectiveDept == null || effectiveDept.isBlank()) {
-                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Department is required for " + line.itemName);
+                effectiveDept = req.getEffectiveDepartment();
+            }
+            if (effectiveDept == null || effectiveDept.isBlank()) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Department is required to place an order");
             }
 
-            String trimmedCat = effectiveDept.trim();
-            String matchedCat = ALLOWED_CATEGORIES.stream()
-                .filter(c -> c.equalsIgnoreCase(trimmedCat))
-                .findFirst()
-                .orElse(null);
-            if (matchedCat == null) {
-                if (trimmedCat.equalsIgnoreCase("General") || trimmedCat.equalsIgnoreCase("Misc") || trimmedCat.equalsIgnoreCase("Other") || trimmedCat.equalsIgnoreCase("Others")) {
-                    matchedCat = "Groceries";
+            String trimmedDept = effectiveDept.trim();
+            String matchedDept = null;
+            if (departmentService != null && departmentService.isValidDepartment(orgId, trimmedDept)) {
+                matchedDept = departmentService.getDepartments(orgId).stream()
+                    .filter(d -> d.name.equalsIgnoreCase(trimmedDept))
+                    .map(d -> d.name)
+                    .findFirst()
+                    .orElse(trimmedDept);
+            } else {
+                matchedDept = ALLOWED_CATEGORIES.stream()
+                    .filter(c -> c.equalsIgnoreCase(trimmedDept))
+                    .findFirst()
+                    .orElse(null);
+            }
+
+            if (matchedDept == null) {
+                if (trimmedDept.equalsIgnoreCase("Misc") || trimmedDept.equalsIgnoreCase("Other") || trimmedDept.equalsIgnoreCase("Others")) {
+                    matchedDept = "General";
                 } else {
-                    throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid category '" + line.category + "' for " + line.itemName + ". Allowed categories: " + ALLOWED_CATEGORIES);
+                    throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid department '" + effectiveDept + "'. Please select a valid department.");
                 }
             }
 
@@ -114,7 +134,8 @@ public class BranchRequestService {
             br.branchId = branchId;
             br.item = itemName;
             br.unit = unit;
-            br.category = matchedCat;
+            br.category = matchedDept;
+            br.department = matchedDept;
             br.requested = line.requestedQuantity;
             br.dispatched = 0;
             br.received = 0;
@@ -195,7 +216,7 @@ public class BranchRequestService {
             ? requestRepo.findAllOutstandingByOrganisationId(orgId)
             : requestRepo.findAllOutstanding();
 
-        Map<String, Integer> branchReqTotals = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
+        Map<String, Double> branchReqTotals = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
         Map<String, String> itemUnits = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
         Map<String, String> displayNames = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
 
@@ -205,10 +226,10 @@ public class BranchRequestService {
             if (filterDate != null && (rDate == null || !rDate.equals(filterDate))) {
                 continue;
             }
-            int remaining = r.getRemainingToDispatch();
+            double remaining = r.getRemainingToDispatch();
             if (remaining > 0) {
                 String name = r.item.trim();
-                branchReqTotals.put(name, branchReqTotals.getOrDefault(name, 0) + remaining);
+                branchReqTotals.put(name, branchReqTotals.getOrDefault(name, 0.0) + remaining);
                 itemUnits.putIfAbsent(name, r.unit != null ? r.unit.trim().toUpperCase() : "KG");
                 displayNames.putIfAbsent(name, r.item.trim());
             }
@@ -219,7 +240,7 @@ public class BranchRequestService {
             ? orderRepo.findByOrganisationIdOrderByCreatedAtDesc(orgId)
             : orderRepo.findAll();
 
-        Map<String, Integer> allocatedPoTotals = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
+        Map<String, Double> allocatedPoTotals = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
 
         for (PurchaseOrder po : submittedOrders) {
             if (po.item == null || po.quantity <= 0) continue;
@@ -236,16 +257,16 @@ public class BranchRequestService {
             }
 
             String name = po.item.trim();
-            allocatedPoTotals.put(name, allocatedPoTotals.getOrDefault(name, 0) + po.quantity);
+            allocatedPoTotals.put(name, allocatedPoTotals.getOrDefault(name, 0.0) + po.quantity);
         }
 
         // 3. Outstanding Requirement = Total Branch Requirement - Quantity Already Allocated
         List<ConsolidatedItemDto> result = new ArrayList<>();
-        for (Map.Entry<String, Integer> entry : branchReqTotals.entrySet()) {
+        for (Map.Entry<String, Double> entry : branchReqTotals.entrySet()) {
             String key = entry.getKey();
-            int totalReq = entry.getValue();
-            int allocated = allocatedPoTotals.getOrDefault(key, 0);
-            int outstandingReq = Math.max(0, totalReq - allocated);
+            double totalReq = entry.getValue();
+            double allocated = allocatedPoTotals.getOrDefault(key, 0.0);
+            double outstandingReq = Math.max(0.0, totalReq - allocated);
 
             if (outstandingReq > 0) {
                 String displayName = displayNames.getOrDefault(key, key);
@@ -253,7 +274,7 @@ public class BranchRequestService {
                     ? itemRepo.findByOrganisationIdAndNameIgnoreCase(orgId, key).orElse(null)
                     : itemRepo.findByNameIgnoreCase(key).orElse(null);
 
-                int stock = (it != null) ? it.stock : 0;
+                double stock = (it != null) ? it.stock : 0.0;
                 String unit = (it != null && it.unit != null && !it.unit.isBlank()) ? it.unit : itemUnits.getOrDefault(key, "KG");
                 result.add(new ConsolidatedItemDto(displayName, unit, outstandingReq, stock, totalReq, allocated));
             }
@@ -329,9 +350,9 @@ public class BranchRequestService {
                 String displayUnit = group.get(0).unit.trim().toUpperCase();
                 String branch = group.get(0).branch;
 
-                int totalRequested = 0;
-                int alreadyDispatched = 0;
-                int confirmedReceived = 0;
+                double totalRequested = 0.0;
+                double alreadyDispatched = 0.0;
+                double confirmedReceived = 0.0;
 
                 List<BranchRequestHistoryDto> historyList = new ArrayList<>();
 
@@ -339,14 +360,14 @@ public class BranchRequestService {
                     totalRequested += br.requested;
 
                     List<Dispatch> reqDispatches = dispatchesByRequestId.getOrDefault(br.id, Collections.emptyList());
-                    int dispatchSum = reqDispatches.stream().mapToInt(d -> d.quantity).sum();
-                    int receivedSum = reqDispatches.stream()
+                    double dispatchSum = reqDispatches.stream().mapToDouble(d -> d.quantity).sum();
+                    double receivedSum = reqDispatches.stream()
                         .filter(d -> "ACKNOWLEDGED".equalsIgnoreCase(d.status))
-                        .mapToInt(d -> d.acknowledgedQuantity > 0 ? d.acknowledgedQuantity : d.quantity)
+                        .mapToDouble(d -> d.acknowledgedQuantity > 0 ? d.acknowledgedQuantity : d.quantity)
                         .sum();
 
-                    int actualDispatched = Math.max(br.dispatched, dispatchSum);
-                    int actualReceived = Math.max(br.received, receivedSum);
+                    double actualDispatched = Math.max(br.dispatched, dispatchSum);
+                    double actualReceived = Math.max(br.received, receivedSum);
 
                     alreadyDispatched += actualDispatched;
                     confirmedReceived += actualReceived;
@@ -389,7 +410,7 @@ public class BranchRequestService {
                     }
                 });
 
-                int remainingToDispatch = Math.max(0, totalRequested - alreadyDispatched);
+                double remainingToDispatch = Math.max(0.0, totalRequested - alreadyDispatched);
 
                 // Delivery status calculation
                 String deliveryStatus;

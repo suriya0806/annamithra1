@@ -12,6 +12,7 @@ public class BranchDispatchReportDto {
     public String itemName;
     public String unit;
     public String category;
+    public String department;
     public double requestedQuantity;
     public double dispatchedQuantity;
     public double acknowledgedQuantity;
@@ -43,6 +44,7 @@ public class BranchDispatchReportDto {
         this.itemName = itemName;
         this.unit = unit;
         this.category = category;
+        this.department = (category != null && !category.isBlank()) ? category.trim() : "Not specified";
         this.requestedQuantity = requestedQuantity;
         this.dispatchedQuantity = dispatchedQuantity;
         this.acknowledgedQuantity = acknowledgedQuantity;

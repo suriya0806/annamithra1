@@ -2,14 +2,14 @@ package com.annamithra.dto;
 
 public class ReportSummaryDto {
     public long totalPurchaseOrders;
-    public long totalItemsOrdered;
-    public long totalQuantityReceived;
-    public long totalQuantityDispatched;
-    public long totalPendingAcknowledgement;
+    public double totalItemsOrdered;
+    public double totalQuantityReceived;
+    public double totalQuantityDispatched;
+    public double totalPendingAcknowledgement;
 
     public ReportSummaryDto() {}
 
-    public ReportSummaryDto(long totalPurchaseOrders, long totalItemsOrdered, long totalQuantityReceived, long totalQuantityDispatched, long totalPendingAcknowledgement) {
+    public ReportSummaryDto(long totalPurchaseOrders, double totalItemsOrdered, double totalQuantityReceived, double totalQuantityDispatched, double totalPendingAcknowledgement) {
         this.totalPurchaseOrders = totalPurchaseOrders;
         this.totalItemsOrdered = totalItemsOrdered;
         this.totalQuantityReceived = totalQuantityReceived;

@@ -9,15 +9,15 @@ public class InventoryEntryReportDto {
     public String itemName;
     public String category;
     public String unit;
-    public int quantityReceived;
-    public Integer updatedStockBalance;
+    public double quantityReceived;
+    public Double updatedStockBalance;
     public String receivedBy;
     public Long createdByAdminId;
     public String referenceType;
 
     public InventoryEntryReportDto() {}
 
-    public InventoryEntryReportDto(Long id, LocalDateTime receiptDate, String orderNumber, String itemName, String unit, int quantityReceived, Integer updatedStockBalance, String receivedBy, String referenceType) {
+    public InventoryEntryReportDto(Long id, LocalDateTime receiptDate, String orderNumber, String itemName, String unit, double quantityReceived, Double updatedStockBalance, String receivedBy, String referenceType) {
         this.id = id;
         this.receiptDate = receiptDate;
         this.orderNumber = orderNumber;
@@ -29,7 +29,7 @@ public class InventoryEntryReportDto {
         this.referenceType = referenceType;
     }
 
-    public InventoryEntryReportDto(Long id, LocalDateTime receiptDate, String orderNumber, String itemName, String category, String unit, int quantityReceived, Integer updatedStockBalance, String receivedBy, Long createdByAdminId, String referenceType) {
+    public InventoryEntryReportDto(Long id, LocalDateTime receiptDate, String orderNumber, String itemName, String category, String unit, double quantityReceived, Double updatedStockBalance, String receivedBy, Long createdByAdminId, String referenceType) {
         this.id = id;
         this.receiptDate = receiptDate;
         this.orderNumber = orderNumber;

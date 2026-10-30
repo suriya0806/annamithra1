@@ -24,11 +24,14 @@ public class BranchOrderDraftService {
     private final BranchOrderDraftRepository draftRepo;
     private final ObjectMapper objectMapper;
     private final BranchRequestService requestService;
+    private final DepartmentService departmentService;
 
-    public BranchOrderDraftService(BranchOrderDraftRepository draftRepo, ObjectMapper objectMapper, BranchRequestService requestService) {
+    public BranchOrderDraftService(BranchOrderDraftRepository draftRepo, ObjectMapper objectMapper,
+                                  BranchRequestService requestService, DepartmentService departmentService) {
         this.draftRepo = draftRepo;
         this.objectMapper = objectMapper;
         this.requestService = requestService;
+        this.departmentService = departmentService;
     }
 
     @Transactional
@@ -43,12 +46,16 @@ public class BranchOrderDraftService {
         }
 
         int itemCount = validItems.size();
-        int totalQuantity = validItems.stream().mapToInt(it -> it.requestedQuantity).sum();
+        double totalQuantity = validItems.stream().mapToDouble(it -> it.requestedQuantity).sum();
         String json = serializeItems(validItems);
 
         String draftName = (req != null && req.draftName != null && !req.draftName.isBlank())
             ? req.draftName.trim()
             : generateDefaultDraftName(branchName, orgId);
+
+        String department = (req != null && req.department != null && !req.department.isBlank())
+            ? req.department.trim()
+            : (!validItems.isEmpty() ? validItems.get(0).getEffectiveDepartment() : null);
 
         BranchOrderDraft draft = new BranchOrderDraft(
             orgId,
@@ -61,6 +68,7 @@ public class BranchOrderDraftService {
             json,
             username != null ? username : "Branch Manager"
         );
+        draft.department = department;
 
         BranchOrderDraft saved = draftRepo.save(draft);
         return toResponse(saved, validItems);
@@ -105,9 +113,14 @@ public class BranchOrderDraftService {
         if (req != null && req.draftName != null && !req.draftName.isBlank()) {
             draft.draftName = req.draftName.trim();
         }
+        if (req != null && req.department != null && !req.department.isBlank()) {
+            draft.department = req.department.trim();
+        } else if (draft.department == null && !validItems.isEmpty()) {
+            draft.department = validItems.get(0).getEffectiveDepartment();
+        }
 
         draft.itemCount = validItems.size();
-        draft.totalQuantity = validItems.stream().mapToInt(it -> it.requestedQuantity).sum();
+        draft.totalQuantity = validItems.stream().mapToDouble(it -> it.requestedQuantity).sum();
         draft.itemsJson = serializeItems(validItems);
         draft.updatedAt = LocalDateTime.now();
 
@@ -144,6 +157,7 @@ public class BranchOrderDraftService {
 
             // Build MultiItemBranchRequest and submit as active order in the system
             MultiItemBranchRequest orderReq = new MultiItemBranchRequest();
+            orderReq.department = draft.department;
             orderReq.items = new ArrayList<>();
             for (DraftItemLine item : items) {
                 if (item.requestedQuantity <= 0) continue;
@@ -151,12 +165,11 @@ public class BranchOrderDraftService {
                 line.itemName = item.itemName != null ? item.itemName.trim() : "";
                 line.unit = (item.unit != null && !item.unit.isBlank()) ? item.unit.trim().toUpperCase() : "KG";
 
-                String cat = item.getEffectiveDepartment() != null ? item.getEffectiveDepartment() : (item.category != null ? item.category.trim() : "Groceries");
-                boolean valid = BranchRequestService.ALLOWED_CATEGORIES.stream()
-                    .anyMatch(c -> c.equalsIgnoreCase(cat));
-                String finalDept = valid ? cat : "Groceries";
-                line.category = finalDept;
-                line.department = finalDept;
+                String cat = (draft.department != null && !draft.department.isBlank())
+                    ? draft.department.trim()
+                    : (item.getEffectiveDepartment() != null ? item.getEffectiveDepartment().trim() : (item.category != null ? item.category.trim() : "General"));
+                line.category = cat;
+                line.department = cat;
 
                 line.requestedQuantity = item.requestedQuantity;
                 line.isNewItem = item.isNewItem;
@@ -200,21 +213,19 @@ public class BranchOrderDraftService {
 
             String unit = line.unit != null && !line.unit.isBlank() ? line.unit.trim().toUpperCase() : "KG";
 
-            String category = "Groceries";
             String rawDept = line.getEffectiveDepartment();
+            String category = (rawDept != null && !rawDept.isBlank()) ? rawDept.trim() : "General";
             if (rawDept != null && !rawDept.isBlank()) {
                 String cTrim = rawDept.trim();
-                boolean matches = BranchRequestService.ALLOWED_CATEGORIES.stream()
-                    .anyMatch(c -> c.equalsIgnoreCase(cTrim));
-                if (matches) {
-                    category = BranchRequestService.ALLOWED_CATEGORIES.stream()
-                        .filter(c -> c.equalsIgnoreCase(cTrim))
-                        .findFirst()
-                        .orElse("Groceries");
-                }
+                category = BranchRequestService.ALLOWED_CATEGORIES.stream()
+                    .filter(c -> c.equalsIgnoreCase(cTrim))
+                    .findFirst()
+                    .orElse(cTrim);
             }
 
-            result.add(new DraftItemLine(itemName, unit, category, line.requestedQuantity, line.isNewItem));
+            DraftItemLine cleanLine = new DraftItemLine(itemName, unit, category, line.requestedQuantity, line.isNewItem);
+            cleanLine.department = category;
+            result.add(cleanLine);
         }
         return result;
     }
@@ -267,6 +278,7 @@ public class BranchOrderDraftService {
         res.branchId = draft.branchId;
         res.branchName = draft.branchName;
         res.draftName = draft.draftName;
+        res.department = draft.department != null ? draft.department : (items != null && !items.isEmpty() ? items.get(0).getEffectiveDepartment() : null);
         res.status = draft.status;
         res.itemCount = draft.itemCount;
         res.totalQuantity = draft.totalQuantity;

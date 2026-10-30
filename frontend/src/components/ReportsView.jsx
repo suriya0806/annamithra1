@@ -316,19 +316,21 @@ export function ReportsView({ userRole }) {
       const groupMap = new Map();
       list.forEach(d => {
         const branchName = (d.branchName || '').trim();
+        const department = (d.department || d.category || '').trim() || 'Not specified';
         const itemName = (d.itemName || '').trim();
         const unit = (d.unit || '').trim();
         const dispatchDate = String(d.dispatchDate || (d.dispatchDateTime ? d.dispatchDateTime.slice(0, 10) : '')).slice(0, 10);
         const meaningfulStatus = getMeaningfulDispatchStatus(d);
 
-        // Grouping key includes branch, item, unit, dispatchDate, and meaningfulStatus
-        const key = `${branchName.toLowerCase()}___${itemName.toLowerCase()}___${unit.toLowerCase()}___${dispatchDate}___${meaningfulStatus.toLowerCase()}`;
+        // Grouping key includes branch, department, item, unit, dispatchDate, and meaningfulStatus
+        const key = `${branchName.toLowerCase()}___${department.toLowerCase()}___${itemName.toLowerCase()}___${unit.toLowerCase()}___${dispatchDate}___${meaningfulStatus.toLowerCase()}`;
 
         if (!groupMap.has(key)) {
           groupMap.set(key, {
             id: d.id,
             dispatchNumber: d.dispatchNumber,
             branchName,
+            department,
             itemName,
             unit,
             dispatchedQuantity: Number(d.dispatchedQuantity || d.quantity) || 0,
@@ -868,8 +870,11 @@ export function ReportsView({ userRole }) {
                     {/* Report 3: Dispatch columns */}
                     {activeTab === 'dispatches' && (
                       <>
-                        <th style={{ width: 180, textAlign: 'left', padding: '10px 14px' }}>
+                        <th style={{ width: 160, textAlign: 'left', padding: '10px 14px' }}>
                           {t('Branch Name', 'கிளை பெயர்')}
+                        </th>
+                        <th style={{ width: 140, textAlign: 'left', padding: '10px 14px' }}>
+                          {t('Department', 'துறை')}
                         </th>
                         <th style={{ textAlign: 'left', padding: '10px 14px' }}>
                           {t('Item Name', 'பொருள் பெயர்')}
@@ -979,6 +984,17 @@ export function ReportsView({ userRole }) {
                           <td style={{ padding: '10px 14px', fontWeight: 600, color: 'var(--primary-dark-green)' }}>
                             {row.branchName}
                           </td>
+                          <td style={{ padding: '10px 14px', color: 'var(--dark-text)', fontSize: '13px' }}>
+                            {row.department === 'Not specified' ? (
+                              <span style={{ color: 'var(--text-muted)', fontStyle: 'italic' }}>
+                                {t('Not specified', 'குறிப்பிடப்படவில்லை')}
+                              </span>
+                            ) : (
+                              <span style={{ background: '#F4EBD9', padding: '2px 8px', borderRadius: 4, fontSize: '12px', fontWeight: 600, color: 'var(--primary-dark-green)' }}>
+                                {translateCategory ? translateCategory(row.department) : row.department}
+                              </span>
+                            )}
+                          </td>
                           <td style={{ padding: '10px 14px', fontWeight: 500 }}>
                             {translateItem(row.itemName)}
                           </td>
@@ -1041,7 +1057,7 @@ export function ReportsView({ userRole }) {
                         🌿 {row.branchName}
                       </div>
                     )}
-                    {activeTab === 'requests' && (
+                    {(activeTab === 'requests' || activeTab === 'dispatches') && (
                       <div style={{ fontSize: '11.5px', color: 'var(--text-muted)', marginTop: 2 }}>
                         {t('Department', 'துறை')}:{' '}
                         <b style={{ color: row.department === 'Not specified' ? 'var(--text-muted)' : 'var(--primary-dark-green)' }}>

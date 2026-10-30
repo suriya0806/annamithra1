@@ -438,9 +438,12 @@ export const api = {
     const qs = params.toString();
     return request(`/api/branch-requests/raw${qs ? `?${qs}` : ''}`);
   },
-  submitBranchRequest: (items) => request('/api/branch-requests', {
+  // Departments
+  getDepartments: () => request('/api/departments'),
+
+  submitBranchRequest: (items, department) => request('/api/branch-requests', {
     method: 'POST',
-    body: JSON.stringify({ items })
+    body: JSON.stringify({ items, department })
   }),
   getMyBranchRequests: (date, fromDate, toDate, category) => {
     const params = new URLSearchParams();
@@ -453,9 +456,9 @@ export const api = {
   },
 
   // Branch Order Drafts
-  saveBranchDraft: (draftName, items) => request('/api/branch-drafts', {
+  saveBranchDraft: (draftName, items, department) => request('/api/branch-drafts', {
     method: 'POST',
-    body: JSON.stringify({ draftName, items })
+    body: JSON.stringify({ draftName, items, department })
   }),
   getBranchDrafts: (branch) => {
     const params = new URLSearchParams();
@@ -464,9 +467,9 @@ export const api = {
     return request(`/api/branch-drafts${qs ? `?${qs}` : ''}`);
   },
   getBranchDraft: (id) => request(`/api/branch-drafts/${id}`),
-  updateBranchDraft: (id, draftName, items) => request(`/api/branch-drafts/${id}`, {
+  updateBranchDraft: (id, draftName, items, department) => request(`/api/branch-drafts/${id}`, {
     method: 'PUT',
-    body: JSON.stringify({ draftName, items })
+    body: JSON.stringify({ draftName, items, department })
   }),
   deleteBranchDraft: (id) => request(`/api/branch-drafts/${id}`, {
     method: 'DELETE'

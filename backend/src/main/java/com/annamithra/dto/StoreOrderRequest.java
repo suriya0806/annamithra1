@@ -8,8 +8,8 @@ public class StoreOrderRequest {
     public static class OrderItem {
         public String itemName;
         public String unit;
-        public int requiredQuantity;
-        public int orderQuantity;
+        public double requiredQuantity;
+        public double orderQuantity;
         public java.time.LocalDate requestDate;
     }
 }

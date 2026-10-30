@@ -11,12 +11,12 @@ public class BranchOrderDraftDto {
         public String unit;
         public String category;
         public String department;
-        public int requestedQuantity;
+        public double requestedQuantity;
         public boolean isNewItem;
 
         public DraftItemLine() {}
 
-        public DraftItemLine(String itemName, String unit, String category, int requestedQuantity, boolean isNewItem) {
+        public DraftItemLine(String itemName, String unit, String category, double requestedQuantity, boolean isNewItem) {
             this.itemName = itemName;
             this.unit = unit;
             this.category = category;
@@ -34,6 +34,7 @@ public class BranchOrderDraftDto {
 
     public static class SaveDraftRequest {
         public String draftName;
+        public String department;
         public List<DraftItemLine> items = new ArrayList<>();
 
         public SaveDraftRequest() {}
@@ -45,9 +46,10 @@ public class BranchOrderDraftDto {
         public Long branchId;
         public String branchName;
         public String draftName;
+        public String department;
         public String status;
         public int itemCount;
-        public int totalQuantity;
+        public double totalQuantity;
         public List<DraftItemLine> items = new ArrayList<>();
         public LocalDateTime createdAt;
         public LocalDateTime updatedAt;

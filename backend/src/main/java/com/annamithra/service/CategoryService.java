@@ -97,9 +97,11 @@ public class CategoryService {
                 if (duplicate.isPresent()) {
                     throw new ResponseStatusException(HttpStatus.CONFLICT, "Category already exists.");
                 }
+            }
 
-                cat.name = newName;
+            cat.name = newName;
 
+            if (!newName.equals(oldName)) {
                 // Cascade rename to all existing items referencing this category
                 // This ensures existing items retain their category relationship and name everywhere
                 List<Item> linkedItems = (organisationId != null)

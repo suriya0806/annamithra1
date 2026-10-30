@@ -968,6 +968,7 @@ export const dictionary = {
 };
 
 export const categoryTranslations = {
+  'General': 'பொது (General)',
   'Vegetables': 'காய்கறிகள்',
   'Groceries': 'மளிகைப் பொருட்கள்',
   'Dairy': 'பால் பொருட்கள் (Dairy)',

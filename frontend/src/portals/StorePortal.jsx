@@ -652,6 +652,7 @@ export function StorePortal({ activeTab }) {
     const data = branchReqReport.map(r => ({
       'Request Date': r.date || '',
       'Branch Name': r.branchName || '',
+      'Department': r.department || r.category || '',
       'Category': r.category || '',
       'Item Name': r.itemName || '',
       'Unit': r.unit || '',
@@ -679,6 +680,7 @@ export function StorePortal({ activeTab }) {
     const data = dispatchReport.map(d => ({
       'Dispatch Date and Time': d.dispatchDateTime ? d.dispatchDateTime.replace('T', ' ').slice(0, 16) : (d.dispatchDate || ''),
       'Branch Name': d.branchName,
+      'Department': d.department || d.category || '',
       'Category': d.category || '',
       'Item Name': d.itemName,
       'Unit': d.unit,
@@ -753,7 +755,7 @@ export function StorePortal({ activeTab }) {
   // Handle Receiving goods against PO
   const handleReceiveGoods = async (order) => {
     const rawQty = receiveQtys[order.id];
-    const qty = parseInt(rawQty, 10);
+    const qty = parseFloat(rawQty);
     const remaining = (order.quantity || 0) - (order.receivedQty || 0);
 
     if (isNaN(qty) || qty <= 0) {
@@ -933,7 +935,7 @@ export function StorePortal({ activeTab }) {
 
       const rawVal = receiveQtys[line.id];
       if (rawVal !== undefined && rawVal !== null && String(rawVal).trim() !== '') {
-        const qty = parseInt(rawVal, 10);
+        const qty = parseFloat(rawVal);
         if (isNaN(qty) || qty <= 0) {
           return showAlert('error', `Please enter a valid positive quantity for ${line.item}`);
         }
@@ -1068,7 +1070,7 @@ export function StorePortal({ activeTab }) {
     if (!entrySelectedItem) {
       return showAlert('error', 'Please select an item to record goods receipt');
     }
-    const qty = parseInt(entryReceivedQty, 10);
+    const qty = parseFloat(entryReceivedQty);
     if (isNaN(qty) || qty <= 0) {
       return showAlert('error', 'Please enter a valid received quantity greater than 0');
     }
@@ -1485,7 +1487,7 @@ export function StorePortal({ activeTab }) {
         continue;
       }
 
-      const qVal = parseInt(curStr, 10);
+      const qVal = parseFloat(curStr);
       if (isNaN(qVal) || qVal < 0) {
         return showAlert('error', `Please enter a valid non-negative dispatch quantity for ${group.itemName}`);
       }
@@ -1504,7 +1506,7 @@ export function StorePortal({ activeTab }) {
           dispatchQty: toAlloc,
           isAdditional: false
         });
-        needed -= toAlloc;
+        needed = Math.round((needed - toAlloc) * 1000) / 1000;
       }
 
       // If entered dispatch quantity exceeds unfulfilled requirement, allocate surplus as additional dispatch
@@ -1523,7 +1525,7 @@ export function StorePortal({ activeTab }) {
     const branchAdditional = additionalItemsByBranch[branchName] || [];
     for (const add of branchAdditional) {
       if (!add.itemName) continue;
-      const qVal = parseInt(add.dispatchQty, 10);
+      const qVal = parseFloat(add.dispatchQty);
       if (isNaN(qVal) || qVal <= 0) {
         return showAlert('error', `Please enter a positive dispatch quantity for additional item ${add.itemName}`);
       }
@@ -1778,7 +1780,7 @@ export function StorePortal({ activeTab }) {
       const line = makeOrderLines[i];
       const name = (line.itemName || '').trim();
       const unit = (line.unit || '').trim().toUpperCase();
-      const qty = parseInt(line.orderQuantity, 10);
+      const qty = parseFloat(line.orderQuantity);
 
       if (!name) {
         return showAlert('error', `Line ${i + 1} is missing an Item Name. Please specify an item name.`);
@@ -2575,7 +2577,8 @@ export function StorePortal({ activeTab }) {
                                         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}>
                                           <input
                                             type="number"
-                                            min="1"
+                                            min="0.001"
+                                            step="any"
                                             max={remaining}
                                             placeholder={`Max ${remaining}`}
                                             value={currentInput}
@@ -2846,8 +2849,8 @@ export function StorePortal({ activeTab }) {
                     <input
                       ref={modalQtyInputRef}
                       type="number"
-                      min="1"
-                      step="1"
+                      min="0.001"
+                      step="any"
                       placeholder={language === 'ta' ? 'அளவை உள்ளிடவும் (எ.கா. 25)' : 'Enter quantity (e.g. 25)'}
                       value={newItemQuantity}
                       onChange={e => {
@@ -3241,7 +3244,7 @@ export function StorePortal({ activeTab }) {
                                   const curDispatchStr = dispatchQtys[item.key] !== undefined
                                     ? dispatchQtys[item.key]
                                     : String(unfulfilled);
-                                  const curDispatch = curDispatchStr === '' ? 0 : parseInt(curDispatchStr, 10);
+                                  const curDispatch = curDispatchStr === '' ? 0 : parseFloat(curDispatchStr);
                                   const remainingToDispatch = Math.max(0, item.totalRequested - item.alreadyDispatched - (isNaN(curDispatch) ? 0 : curDispatch));
                                   const exceedsStock = !isNaN(curDispatch) && curDispatch > centralStock;
 
@@ -3263,6 +3266,34 @@ export function StorePortal({ activeTab }) {
                                             {item.requests.length} {language === 'ta' ? 'கோரிக்கைகள்' : 'reqs'}
                                           </span>
                                         )}
+                                        {/* Ordering Department Badge */}
+                                        {(() => {
+                                          const depts = Array.from(new Set((item.requests || []).map(r => r.department || r.category).filter(Boolean)));
+                                          if (depts.length === 0) return null;
+                                          return (
+                                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 4 }}>
+                                              {depts.map(d => (
+                                                <span
+                                                  key={d}
+                                                  style={{
+                                                    fontSize: 10.5,
+                                                    fontWeight: 600,
+                                                    background: '#e0f2fe',
+                                                    color: '#0369a1',
+                                                    padding: '1px 6px',
+                                                    borderRadius: 4,
+                                                    display: 'inline-flex',
+                                                    alignItems: 'center',
+                                                    gap: 3
+                                                  }}
+                                                  title={`Ordering Department: ${d}`}
+                                                >
+                                                  🏢 {translateCategory(d)}
+                                                </span>
+                                              ))}
+                                            </div>
+                                          );
+                                        })()}
                                       </td>
                                       <td>{translateUnit(item.unit)}</td>
                                       <td style={{ textAlign: 'right', fontWeight: 600 }}>{item.totalRequested}</td>
@@ -3296,6 +3327,7 @@ export function StorePortal({ activeTab }) {
                                           <input
                                             type="number"
                                             min="0"
+                                            step="any"
                                             style={{
                                               width: 80,
                                               height: 32,
@@ -3388,7 +3420,7 @@ export function StorePortal({ activeTab }) {
                               <tbody>
                                 {branchAdditional.map(item => {
                                   const addStock = getCentralStock(item.itemName, item.unit);
-                                  const addQty = parseInt(item.dispatchQty, 10);
+                                  const addQty = parseFloat(item.dispatchQty);
                                   const exceedsAddStock = !isNaN(addQty) && addQty > addStock;
 
                                   return (
@@ -3459,7 +3491,8 @@ export function StorePortal({ activeTab }) {
                                       <td style={{ textAlign: 'center' }}>
                                         <input
                                           type="number"
-                                          min="1"
+                                          min="0.001"
+                                          step="any"
                                           placeholder="Qty"
                                           style={{
                                             width: 80,
@@ -4045,7 +4078,8 @@ export function StorePortal({ activeTab }) {
                             <td>
                               <input
                                 type="number"
-                                min="1"
+                                min="0.001"
+                                step="any"
                                 placeholder={t('Order Quantity', 'Order Qty')}
                                 style={{ width: 110 }}
                                 value={line.orderQuantity}
@@ -4351,8 +4385,8 @@ export function StorePortal({ activeTab }) {
               <div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                   <h3 style={{ margin: 0 }}>{t('Request History —', 'Request History —')} {translateItem(historyModalItem.item)}</h3>
-                  {historyModalItem.category && (
-                    <span className="category-badge">{translateCategory(historyModalItem.category)}</span>
+                  {(historyModalItem.department || historyModalItem.category) && (
+                    <span className="category-badge">🏢 {translateCategory(historyModalItem.department || historyModalItem.category)}</span>
                   )}
                 </div>
                 <p className="muted" style={{ margin: '4px 0 0', fontSize: 13 }}>

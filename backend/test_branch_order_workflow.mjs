@@ -85,8 +85,8 @@ async function main() {
     },
     body: JSON.stringify({
       items: [
-        { itemName: curdItem ? curdItem.name : 'Curd', unit: 'KG', requestedQuantity: 15, isNewItem: false },
-        { itemName: uniqueName, unit: 'KG', requestedQuantity: 25, isNewItem: true }
+        { itemName: curdItem ? curdItem.name : 'Curd', unit: 'KG', department: 'Groceries', requestedQuantity: 15, isNewItem: false },
+        { itemName: uniqueName, unit: 'KG', department: 'Groceries', requestedQuantity: 25, isNewItem: true }
       ]
     })
   });
@@ -129,7 +129,8 @@ async function main() {
   const consolidated = await consRes.json();
   const consNew = consolidated.find(c => c.itemName.toLowerCase() === uniqueName.toLowerCase());
   if (!consNew) throw new Error(`Consolidated requirement for "${uniqueName}" not found!`);
-  console.log(`✓ Store Manager sees consolidated requirement: "${consNew.itemName}", Total Requested = ${consNew.totalRequested} ${consNew.unit}`);
+  const totalReq = consNew.totalBranchRequirement ?? consNew.totalRequiredQuantity ?? consNew.outstandingRequirement;
+  console.log(`✓ Store Manager sees consolidated requirement: "${consNew.itemName}", Total Requested = ${totalReq} ${consNew.unit}`);
 
   // 10. Persistence after re-querying
   console.log('\n[Test 10] Checking catalogue persistence after reload...');

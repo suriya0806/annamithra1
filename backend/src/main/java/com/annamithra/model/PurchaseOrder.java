@@ -26,13 +26,13 @@ public class PurchaseOrder {
     @Column(nullable = false)
     public String unit;
 
-    public int requiredQuantity = 0; // Preserved total required quantity from branches
+    public double requiredQuantity = 0.0; // Preserved total required quantity from branches
 
     @Column(nullable = false)
-    public int quantity; // Order quantity
+    public double quantity; // Order quantity
 
     @Column(nullable = false)
-    public int receivedQty = 0; // Cumulative actual received quantity
+    public double receivedQty = 0.0; // Cumulative actual received quantity
 
     @Column(nullable = false)
     public String status = "PENDING"; // PENDING, ORDERED, PARTIALLY_RECEIVED, RECEIVED
@@ -42,7 +42,7 @@ public class PurchaseOrder {
 
     public PurchaseOrder() {}
 
-    public int getRemainingToReceive() {
+    public double getRemainingToReceive() {
         return Math.max(0, quantity - receivedQty);
     }
 }

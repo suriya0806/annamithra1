@@ -199,7 +199,7 @@ public class PurchaseOrderService {
 
     // Store Manager: Confirm actual receipt of goods
     @Transactional
-    public PurchaseOrder receiveOrderGoods(Long id, int receivedQty, String managerUsername, Long orgId) {
+    public PurchaseOrder receiveOrderGoods(Long id, double receivedQty, String managerUsername, Long orgId) {
         if (id == null) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Purchase order ID cannot be null");
         }
@@ -218,7 +218,7 @@ public class PurchaseOrderService {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Order must be in ORDERED or PARTIALLY_RECEIVED status before receiving goods");
         }
 
-        int remaining = po.getRemainingToReceive();
+        double remaining = po.getRemainingToReceive();
         if (receivedQty > remaining) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
                 "Received quantity (" + receivedQty + ") cannot exceed remaining outstanding quantity (" + remaining + ")");

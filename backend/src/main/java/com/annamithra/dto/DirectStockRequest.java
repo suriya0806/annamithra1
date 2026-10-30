@@ -7,7 +7,7 @@ public class DirectStockRequest {
     public String name;
     public String category;
     public String unit;
-    public Integer quantity;
+    public Double quantity;
     public LocalDate entryDate;
     public LocalDate purchaseDate;
     public Long organisationId;
@@ -15,14 +15,14 @@ public class DirectStockRequest {
 
     public DirectStockRequest() {}
 
-    public DirectStockRequest(String itemName, String unit, Integer quantity) {
+    public DirectStockRequest(String itemName, String unit, Double quantity) {
         this.itemName = itemName;
         this.name = itemName;
         this.unit = unit;
         this.quantity = quantity;
     }
 
-    public DirectStockRequest(String itemName, String category, String unit, Integer quantity, LocalDate entryDate) {
+    public DirectStockRequest(String itemName, String category, String unit, Double quantity, LocalDate entryDate) {
         this.itemName = itemName;
         this.name = itemName;
         this.category = category;

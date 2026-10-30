@@ -26,7 +26,7 @@ public class DispatchReturn {
     public String unit = "KG";
 
     @Column(nullable = false)
-    public int returnQuantity;
+    public double returnQuantity;
 
     public String reason;
 
@@ -37,7 +37,7 @@ public class DispatchReturn {
     public DispatchReturn() {}
 
     public DispatchReturn(Long dispatchId, String dispatchNumber, String branchName, String itemName,
-                          String unit, int returnQuantity, String reason, LocalDateTime returnDate, String returnedBy) {
+                          String unit, double returnQuantity, String reason, LocalDateTime returnDate, String returnedBy) {
         this.dispatchId = dispatchId;
         this.dispatchNumber = dispatchNumber;
         this.branchName = branchName;
@@ -50,7 +50,7 @@ public class DispatchReturn {
     }
 
     public DispatchReturn(Long organisationId, Long dispatchId, String dispatchNumber, String branchName, String itemName,
-                          String unit, int returnQuantity, String reason, LocalDateTime returnDate, String returnedBy) {
+                          String unit, double returnQuantity, String reason, LocalDateTime returnDate, String returnedBy) {
         this.organisationId = organisationId;
         this.dispatchId = dispatchId;
         this.dispatchNumber = dispatchNumber;

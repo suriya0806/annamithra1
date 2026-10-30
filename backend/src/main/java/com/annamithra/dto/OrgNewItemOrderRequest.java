@@ -8,6 +8,6 @@ public class OrgNewItemOrderRequest {
     public static class NewItemLine {
         public String name;
         public String unit;
-        public int quantity;
+        public double quantity;
     }
 }

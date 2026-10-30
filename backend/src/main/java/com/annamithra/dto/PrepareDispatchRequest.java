@@ -10,7 +10,8 @@ public class PrepareDispatchRequest {
         public Long requestId; // Null for additional non-requested items
         public String itemName;
         public String unit;
-        public int dispatchQty;
+        public String department;
+        public double dispatchQty;
         public boolean isAdditional;
     }
 }

@@ -71,7 +71,7 @@ public class DispatchController {
             HttpServletRequest request) {
         UserSession user = security.requireRole(request, "Branch Manager");
         Long orgId = security.requireOrganisationId(user);
-        Integer receivedQty = (req != null) ? req.actualReceivedQty : null;
+        Double receivedQty = (req != null) ? req.actualReceivedQty : null;
         String remarks = (req != null) ? req.remarks : null;
         return dispatchService.acknowledgeDispatch(id, receivedQty, remarks, user.branchName, user.username, orgId);
     }

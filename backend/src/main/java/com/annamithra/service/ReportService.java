@@ -62,20 +62,20 @@ public class ReportService {
                 .distinct()
                 .count();
 
-        long totalItemsOrdered = pos.stream()
-                .mapToLong(po -> po.quantity)
+        double totalItemsOrdered = pos.stream()
+                .mapToDouble(po -> po.quantity)
                 .sum();
 
-        long totalQuantityReceived = pos.stream()
-                .mapToLong(po -> po.receivedQty)
+        double totalQuantityReceived = pos.stream()
+                .mapToDouble(po -> po.receivedQty)
                 .sum();
 
-        long totalQuantityDispatched = dispatches.stream()
-                .mapToLong(d -> d.quantity)
+        double totalQuantityDispatched = dispatches.stream()
+                .mapToDouble(d -> d.quantity)
                 .sum();
 
-        long totalPendingAcknowledgement = dispatches.stream()
-                .mapToLong(d -> d.getPendingAcknowledgementQuantity())
+        double totalPendingAcknowledgement = dispatches.stream()
+                .mapToDouble(d -> d.getPendingAcknowledgementQuantity())
                 .sum();
 
         return new ReportSummaryDto(
@@ -109,14 +109,14 @@ public class ReportService {
 
             List<InventoryTransaction> txs = txByItem.getOrDefault(item.name.trim().toLowerCase(), Collections.emptyList());
 
-            int totalReceived = txs.stream()
+            double totalReceived = txs.stream()
                     .filter(t -> "RECEIPT".equalsIgnoreCase(t.type))
-                    .mapToInt(t -> t.quantity)
+                    .mapToDouble(t -> t.quantity)
                     .sum();
 
-            int totalDispatched = txs.stream()
+            double totalDispatched = txs.stream()
                     .filter(t -> "DISPATCH".equalsIgnoreCase(t.type))
-                    .mapToInt(t -> t.quantity)
+                    .mapToDouble(t -> t.quantity)
                     .sum();
 
             CentralInventoryReportDto dto = new CentralInventoryReportDto(
@@ -314,7 +314,7 @@ public class ReportService {
                 .filter(Objects::nonNull)
                 .distinct()
                 .collect(Collectors.toList());
-        Map<Long, Integer> requestQtyCache = new HashMap<>();
+        Map<Long, Double> requestQtyCache = new HashMap<>();
         Map<Long, String> requestCategoryCache = new HashMap<>();
         if (!reqIds.isEmpty()) {
             for (BranchRequest r : requestRepo.findAllById(reqIds)) {
@@ -343,7 +343,7 @@ public class ReportService {
                     if (status != null && !status.isBlank() && !"ALL".equalsIgnoreCase(status)) {
                         if (!status.equalsIgnoreCase(st)) return false;
                     }
-                    String cat = requestCategoryCache.get(d.requestId);
+                    String cat = (d.department != null && !d.department.isBlank()) ? d.department.trim() : (d.requestId != null ? requestCategoryCache.get(d.requestId) : null); if (cat == null && d.itemName != null) { cat = itemRepo.findByOrganisationIdAndNameIgnoreCase(orgId, d.itemName.trim()).map(it -> it.category).orElse(null); }
                     if (category != null && !category.isBlank() && !"ALL".equalsIgnoreCase(category)) {
                         if (cat == null || !cat.equalsIgnoreCase(category.trim())) return false;
                     }
@@ -358,12 +358,12 @@ public class ReportService {
                 .map(d -> {
                     String st = d.status != null && !d.status.isBlank() ? d.status : "PENDING";
                     boolean isAck = "ACKNOWLEDGED".equalsIgnoreCase(st);
-                    int pending = isAck ? 0 : Math.max(0, d.quantity - d.acknowledgedQuantity);
-                    int ackQty = (isAck && d.acknowledgedQuantity == 0 && d.acknowledgementStatus == null && d.shortageQuantity == 0)
+                    double pending = isAck ? 0.0 : Math.max(0.0, d.quantity - d.acknowledgedQuantity);
+                    double ackQty = (isAck && d.acknowledgedQuantity == 0 && d.acknowledgementStatus == null && d.shortageQuantity == 0)
                             ? d.quantity
                             : d.acknowledgedQuantity;
 
-                    int reqQty = d.quantity;
+                    double reqQty = d.quantity;
                     if (d.isAdditional) {
                         reqQty = 0;
                     } else if (d.requestId != null) {
@@ -371,7 +371,7 @@ public class ReportService {
                     }
 
                     LocalDateTime dtTime = d.createdAt != null ? d.createdAt : (d.dispatchDate != null ? d.dispatchDate.atStartOfDay() : LocalDateTime.now());
-                    String cat = requestCategoryCache.get(d.requestId);
+                    String cat = (d.department != null && !d.department.isBlank()) ? d.department.trim() : (d.requestId != null ? requestCategoryCache.get(d.requestId) : null); if (cat == null && d.itemName != null) { cat = itemRepo.findByOrganisationIdAndNameIgnoreCase(orgId, d.itemName.trim()).map(it -> it.category).orElse(null); }
 
                     return new BranchDispatchReportDto(
                             d.id,
