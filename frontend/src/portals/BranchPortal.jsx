@@ -48,8 +48,6 @@ export function BranchPortal({ user, activeTab, onSelectTab }) {
   const [selectedDepartment, setSelectedDepartment] = useState('');
   const [availableDepartments, setAvailableDepartments] = useState([]);
   const [departmentsLoading, setDepartmentsLoading] = useState(false);
-  const [showDeptConfirmModal, setShowDeptConfirmModal] = useState(false);
-  const [pendingDepartment, setPendingDepartment] = useState('');
   const deptSelectRef = useRef(null);
   const [selectedCategory, setSelectedCategory] = useState('');
   const categorySelectRef = useRef(null);
@@ -185,15 +183,21 @@ export function BranchPortal({ user, activeTab, onSelectTab }) {
     try {
       setSavingDraft(true);
       const name = (newDraftNameInput || '').trim() || `Draft #${savedDrafts.length + 1} (${getTodayDateString()})`;
-      const effDept = selectedDepartment || orderItemsList[0]?.department || orderItemsList[0]?.category || 'General';
-      const saved = await api.saveBranchDraft(name, orderItemsList.map(it => ({
-        itemName: it.itemName,
-        unit: it.unit,
-        category: effDept,
-        department: effDept,
-        requestedQuantity: it.requestedQuantity,
-        isNewItem: it.isNewItem
-      })), effDept);
+      const defaultDept = selectedDepartment || orderItemsList[0]?.department || orderItemsList[0]?.category || 'General';
+      const saved = await api.saveBranchDraft(name, orderItemsList.map(it => {
+        const itemDept = (it.department || it.departmentName || it.category || defaultDept).trim();
+        return {
+          itemId: it.itemId || null,
+          itemName: it.itemName,
+          unit: it.unit,
+          category: itemDept,
+          department: itemDept,
+          departmentId: it.departmentId || null,
+          departmentName: itemDept,
+          requestedQuantity: it.requestedQuantity,
+          isNewItem: it.isNewItem
+        };
+      }), defaultDept);
 
       showAlert('success', language === 'ta'
         ? `✓ வரைவு "${saved.draftName || name}" வெற்றிகரமாக சேமிக்கப்பட்டது! வரைவுகள் பக்கத்தில் எந்த நேரமும் அணுகலாம்.`
@@ -368,6 +372,28 @@ export function BranchPortal({ user, activeTab, onSelectTab }) {
     }));
   };
 
+  const handleUpdateEditDraftItemDepartment = (index, newDept) => {
+    if (!newDept) return;
+    const selectedDeptObj = availableDepartments.find(d => {
+      const name = typeof d === 'string' ? d : d.name;
+      return name && name.toLowerCase() === newDept.toLowerCase();
+    });
+    const resolvedDeptId = (selectedDeptObj && typeof selectedDeptObj === 'object' && selectedDeptObj.id && !isNaN(Number(selectedDeptObj.id))) ? Number(selectedDeptObj.id) : null;
+
+    setEditDraftItems(prev => prev.map((item, i) => {
+      if (i === index) {
+        return {
+          ...item,
+          departmentId: resolvedDeptId,
+          departmentName: newDept,
+          department: newDept,
+          category: newDept
+        };
+      }
+      return item;
+    }));
+  };
+
   const handleRemoveEditDraftItem = (index) => {
     setEditDraftItems(prev => prev.filter((_, i) => i !== index));
   };
@@ -388,7 +414,16 @@ export function BranchPortal({ user, activeTab, onSelectTab }) {
 
     try {
       setSavingEditDraft(true);
-      const updated = await api.updateBranchDraft(viewingDraft.id, editDraftName, editDraftItems.map(it => ({ ...it, requestedQuantity: parseFloat(it.requestedQuantity) })));
+      const updated = await api.updateBranchDraft(viewingDraft.id, editDraftName, editDraftItems.map(it => {
+        const itemDept = (it.department || it.departmentName || it.category || 'General').trim();
+        return {
+          ...it,
+          department: itemDept,
+          departmentName: itemDept,
+          category: itemDept,
+          requestedQuantity: parseFloat(it.requestedQuantity)
+        };
+      }));
       showAlert('success', language === 'ta' ? '✓ வரைவு மாற்றங்கள் வெற்றிகரமாக சேமிக்கப்பட்டன!' : '✓ Draft changes saved successfully!');
       setViewingDraft(updated);
       await loadSavedDrafts();
@@ -473,29 +508,35 @@ export function BranchPortal({ user, activeTab, onSelectTab }) {
 
     setOrderItemsList(prev => {
       const nextList = [...prev];
-      const effectiveDept = restoredDept || selectedDepartment || 'General';
+      const fallbackDept = restoredDept || selectedDepartment || 'General';
       draft.items.forEach(draftItem => {
-        const itemDept = (draftItem.department || draftItem.category || effectiveDept).trim();
+        const itemDept = (draftItem.department || draftItem.departmentName || draftItem.category || fallbackDept).trim();
 
         const matchIdx = nextList.findIndex(
-          x => x.itemName.trim().toLowerCase() === draftItem.itemName.trim().toLowerCase()
+          x => x.itemName.trim().toLowerCase() === draftItem.itemName.trim().toLowerCase() &&
+               (x.department || x.departmentName || x.category || '').trim().toLowerCase() === itemDept.toLowerCase()
         );
         if (matchIdx >= 0) {
           nextList[matchIdx] = {
             ...nextList[matchIdx],
             requestedQuantity: parseFloat(draftItem.requestedQuantity) || nextList[matchIdx].requestedQuantity,
             unit: (draftItem.unit || nextList[matchIdx].unit || 'KG').trim().toUpperCase(),
+            departmentId: draftItem.departmentId || nextList[matchIdx].departmentId || null,
+            departmentName: itemDept,
             department: itemDept,
             category: itemDept
           };
         } else {
           nextList.push({
             id: Date.now() + Math.random(),
+            itemId: draftItem.itemId || null,
             itemName: draftItem.itemName.trim(),
-            unit: (draftItem.unit || 'KG').trim().toUpperCase(),
-            requestedQuantity: parseFloat(draftItem.requestedQuantity) || 1,
+            departmentId: draftItem.departmentId || null,
+            departmentName: itemDept,
             department: itemDept,
             category: itemDept,
+            unit: (draftItem.unit || 'KG').trim().toUpperCase(),
+            requestedQuantity: parseFloat(draftItem.requestedQuantity) || 1,
             isNewItem: draftItem.isNewItem || false
           });
         }
@@ -554,50 +595,39 @@ export function BranchPortal({ user, activeTab, onSelectTab }) {
     }
   };
 
-  // Department change with confirmation when items exist in list
+  // Department change applies to the item currently being added
   const handleDepartmentSelectChange = (newDept) => {
-    if (newDept === selectedDepartment) return;
-    if (!newDept) {
-      if (orderItemsList.length > 0) {
-        setPendingDepartment('');
-        setShowDeptConfirmModal(true);
-      } else {
-        setSelectedDepartment('');
-      }
-      return;
-    }
-
-    if (orderItemsList.length > 0) {
-      setPendingDepartment(newDept);
-      setShowDeptConfirmModal(true);
-    } else {
-      setSelectedDepartment(newDept);
+    setSelectedDepartment(newDept);
+    if (newDept) {
       setTimeout(() => {
         itemInputRef.current?.focus();
       }, 50);
     }
   };
 
-  const handleConfirmDepartmentChange = () => {
-    const targetDept = pendingDepartment;
-    setSelectedDepartment(targetDept);
-    if (targetDept) {
-      setOrderItemsList(prev => prev.map(item => ({
-        ...item,
-        department: targetDept,
-        category: targetDept
-      })));
-    }
-    setShowDeptConfirmModal(false);
-    setPendingDepartment('');
-    setTimeout(() => {
-      itemInputRef.current?.focus();
-    }, 50);
-  };
+  // Update department of an individual item already in the order list
+  const handleUpdateOrderItemDepartment = (id, newDept) => {
+    if (!newDept) return;
+    const selectedDeptObj = availableDepartments.find(d => {
+      const name = typeof d === 'string' ? d : d.name;
+      return name && name.toLowerCase() === newDept.toLowerCase();
+    });
+    const resolvedDeptId = (selectedDeptObj && typeof selectedDeptObj === 'object' && selectedDeptObj.id && !isNaN(Number(selectedDeptObj.id)))
+      ? Number(selectedDeptObj.id)
+      : null;
 
-  const handleCancelDepartmentChange = () => {
-    setShowDeptConfirmModal(false);
-    setPendingDepartment('');
+    setOrderItemsList(prev => prev.map(item => {
+      if (item.id === id) {
+        return {
+          ...item,
+          departmentId: resolvedDeptId,
+          departmentName: newDept,
+          department: newDept,
+          category: newDept
+        };
+      }
+      return item;
+    }));
   };
 
   // Load items catalogue
@@ -910,8 +940,8 @@ export function BranchPortal({ user, activeTab, onSelectTab }) {
 
     // Determine unit
     let finalUnit = (itemUnit || '').trim().toUpperCase();
+    const matched = catalogueItems.find(it => it.name && it.name.toLowerCase() === finalName.toLowerCase());
     if (!finalUnit) {
-      const matched = catalogueItems.find(it => it.name && it.name.toLowerCase() === finalName.toLowerCase());
       if (matched && matched.unit) {
         finalUnit = matched.unit.toUpperCase();
       } else {
@@ -919,17 +949,37 @@ export function BranchPortal({ user, activeTab, onSelectTab }) {
       }
     }
 
-    // Prevent duplicate item lines in the same unsent request list
+    const selectedDeptObj = availableDepartments.find(d => {
+      const name = typeof d === 'string' ? d : d.name;
+      return name && name.toLowerCase() === selectedDepartment.toLowerCase();
+    });
+    const resolvedDeptId = (selectedDeptObj && typeof selectedDeptObj === 'object' && selectedDeptObj.id && !isNaN(Number(selectedDeptObj.id)))
+      ? Number(selectedDeptObj.id)
+      : null;
+    const resolvedDeptName = (selectedDeptObj && typeof selectedDeptObj === 'object' && selectedDeptObj.name)
+      ? selectedDeptObj.name
+      : selectedDepartment;
+    const resolvedItemId = selectedItem?.id || (matched && matched.id ? matched.id : null);
+
+    // Prevent duplicate item lines for the SAME item in the SAME department
     const existingIndex = orderItemsList.findIndex(
-      x => x.itemName.trim().toLowerCase() === finalName.toLowerCase()
+      x => x.itemName.trim().toLowerCase() === finalName.toLowerCase() &&
+           (x.department || x.departmentName || x.category || '').trim().toLowerCase() === selectedDepartment.trim().toLowerCase()
     );
     if (existingIndex >= 0) {
       const existing = orderItemsList[existingIndex];
       const updatedQty = Math.round((Number(existing.requestedQuantity) + q) * 1000) / 1000;
-      showAlert('warning', `"${finalName}" is already in your request list. Updated its quantity to ${updatedQty}. You can edit it directly in the table.`);
+      showAlert('warning', `"${finalName}" for department "${resolvedDeptName}" is already in your request list. Updated its quantity to ${updatedQty}. You can edit it directly in the table.`);
       setOrderItemsList(prev => prev.map((item, idx) => {
         if (idx === existingIndex) {
-          return { ...item, requestedQuantity: updatedQty, department: selectedDepartment, category: selectedDepartment };
+          return {
+            ...item,
+            requestedQuantity: updatedQty,
+            departmentId: resolvedDeptId,
+            departmentName: resolvedDeptName,
+            department: resolvedDeptName,
+            category: resolvedDeptName
+          };
         }
         return item;
       }));
@@ -944,21 +994,24 @@ export function BranchPortal({ user, activeTab, onSelectTab }) {
       return;
     }
 
-    // Add new row to unsent items with selectedDepartment
+    // Add new row to orderItemsList with individual department details
     setOrderItemsList(prev => [
       ...prev,
       {
         id: Date.now() + Math.random(),
+        itemId: resolvedItemId,
         itemName: finalName,
-        department: selectedDepartment,
-        category: selectedDepartment,
+        departmentId: resolvedDeptId,
+        departmentName: resolvedDeptName,
+        department: resolvedDeptName,
+        category: resolvedDeptName,
         unit: finalUnit,
         requestedQuantity: q,
-        isNewItem: !selectedItem && !catalogueItems.some(it => it.name.toLowerCase() === finalName.toLowerCase())
+        isNewItem: !selectedItem && !matched
       }
     ]);
 
-    showAlert('success', `✓ Added ${q} ${finalUnit} of "${finalName}" (${translateCategory(selectedDepartment)}) to request list.`);
+    showAlert('success', `✓ Added ${q} ${finalUnit} of "${finalName}" (${translateCategory(resolvedDeptName)}) to request list.`);
 
     // Clear entry fields and return focus automatically to Item Name input ready for next item
     setSearchQuery('');
@@ -1008,16 +1061,11 @@ export function BranchPortal({ user, activeTab, onSelectTab }) {
         showAlert('error', `Unit cannot be blank for "${it.itemName}".`);
         return;
       }
-      if (!it.department && !it.category && !selectedDepartment) {
+      const itemDept = (it.department || it.departmentName || it.category || '').trim();
+      if (!itemDept) {
         showAlert('error', `Department is missing for "${it.itemName}". Please select a department.`);
         return;
       }
-    }
-
-    if (!selectedDepartment && orderItemsList.length > 0) {
-      showAlert('error', 'Please select an Ordering Department before confirming your order.');
-      deptSelectRef.current?.focus();
-      return;
     }
 
     setShowConfirmModal(true);
@@ -1045,20 +1093,28 @@ export function BranchPortal({ user, activeTab, onSelectTab }) {
 
     try {
       setSubmittingBranchOrder(true);
-      const effectiveDept = selectedDepartment || orderItemsList[0]?.department || orderItemsList[0]?.category || 'General';
+      const defaultDept = selectedDepartment || orderItemsList[0]?.department || orderItemsList[0]?.category || 'General';
       const payloadItems = orderItemsList.map(it => {
-        const itemDept = it.department || it.category || effectiveDept;
+        const itemDept = (it.department || it.departmentName || it.category || defaultDept).trim();
+        const selectedDeptObj = availableDepartments.find(d => {
+          const name = typeof d === 'string' ? d : d.name;
+          return name && name.toLowerCase() === itemDept.toLowerCase();
+        });
+        const resolvedDeptId = it.departmentId || ((selectedDeptObj && typeof selectedDeptObj === 'object' && selectedDeptObj.id && !isNaN(Number(selectedDeptObj.id))) ? Number(selectedDeptObj.id) : null);
         return {
+          itemId: it.itemId || null,
           itemName: it.itemName.trim(),
-          unit: (it.unit || 'KG').trim().toUpperCase(),
-          category: itemDept,
+          departmentId: resolvedDeptId,
+          departmentName: itemDept,
           department: itemDept,
+          category: itemDept,
+          unit: (it.unit || 'KG').trim().toUpperCase(),
           requestedQuantity: parseFloat(it.requestedQuantity),
           isNewItem: Boolean(it.isNewItem)
         };
       });
 
-      await api.submitBranchRequest(payloadItems, effectiveDept);
+      await api.submitBranchRequest(payloadItems, defaultDept);
 
       // If this order was loaded from a draft, mark the draft as moved in DB only after successful submission!
       if (activeDraftSourceId) {
@@ -1563,17 +1619,32 @@ export function BranchPortal({ user, activeTab, onSelectTab }) {
                             )}
                           </td>
                           <td>
-                            <span style={{
-                              background: '#e2ece9',
-                              color: '#003B2B',
-                              padding: '2px 8px',
-                              borderRadius: 4,
-                              fontSize: 12,
-                              fontWeight: 600,
-                              display: 'inline-block'
-                            }}>
-                              {translateCategory(item.category || 'General')}
-                            </span>
+                            <select
+                              value={item.department || item.departmentName || item.category || ''}
+                              onChange={e => handleUpdateOrderItemDepartment(item.id, e.target.value)}
+                              aria-label={`Department for ${item.itemName}`}
+                              style={{
+                                height: 32,
+                                padding: '2px 8px',
+                                fontSize: 12.5,
+                                borderRadius: 5,
+                                border: '1px solid #99c2b4',
+                                backgroundColor: '#f0fdf4',
+                                color: '#166534',
+                                fontWeight: 600,
+                                cursor: 'pointer',
+                                maxWidth: 170
+                              }}
+                            >
+                              {availableDepartments.map(dept => {
+                                const deptName = typeof dept === 'string' ? dept : dept.name;
+                                return (
+                                  <option key={deptName} value={deptName}>
+                                    {translateCategory(deptName)}
+                                  </option>
+                                );
+                              })}
+                            </select>
                           </td>
                           <td style={{ textAlign: 'center' }}>
                             <div style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
@@ -1626,10 +1697,32 @@ export function BranchPortal({ user, activeTab, onSelectTab }) {
                               </span>
                             )}
                           </span>
-                          <div className="mobile-item-meta">
-                            <span className="category-badge">
-                              {translateCategory(item.category || 'General')}
-                            </span>
+                          <div className="mobile-item-meta" style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                            <select
+                              value={item.department || item.departmentName || item.category || ''}
+                              onChange={e => handleUpdateOrderItemDepartment(item.id, e.target.value)}
+                              aria-label={`Department for ${item.itemName}`}
+                              style={{
+                                height: 28,
+                                padding: '2px 6px',
+                                fontSize: 11.5,
+                                borderRadius: 4,
+                                border: '1px solid #99c2b4',
+                                backgroundColor: '#f0fdf4',
+                                color: '#166534',
+                                fontWeight: 600,
+                                cursor: 'pointer'
+                              }}
+                            >
+                              {availableDepartments.map(dept => {
+                                const deptName = typeof dept === 'string' ? dept : dept.name;
+                                return (
+                                  <option key={deptName} value={deptName}>
+                                    {translateCategory(deptName)}
+                                  </option>
+                                );
+                              })}
+                            </select>
                             <span className="autocomplete-unit-badge">
                               {t('Unit')}: {translateUnit(item.unit)}
                             </span>
@@ -1736,56 +1829,7 @@ export function BranchPortal({ user, activeTab, onSelectTab }) {
             </div>
           </div>
 
-          {/* CONFIRM DEPARTMENT CHANGE MODAL */}
-          {showDeptConfirmModal && (
-            <div className="modal-overlay" style={{ zIndex: 1100 }}>
-              <div className="modal-content" style={{ maxWidth: 460, padding: '24px 28px', borderRadius: 10, background: '#ffffff', boxShadow: '0 10px 25px rgba(0,0,0,0.15)' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
-                  <div style={{ width: 42, height: 42, borderRadius: '50%', background: '#fef3c7', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22, color: '#d97706', flexShrink: 0 }}>
-                    ⚠️
-                  </div>
-                  <div>
-                    <h3 style={{ margin: 0, fontSize: 17, color: 'var(--primary-dark-green)', fontWeight: 700 }}>
-                      {t('Change Ordering Department?', 'ஆர்டர் செய்யும் துறையை மாற்றவா?')}
-                    </h3>
-                    <p style={{ margin: '4px 0 0', fontSize: 13, color: '#6b7280' }}>
-                      {t('You have existing items in your order request.', 'உங்கள் கோரிக்கை பட்டியலில் பொருட்கள் உள்ளன.')}
-                    </p>
-                  </div>
-                </div>
 
-                <div style={{ background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: 8, padding: '12px 16px', marginBottom: 20, fontSize: 13.5, lineHeight: 1.5, color: '#374151' }}>
-                  <p style={{ margin: '0 0 8px' }}>
-                    {language === 'ta'
-                      ? `தற்போது பட்டியலில் ${orderItemsList.length} பொருட்கள் உள்ளன. துறையை "${selectedDepartment || 'பொது'}" என்பதிலிருந்து "${pendingDepartment || '—'}" என மாற்ற விரும்புகிறீர்களா?`
-                      : `You have ${orderItemsList.length} item(s) in your current order list. Would you like to change the department from "${selectedDepartment || 'None'}" to "${pendingDepartment || 'None'}" for all items in this order?`}
-                  </p>
-                  <p style={{ margin: 0, fontSize: 12.5, color: '#059669', fontWeight: 600 }}>
-                    ✓ {t('All entered items, quantities, and units will be preserved.', 'உள்ளிடப்பட்ட அனைத்து பொருட்கள், அளவுகள் மற்றும் அலகுகள் பாதுகாக்கப்படும்.')}
-                  </p>
-                </div>
-
-                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
-                  <button
-                    type="button"
-                    className="secondary"
-                    onClick={handleCancelDepartmentChange}
-                    style={{ padding: '8px 16px', fontWeight: 600 }}
-                  >
-                    {t('Keep Current Department', 'தற்போதைய துறையை வைத்திரு')}
-                  </button>
-                  <button
-                    type="button"
-                    className="primary"
-                    onClick={handleConfirmDepartmentChange}
-                    style={{ padding: '8px 18px', fontWeight: 700 }}
-                  >
-                    {t('Yes, Update Department', 'ஆம், துறையை மாற்று')}
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
 
           {/* Confirm Order Modal Popup */}
           {showConfirmModal && (
@@ -1869,7 +1913,7 @@ export function BranchPortal({ user, activeTab, onSelectTab }) {
                           </td>
                           <td>
                             <span style={{ background: '#e2ece9', color: '#003B2B', padding: '2px 6px', borderRadius: 4, fontSize: 11, fontWeight: 600 }}>
-                              {translateCategory(item.category || 'Groceries')}
+                              {translateCategory(item.department || item.departmentName || item.category || 'General')}
                             </span>
                           </td>
                           <td style={{ textAlign: 'right', fontWeight: 700, color: 'var(--green)' }}>
@@ -3594,9 +3638,29 @@ export function BranchPortal({ user, activeTab, onSelectTab }) {
                           )}
                         </td>
                         <td>
-                          <span style={{ background: '#e2ece9', color: '#003B2B', padding: '2px 8px', borderRadius: 4, fontSize: 11, fontWeight: 600 }}>
-                            {translateCategory(item.category)}
-                          </span>
+                          <select
+                            value={item.department || item.departmentName || item.category || ''}
+                            onChange={e => handleUpdateEditDraftItemDepartment(idx, e.target.value)}
+                            disabled={savingEditDraft}
+                            aria-label={`Department for ${item.itemName}`}
+                            style={{
+                              height: 28,
+                              padding: '2px 6px',
+                              fontSize: 12,
+                              borderRadius: 4,
+                              border: '1px solid var(--border-color)',
+                              background: '#fff'
+                            }}
+                          >
+                            {availableDepartments.map(d => {
+                              const dName = typeof d === 'string' ? d : d.name;
+                              return (
+                                <option key={dName} value={dName}>
+                                  {translateCategory(dName)}
+                                </option>
+                              );
+                            })}
+                          </select>
                         </td>
                         <td>{translateUnit(item.unit)}</td>
                         <td style={{ textAlign: 'center' }}>
