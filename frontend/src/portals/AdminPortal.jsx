@@ -1213,8 +1213,7 @@ export function AdminPortal({ activeTab }) {
                     <thead>
                       <tr>
                         <th>{t('Item Name')}</th>
-                        <th>{t('Unit')}</th>
-                        <th>{t('Quantity to Order', 'ஆர்டர் அளவு')}</th>
+                        <th style={{ textAlign: 'right' }}>{t('Quantity to Order', 'ஆர்டர் அளவு')}</th>
                         <th>{t('Action')}</th>
                       </tr>
                     </thead>
@@ -1223,8 +1222,7 @@ export function AdminPortal({ activeTab }) {
                         newItemsList.map(item => (
                           <tr key={item.id}>
                             <td><b>{translateItem(item.name)}</b></td>
-                            <td>{translateUnit(item.unit)}</td>
-                            <td><span style={{ fontWeight: 700, color: 'var(--green)' }}>{item.quantity}</span></td>
+                            <td style={{ textAlign: 'right' }}><span style={{ fontWeight: 700, color: 'var(--green)' }}>{item.quantity} {translateUnit(item.unit)}</span></td>
                             <td>
                               <button
                                 type="button"
@@ -1323,8 +1321,7 @@ export function AdminPortal({ activeTab }) {
                               <tr>
                                 <th>{t('Order Number')}</th>
                                 <th>{t('Item Name')}</th>
-                                <th>{t('Unit')}</th>
-                                <th>{t('Ordered Quantity')}</th>
+                                <th style={{ textAlign: 'right' }}>{t('Ordered Quantity')}</th>
                                 <th>{t('Status')}</th>
                                 <th>{t('Creation Time')}</th>
                               </tr>
@@ -1334,8 +1331,7 @@ export function AdminPortal({ activeTab }) {
                                 <tr key={po.id}>
                                   <td><code>{po.poNumber || `PO-${po.id}`}</code></td>
                                   <td><b>{translateItem(po.item)}</b></td>
-                                  <td>{translateUnit(po.unit)}</td>
-                                  <td><span style={{ fontWeight: 700, color: 'var(--green)' }}>{po.quantity}</span></td>
+                                  <td style={{ textAlign: 'right' }}><span style={{ fontWeight: 700, color: 'var(--green)' }}>{po.quantity} {translateUnit(po.unit)}</span></td>
                                   <td>
                                     <span className="badge badge-ordered">{translateStatus(po.status)}</span>
                                   </td>
@@ -1758,9 +1754,8 @@ export function AdminPortal({ activeTab }) {
                             <th>{t('PO Creation Date')}</th>
                             <th>{t('Order Number')}</th>
                             <th>{t('Item Name')}</th>
-                            <th>{t('Unit')}</th>
-                            <th>{t('Ordered Quantity')}</th>
-                            <th>{t('Received Quantity')}</th>
+                            <th style={{ textAlign: 'right' }}>{t('Ordered Quantity')}</th>
+                            <th style={{ textAlign: 'right' }}>{t('Received Quantity')}</th>
                             <th>{t('Status')}</th>
                           </tr>
                         </thead>
@@ -1770,9 +1765,8 @@ export function AdminPortal({ activeTab }) {
                               <td>{formatDateLabel(po.orderDate || po.createdAt, language)}</td>
                               <td><code>{po.poNumber || `PO-${po.id}`}</code></td>
                               <td><b>{translateItem(po.item)}</b></td>
-                              <td>{translateUnit(po.unit)}</td>
-                              <td><span style={{ fontWeight: 700, color: 'var(--green)' }}>{po.quantity}</span></td>
-                              <td><span style={{ fontWeight: 600 }}>{po.receivedQty || 0}</span></td>
+                              <td style={{ textAlign: 'right' }}><span style={{ fontWeight: 700, color: 'var(--green)' }}>{po.quantity} {translateUnit(po.unit)}</span></td>
+                              <td style={{ textAlign: 'right' }}><span style={{ fontWeight: 600 }}>{po.receivedQty || 0} {translateUnit(po.unit)}</span></td>
                               <td>
                                 <span className={`badge ${
                                   po.status === 'PENDING' ? 'badge-pending' :

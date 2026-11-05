@@ -87,6 +87,8 @@ export function BranchPortal({ user, activeTab, onSelectTab }) {
 
   const [myRequests, setMyRequests] = useState([]);
   const [requestFilterDate, setRequestFilterDate] = useState(getTodayDateString());
+  const [requestFromDate, setRequestFromDate] = useState(getTodayDateString());
+  const [requestToDate, setRequestToDate] = useState(getTodayDateString());
   const [requestIsAllDates, setRequestIsAllDates] = useState(false);
 
   // 2. Entry states (Deliveries & Physical Acknowledgement)
@@ -246,11 +248,10 @@ export function BranchPortal({ user, activeTab, onSelectTab }) {
     try {
       setDownloadingRecentPdf(true);
 
-      // Fetch fresh matching branch requests using the currently selected date filter
-      const queryDate = requestIsAllDates ? '' : requestFilterDate;
+      // Fetch fresh matching branch requests using the currently selected date filter (Today or Custom Range)
       let branchRequests = [];
       try {
-        const fetched = await api.getMyBranchRequests(queryDate);
+        const fetched = await api.getMyBranchRequests(null, requestFromDate, requestToDate);
         if (Array.isArray(fetched)) {
           branchRequests = fetched;
         }
@@ -270,10 +271,12 @@ export function BranchPortal({ user, activeTab, onSelectTab }) {
           if (!bId || !r.branchId || r.branchId !== bId) return false;
         }
 
-        // Apply date filter
-        if (requestIsAllDates) return true;
+        // Apply date filter: Today or Custom Range
         const d = toLocalDateString(r.requestDate || r.createdAt);
-        return d === requestFilterDate;
+        if (!d) return false;
+        if (requestFromDate && d < requestFromDate) return false;
+        if (requestToDate && d > requestToDate) return false;
+        return true;
       }).sort((a, b) => {
         const tA = new Date(a.createdAt || a.requestDate || 0).getTime();
         const tB = new Date(b.createdAt || b.requestDate || 0).getTime();
@@ -289,12 +292,10 @@ export function BranchPortal({ user, activeTab, onSelectTab }) {
 
       const todayStr = getTodayDateString();
       let dateFilterLabel = '';
-      if (requestIsAllDates) {
-        dateFilterLabel = language === 'ta' ? 'அனைத்து தேதிகள் (All Dates)' : 'All Dates';
-      } else if (requestFilterDate === todayStr) {
+      if (requestFromDate === todayStr && requestToDate === todayStr) {
         dateFilterLabel = language === 'ta' ? `இன்று (${todayStr})` : `Today (${todayStr})`;
       } else {
-        dateFilterLabel = requestFilterDate;
+        dateFilterLabel = `${requestFromDate} to ${requestToDate}`;
       }
 
       await downloadBranchRecentRequestsPdf({
@@ -429,7 +430,7 @@ export function BranchPortal({ user, activeTab, onSelectTab }) {
       await loadSavedDrafts();
 
       // 3. Reload branch requests so new order appears in History and Today's requests
-      await loadMyRequests('', true);
+      await loadMyRequests();
 
       if (viewingDraft && viewingDraft.id === draft.id) {
         handleCloseDraftReview();
@@ -620,10 +621,9 @@ export function BranchPortal({ user, activeTab, onSelectTab }) {
   };
 
   // Load branch's own requests
-  const loadMyRequests = async (date = requestFilterDate, isAll = requestIsAllDates) => {
+  const loadMyRequests = async (fromDate = requestFromDate, toDate = requestToDate) => {
     try {
-      const queryDate = isAll ? '' : date;
-      const reqs = await api.getMyBranchRequests(queryDate);
+      const reqs = await api.getMyBranchRequests(null, fromDate, toDate);
       if (Array.isArray(reqs)) setMyRequests(reqs);
     } catch (err) {
       console.error('Error loading branch requests', err);
@@ -667,7 +667,7 @@ export function BranchPortal({ user, activeTab, onSelectTab }) {
     if (activeTab === 'order-items') {
       loadCatalogue();
       loadDepartments();
-      loadMyRequests(requestFilterDate, requestIsAllDates);
+      loadMyRequests(requestFromDate, requestToDate);
       loadSavedDrafts();
     } else if (activeTab === 'drafts') {
       loadSavedDrafts();
@@ -676,7 +676,7 @@ export function BranchPortal({ user, activeTab, onSelectTab }) {
     } else if (activeTab === 'history') {
       loadReceivedHistory();
     }
-  }, [activeTab, requestFilterDate, requestIsAllDates, deliveryDate, deliveryIsAllDates, historyDate, historyIsAllDates, historyFromDate, historyToDate]);
+  }, [activeTab, requestFromDate, requestToDate, deliveryDate, deliveryIsAllDates, historyDate, historyIsAllDates, historyFromDate, historyToDate]);
 
   // 1. Auto-focus Department (if not selected) or Item Name whenever Order Items tab is opened or active
   useEffect(() => {
@@ -1074,7 +1074,7 @@ export function BranchPortal({ user, activeTab, onSelectTab }) {
       showAlert('success', `✓ Your request with ${orderItemsList.length} distinct item line(s) was sent to the Store Manager successfully!`);
       setOrderItemsList([]);
       setShowConfirmModal(false);
-      await loadMyRequests(requestFilterDate, requestIsAllDates);
+      await loadMyRequests();
       // Return focus automatically to the Item Name input for entering the next order
       setTimeout(() => {
         itemInputRef.current?.focus();
@@ -1546,8 +1546,7 @@ export function BranchPortal({ user, activeTab, onSelectTab }) {
                     <tr>
                       <th>{t('Item Name')}</th>
                       <th>{t('Department')}</th>
-                      <th>{t('Unit')}</th>
-                      <th style={{ textAlign: 'center', width: 140 }}>{t('Requested Quantity')}</th>
+                      <th style={{ textAlign: 'center', width: 160 }}>{t('Requested Quantity')}</th>
                       <th style={{ textAlign: 'center', width: 90 }}>{t('Action')}</th>
                     </tr>
                   </thead>
@@ -1576,16 +1575,19 @@ export function BranchPortal({ user, activeTab, onSelectTab }) {
                               {translateCategory(item.category || 'General')}
                             </span>
                           </td>
-                          <td><span className="autocomplete-unit-badge">{translateUnit(item.unit)}</span></td>
                           <td style={{ textAlign: 'center' }}>
-                            <input
-                              type="number"
-                              min="0.001"
-                      step="any"
-                              className="qty-input"
-                              value={item.requestedQuantity}
-                              onChange={e => handleUpdateOrderItemQty(item.id, e.target.value)}
-                            />
+                            <div style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+                              <input
+                                type="number"
+                                min="0.001"
+                                step="any"
+                                className="qty-input"
+                                value={item.requestedQuantity}
+                                onChange={e => handleUpdateOrderItemQty(item.id, e.target.value)}
+                                style={{ width: 85 }}
+                              />
+                              <span className="autocomplete-unit-badge">{translateUnit(item.unit)}</span>
+                            </div>
                           </td>
                           <td style={{ textAlign: 'center' }}>
                             <button
@@ -1850,7 +1852,6 @@ export function BranchPortal({ user, activeTab, onSelectTab }) {
                         <th style={{ width: 36 }}>#</th>
                         <th>{t('Item Name')}</th>
                         <th>{t('Department')}</th>
-                        <th>{t('Unit')}</th>
                         <th style={{ textAlign: 'right' }}>{t('Requested Quantity')}</th>
                       </tr>
                     </thead>
@@ -1871,9 +1872,8 @@ export function BranchPortal({ user, activeTab, onSelectTab }) {
                               {translateCategory(item.category || 'Groceries')}
                             </span>
                           </td>
-                          <td><span className="autocomplete-unit-badge">{translateUnit(item.unit)}</span></td>
                           <td style={{ textAlign: 'right', fontWeight: 700, color: 'var(--green)' }}>
-                            {item.requestedQuantity}
+                            {item.requestedQuantity} {translateUnit(item.unit)}
                           </td>
                         </tr>
                       ))}
@@ -2093,7 +2093,7 @@ export function BranchPortal({ user, activeTab, onSelectTab }) {
                 <button
                   type="button"
                   className="secondary small"
-                  onClick={() => loadMyRequests(requestFilterDate, requestIsAllDates)}
+                  onClick={() => loadMyRequests()}
                 >
                   ↻ Refresh
                 </button>
@@ -2105,18 +2105,29 @@ export function BranchPortal({ user, activeTab, onSelectTab }) {
               selectedDate={requestFilterDate}
               onDateChange={(d) => {
                 setRequestFilterDate(d);
-                setRequestIsAllDates(false);
+                setRequestFromDate(d);
+                setRequestToDate(d);
+                loadMyRequests(d, d);
               }}
-              isAllDates={requestIsAllDates}
-              onToggleAllDates={(all) => setRequestIsAllDates(all)}
+              fromDate={requestFromDate}
+              toDate={requestToDate}
+              onFromDateChange={setRequestFromDate}
+              onToDateChange={setRequestToDate}
+              onApplyRange={(from, to) => {
+                setRequestFromDate(from);
+                setRequestToDate(to);
+                loadMyRequests(from, to);
+              }}
               totalCount={myRequests.length}
             />
 
             {(() => {
               const displayed = myRequests.filter(r => {
-                if (requestIsAllDates) return true;
                 const d = toLocalDateString(r.requestDate || r.createdAt);
-                return d === requestFilterDate;
+                if (!d) return false;
+                if (requestFromDate && d < requestFromDate) return false;
+                if (requestToDate && d > requestToDate) return false;
+                return true;
               }).sort((a, b) => {
                 const tA = new Date(a.createdAt || a.requestDate || 0).getTime();
                 const tB = new Date(b.createdAt || b.requestDate || 0).getTime();
@@ -2126,18 +2137,19 @@ export function BranchPortal({ user, activeTab, onSelectTab }) {
               if (displayed.length === 0) {
                 return (
                   <EmptyDateMessage
-                    date={requestIsAllDates ? null : requestFilterDate}
-                    message={requestIsAllDates ? `No recent requests found for ${user?.branchName}.` : undefined}
+                    date={requestFromDate === requestToDate ? requestFromDate : `${requestFromDate} – ${requestToDate}`}
+                    message={`No recent requests found for ${user?.branchName}.`}
                     onResetToday={() => {
-                      setRequestFilterDate(getTodayDateString());
-                      setRequestIsAllDates(false);
+                      const today = getTodayDateString();
+                      setRequestFilterDate(today);
+                      setRequestFromDate(today);
+                      setRequestToDate(today);
                     }}
-                    onShowAll={() => setRequestIsAllDates(true)}
                   />
                 );
               }
 
-              if (requestIsAllDates) {
+              if (requestFromDate !== requestToDate) {
                 const groups = groupByDate(displayed, r => r.requestDate || r.createdAt, language);
                 return groups.map(grp => (
                   <div key={grp.date} style={{ marginBottom: 24 }}>
@@ -2149,10 +2161,9 @@ export function BranchPortal({ user, activeTab, onSelectTab }) {
                             <th>{t('Request Date & Time', 'Request Date & Time')}</th>
                             <th>{t('Item Name', 'Item Name')}</th>
                             <th>{t('Department', 'துறை')}</th>
-                            <th>{t('Unit', 'Unit')}</th>
-                            <th>{t('Requested Quantity', 'Requested Quantity')}</th>
-                            <th>{t('Dispatched Quantity', 'Dispatched Quantity')}</th>
-                            <th>{t('Confirmed Received Quantity', 'Confirmed Received Quantity')}</th>
+                            <th style={{ textAlign: 'right' }}>{t('Requested Quantity', 'Requested Quantity')}</th>
+                            <th style={{ textAlign: 'right' }}>{t('Dispatched Quantity', 'Dispatched Quantity')}</th>
+                            <th style={{ textAlign: 'right' }}>{t('Confirmed Received Quantity', 'Confirmed Received Quantity')}</th>
                             <th>{t('Status', 'Status')}</th>
                           </tr>
                         </thead>
@@ -2166,10 +2177,19 @@ export function BranchPortal({ user, activeTab, onSelectTab }) {
                                   {translateCategory(r.department || r.category || 'General')}
                                 </span>
                               </td>
-                              <td>{translateUnit(r.unit)}</td>
-                              <td>{r.requested}</td>
-                              <td><span style={{ fontWeight: 600, color: '#8c671b' }}>{r.dispatched || 0}</span></td>
-                              <td><span style={{ fontWeight: 600, color: 'var(--green)' }}>{r.received || 0}</span></td>
+                              <td style={{ textAlign: 'right', fontWeight: 700, color: '#003B2B' }}>
+                                {r.requested ? `${r.requested} ${translateUnit(r.unit)}` : '—'}
+                              </td>
+                              <td style={{ textAlign: 'right' }}>
+                                <span style={{ fontWeight: 600, color: '#8c671b' }}>
+                                  {r.dispatched ? `${r.dispatched} ${translateUnit(r.unit)}` : `0 ${translateUnit(r.unit)}`}
+                                </span>
+                              </td>
+                              <td style={{ textAlign: 'right' }}>
+                                <span style={{ fontWeight: 600, color: 'var(--green)' }}>
+                                  {r.received ? `${r.received} ${translateUnit(r.unit)}` : `0 ${translateUnit(r.unit)}`}
+                                </span>
+                              </td>
                               <td>
                                 <span className={`badge ${
                                   r.status === 'COMPLETED' ? 'badge-completed' :
@@ -2559,10 +2579,9 @@ export function BranchPortal({ user, activeTab, onSelectTab }) {
                         <tr>
                           <th style={{ width: '155px' }}>{t('Dispatch Date & Time', 'Dispatch Date & Time')}</th>
                           <th>{t('Item Name', 'Item Name')}</th>
-                          <th style={{ width: '75px', textAlign: 'center' }}>{t('Unit', 'Unit')}</th>
-                          <th style={{ width: '105px', textAlign: 'center' }}>{t('Dispatched Quantity', 'Dispatched Quantity')}</th>
-                          <th style={{ width: '115px', textAlign: 'center' }}>{t('Actual Received Quantity', 'Actual Received Quantity')}</th>
-                          <th style={{ width: '105px', textAlign: 'center' }}>{t('Shortage Quantity', 'Shortage Quantity')}</th>
+                          <th style={{ width: '135px', textAlign: 'center' }}>{t('Dispatched Quantity', 'Dispatched Quantity')}</th>
+                          <th style={{ width: '145px', textAlign: 'center' }}>{t('Actual Received Quantity', 'Actual Received Quantity')}</th>
+                          <th style={{ width: '125px', textAlign: 'center' }}>{t('Shortage Quantity', 'Shortage Quantity')}</th>
                           <th style={{ width: '170px', textAlign: 'center' }}>{t('Acknowledgement Status', 'Acknowledgement Status')}</th>
                           <th style={{ width: '155px', textAlign: 'center' }}>{t('Action', 'Action')}</th>
                         </tr>
@@ -2605,10 +2624,9 @@ export function BranchPortal({ user, activeTab, onSelectTab }) {
                                   </span>
                                 )}
                               </td>
-                              <td style={{ textAlign: 'center' }}>{translateUnit(d.unit)}</td>
                               <td style={{ textAlign: 'center' }}>
                                 <span style={{ fontWeight: 700, color: 'var(--green)', fontSize: '14px' }}>
-                                  {d.quantity}
+                                  {d.quantity} {translateUnit(d.unit)}
                                 </span>
                                 {alreadyReturned > 0 && (
                                   <div style={{ fontSize: '11px', color: '#b45309', fontWeight: 600, marginTop: '2px' }}>

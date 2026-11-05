@@ -1,3 +1,4 @@
+import { formatQuantityWithUnit, formatUnitSummary } from '../utils/quantityFormatter.js';
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { api } from '../api';
 import { useLanguage } from '../i18n/LanguageContext';
@@ -136,10 +137,7 @@ function getStatusBadgeStyle(status) {
  * Helper to format unit quantity maps (e.g. {"KG": 100, "L": 50} -> "100 KG, 50 L")
  */
 function formatUnitQuantities(unitMap, emptyFallback = '0') {
-  if (!unitMap || typeof unitMap !== 'object') return emptyFallback;
-  const entries = Object.entries(unitMap).filter(([_, val]) => Number(val) > 0);
-  if (entries.length === 0) return emptyFallback;
-  return entries.map(([u, val]) => `${Number(val || 0).toLocaleString()} ${u}`).join(', ');
+  return formatUnitSummary(unitMap, false, emptyFallback);
 }
 
 export function ReportsView({ userRole }) {
@@ -148,15 +146,26 @@ export function ReportsView({ userRole }) {
   // 1. Category Tabs: 'inventory', 'requests', 'dispatches'
   const [activeTab, setActiveTab] = useState('inventory');
 
-  // 2. Filters: Date, Branch, Department, and Category
-  const [selectedDate, setSelectedDate] = useState(getTodayDateString());
-  const [isAllDates, setIsAllDates] = useState(false);
+  // 2. Standardized Date Filter: Exactly two modes ('today' | 'custom')
+  const [dateMode, setDateMode] = useState('today');
+  const [fromDateInput, setFromDateInput] = useState(getTodayDateString());
+  const [toDateInput, setToDateInput] = useState(getTodayDateString());
+  const [appliedFromDate, setAppliedFromDate] = useState(getTodayDateString());
+  const [appliedToDate, setAppliedToDate] = useState(getTodayDateString());
+  const [dateRangeError, setDateRangeError] = useState(null);
+
+  // Filters: Branch, Department, and Category
   const [selectedBranch, setSelectedBranch] = useState('ALL');
   const [selectedDepartment, setSelectedDepartment] = useState('ALL');
   const [selectedCategoryFilter, setSelectedCategoryFilter] = useState('ALL');
 
   // Category Detail view focus: null = Summary View, string = Category Name
   const [selectedCategoryView, setSelectedCategoryView] = useState(null);
+
+  // Effective inclusive date range for report queries and calculations
+  const today = getTodayDateString();
+  const effectiveFromDate = dateMode === 'today' ? today : appliedFromDate;
+  const effectiveToDate = dateMode === 'today' ? today : appliedToDate;
 
   // Branch, Department, and Category lists
   const [branches, setBranches] = useState([]);
@@ -170,6 +179,36 @@ export function ReportsView({ userRole }) {
   const [rawCategoryReport, setRawCategoryReport] = useState({ summary: [], items: [] });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+
+  // Helper to format date as DD/MM/YYYY
+  const formatDisplayDate = useCallback((dStr) => {
+    if (!dStr) return '';
+    const clean = String(dStr).slice(0, 10);
+    const parts = clean.split('-');
+    if (parts.length === 3) {
+      return `${parts[2]}/${parts[1]}/${parts[0]}`;
+    }
+    return clean;
+  }, []);
+
+  // Handle applying Custom Range filter with strict validation
+  const handleApplyCustomRange = useCallback(() => {
+    if (!fromDateInput || !toDateInput) {
+      setDateRangeError(language === 'ta'
+        ? 'தொடக்க தேதி மற்றும் முடிவு தேதி இரண்டையும் தேர்ந்தெடுக்கவும்.'
+        : 'Please select both From Date and To Date.');
+      return;
+    }
+    if (fromDateInput > toDateInput) {
+      setDateRangeError(language === 'ta'
+        ? 'தொடக்க தேதி முடிவு தேதியை விட பிந்தையதாக இருக்கக்கூடாது.'
+        : 'From Date cannot be later than To Date.');
+      return;
+    }
+    setDateRangeError(null);
+    setAppliedFromDate(fromDateInput);
+    setAppliedToDate(toDateInput);
+  }, [fromDateInput, toDateInput, language]);
 
   // Load branch list and department list once
   useEffect(() => {
@@ -192,43 +231,45 @@ export function ReportsView({ userRole }) {
       .catch(err => console.warn('Could not load categories for reports:', err));
   }, []);
 
-  // Fetch report data from existing backend API
+  // Fetch report data from existing backend API with synchronized date boundaries
   const fetchReportData = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
       if (activeTab === 'inventory') {
-        const data = await api.getCentralInventoryReport();
+        const data = await api.getCentralInventoryReport({
+          fromDate: effectiveFromDate,
+          toDate: effectiveToDate
+        });
         if (Array.isArray(data)) setRawInventory(data);
       } else if (activeTab === 'requests') {
-        const queryDate = isAllDates ? '' : selectedDate;
         const branchParam = selectedBranch === 'ALL' ? '' : selectedBranch;
         const deptParam = selectedDepartment === 'ALL' ? '' : selectedDepartment;
         const data = await api.getBranchRequestReport({
-          fromDate: queryDate,
-          toDate: queryDate,
+          fromDate: effectiveFromDate,
+          toDate: effectiveToDate,
           branch: branchParam,
           department: deptParam
         });
         if (Array.isArray(data)) setRawRequests(data);
       } else if (activeTab === 'dispatches') {
-        const queryDate = isAllDates ? '' : selectedDate;
         const branchParam = selectedBranch === 'ALL' ? '' : selectedBranch;
         const deptParam = selectedDepartment === 'ALL' ? '' : selectedDepartment;
         const data = await api.getBranchDispatchReport({
-          date: queryDate,
+          fromDate: effectiveFromDate,
+          toDate: effectiveToDate,
           branch: branchParam,
           department: deptParam
         });
         if (Array.isArray(data)) setRawDispatches(data);
 
       } else if (activeTab === 'categories') {
-        const queryDate = isAllDates ? '' : selectedDate;
         const branchParam = selectedBranch === 'ALL' ? '' : selectedBranch;
         const deptParam = selectedDepartment === 'ALL' ? '' : selectedDepartment;
         const catParam = selectedCategoryFilter === 'ALL' ? '' : selectedCategoryFilter;
         const data = await api.getCategoryWiseReport({
-          date: queryDate,
+          fromDate: effectiveFromDate,
+          toDate: effectiveToDate,
           branch: branchParam,
           department: deptParam,
           category: catParam
@@ -243,7 +284,7 @@ export function ReportsView({ userRole }) {
     } finally {
       setLoading(false);
     }
-  }, [activeTab, isAllDates, selectedDate, selectedBranch, selectedDepartment, selectedCategoryFilter]);
+  }, [activeTab, effectiveFromDate, effectiveToDate, selectedBranch, selectedDepartment, selectedCategoryFilter]);
 
   // Refetch when activeTab, date or branch changes
   useEffect(() => {
@@ -304,11 +345,15 @@ export function ReportsView({ userRole }) {
     if (selectedDepartment && selectedDepartment !== 'ALL') {
       items = items.filter(it => it.department && it.department.toLowerCase() === selectedDepartment.trim().toLowerCase());
     }
-    if (!isAllDates && selectedDate) {
-      items = items.filter(it => String(it.requestDate || '').slice(0, 10) === selectedDate);
-    }
+    items = items.filter(it => {
+      const dStr = String(it.requestDate || it.dispatchDate || '').slice(0, 10);
+      if (!dStr) return false;
+      if (effectiveFromDate && dStr < effectiveFromDate) return false;
+      if (effectiveToDate && dStr > effectiveToDate) return false;
+      return true;
+    });
     return items;
-  }, [activeTab, rawCategoryReport.items, selectedCategoryView, selectedBranch, selectedDepartment, isAllDates, selectedDate]);
+  }, [activeTab, rawCategoryReport.items, selectedCategoryView, selectedBranch, selectedDepartment, effectiveFromDate, effectiveToDate]);
 
   // Overall metrics for Category-Wise Report Cards
   const categoryOverallTotals = useMemo(() => {
@@ -366,14 +411,15 @@ export function ReportsView({ userRole }) {
     if (activeTab === 'inventory') {
       let list = rawInventory;
 
-      // Date filtering for inventory: if a specific date is selected (e.g. today), filter by last updated date
-      if (!isAllDates && selectedDate) {
-        list = list.filter(item => {
-          const updated = item.lastUpdated || (item.activity && item.activity[0]?.transactionDate) || item.createdAt;
-          if (!updated) return false;
-          return String(updated).slice(0, 10) === selectedDate;
-        });
-      }
+      // Date filtering for inventory: inclusive between effectiveFromDate and effectiveToDate
+      list = list.filter(item => {
+        const updated = item.lastUpdated || (item.activity && item.activity[0]?.transactionDate) || item.createdAt;
+        if (!updated) return false;
+        const dStr = String(updated).slice(0, 10);
+        if (effectiveFromDate && dStr < effectiveFromDate) return false;
+        if (effectiveToDate && dStr > effectiveToDate) return false;
+        return true;
+      });
 
       // Group duplicate items combining quantities only when item and unit match
       const groupMap = new Map();
@@ -422,10 +468,14 @@ export function ReportsView({ userRole }) {
         });
       }
 
-      // Date filter
-      if (!isAllDates && selectedDate) {
-        list = list.filter(r => String(r.date || r.requestDate || '').slice(0, 10) === selectedDate);
-      }
+      // Date filter: inclusive between effectiveFromDate and effectiveToDate
+      list = list.filter(r => {
+        const dStr = String(r.date || r.requestDate || (r.createdAt ? String(r.createdAt).slice(0, 10) : '')).slice(0, 10);
+        if (!dStr) return false;
+        if (effectiveFromDate && dStr < effectiveFromDate) return false;
+        if (effectiveToDate && dStr > effectiveToDate) return false;
+        return true;
+      });
 
       // Group duplicate items combining quantities only when item and unit match
       const groupMap = new Map();
@@ -483,10 +533,14 @@ export function ReportsView({ userRole }) {
         });
       }
 
-      // Date filter
-      if (!isAllDates && selectedDate) {
-        list = list.filter(d => String(d.dispatchDate || (d.dispatchDateTime ? d.dispatchDateTime.slice(0, 10) : '')).slice(0, 10) === selectedDate);
-      }
+      // Date filter: inclusive between effectiveFromDate and effectiveToDate
+      list = list.filter(d => {
+        const dStr = String(d.dispatchDate || (d.dispatchDateTime ? String(d.dispatchDateTime).slice(0, 10) : '') || (d.createdAt ? String(d.createdAt).slice(0, 10) : '')).slice(0, 10);
+        if (!dStr) return false;
+        if (effectiveFromDate && dStr < effectiveFromDate) return false;
+        if (effectiveToDate && dStr > effectiveToDate) return false;
+        return true;
+      });
 
       // Group duplicate items combining quantities only when item and unit match
       const groupMap = new Map();
@@ -530,7 +584,7 @@ export function ReportsView({ userRole }) {
     }
 
     return [];
-  }, [activeTab, rawInventory, rawRequests, rawDispatches, isAllDates, selectedDate, selectedBranch, selectedDepartment]);
+  }, [activeTab, rawInventory, rawRequests, rawDispatches, effectiveFromDate, effectiveToDate, selectedBranch, selectedDepartment]);
 
   // Unified display rows based on activeTab
   const displayRows = useMemo(() => {
@@ -573,8 +627,16 @@ export function ReportsView({ userRole }) {
     return { countLabel: '', metricLabel: '' };
   }, [activeTab, records, language, t]);
 
-  // Scope label for exports and UI display
-  const dateScopeLabel = isAllDates ? t('All Dates', 'அனைத்து தேதிகள்') : (formatDateLabel(selectedDate, language) || selectedDate);
+  // Scope label for exports and UI display: Standardized to Today or Custom Range
+  const dateScopeLabel = dateMode === 'today'
+    ? (language === 'ta' ? `இன்று (${formatDisplayDate(today)})` : `Today (${formatDisplayDate(today)})`)
+    : `${formatDisplayDate(appliedFromDate)} – ${formatDisplayDate(appliedToDate)}`;
+
+  // Filename date suffix for PDF / CSV exports
+  const dateFileSuffix = dateMode === 'today'
+    ? `today_${today}`
+    : `${appliedFromDate}_to_${appliedToDate}`;
+
   const branchScopeLabel = selectedBranch === 'ALL' ? t('All Branches', 'அனைத்து கிளைகள்') : selectedBranch;
   const deptScopeLabel = selectedDepartment === 'ALL' ? t('All Departments', 'அனைத்து துறைகள்') : (translateCategory ? translateCategory(selectedDepartment) : selectedDepartment);
 
@@ -587,21 +649,24 @@ export function ReportsView({ userRole }) {
       if (activeTab === 'inventory') {
         await downloadSimpleInventoryPdf({
           items: records,
-          dateLabel: dateScopeLabel
+          dateLabel: dateScopeLabel,
+          filename: `Annamithra_Inventory_Report_${dateFileSuffix}.pdf`
         });
       } else if (activeTab === 'requests') {
         await downloadSimpleBranchRequestPdf({
           items: records,
           branch: branchScopeLabel,
           department: deptScopeLabel,
-          dateLabel: dateScopeLabel
+          dateLabel: dateScopeLabel,
+          filename: `Annamithra_Branch_Request_Report_${dateFileSuffix}.pdf`
         });
       } else if (activeTab === 'dispatches') {
         await downloadSimpleDispatchPdf({
           items: records,
           branch: branchScopeLabel,
           department: deptScopeLabel,
-          dateLabel: dateScopeLabel
+          dateLabel: dateScopeLabel,
+          filename: `Annamithra_Dispatch_Report_${dateFileSuffix}.pdf`
         });
       } else if (activeTab === 'categories') {
         if (selectedCategoryView) {
@@ -610,7 +675,8 @@ export function ReportsView({ userRole }) {
             items: categoryDetailItems,
             branch: branchScopeLabel,
             department: deptScopeLabel,
-            dateLabel: dateScopeLabel
+            dateLabel: dateScopeLabel,
+            filename: `Annamithra_${selectedCategoryView.replace(/[^a-zA-Z0-9]/g, '_')}_Item_Details_${dateFileSuffix}.pdf`
           });
         } else {
           await downloadCategorySummaryPdf({
@@ -618,7 +684,8 @@ export function ReportsView({ userRole }) {
             branch: branchScopeLabel,
             department: deptScopeLabel,
             category: categoryScopeLabel,
-            dateLabel: dateScopeLabel
+            dateLabel: dateScopeLabel,
+            filename: `Annamithra_Category_Summary_${dateFileSuffix}.pdf`
           });
         }
       }
@@ -635,18 +702,18 @@ export function ReportsView({ userRole }) {
         exportReportCsv({
           reportType: 'category-details',
           items: categoryDetailItems,
-          filename: `Annamithra_${selectedCategoryView.replace(/[^a-zA-Z0-9]/g, '_')}_item_details_${isAllDates ? 'all_dates' : selectedDate}.csv`
+          filename: `Annamithra_${selectedCategoryView.replace(/[^a-zA-Z0-9]/g, '_')}_item_details_${dateFileSuffix}.csv`
         });
       } else {
         exportReportCsv({
           reportType: 'category-summary',
           items: categorySummaryData,
-          filename: `Annamithra_category_summary_${isAllDates ? 'all_dates' : selectedDate}.csv`
+          filename: `Annamithra_category_summary_${dateFileSuffix}.csv`
         });
       }
       return;
     }
-    const filename = `Annamithra_${activeTab}_report_${isAllDates ? 'all_dates' : selectedDate}.csv`;
+    const filename = `Annamithra_${activeTab}_report_${dateFileSuffix}.csv`;
     exportReportCsv({
       reportType: activeTab,
       items: records,
@@ -899,58 +966,154 @@ export function ReportsView({ userRole }) {
             gap: 14
           }}
         >
-          {/* FILTER 1: DATE FILTER (Today, All Dates, or specific date picker) */}
-          <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 8, flex: '1 1 340px' }}>
-            <span style={{ fontWeight: 700, fontSize: '13px', color: 'var(--primary-dark-green)', whiteSpace: 'nowrap' }}>
-              📅 {t('Date', 'தேதி')}:
-            </span>
+          {/* FILTER 1: DATE FILTER (Standardized to Today and Custom Range) */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6, flex: '1 1 360px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+              <span style={{ fontWeight: 700, fontSize: '13px', color: 'var(--primary-dark-green)', whiteSpace: 'nowrap' }}>
+                📅 {t('Date Filter', 'தேதி வடிகட்டி')}:
+              </span>
 
-            {/* Today Button */}
-            <button
-              type="button"
-              className={`btn small ${!isAllDates && selectedDate === getTodayDateString() ? 'primary' : 'secondary'}`}
-              onClick={() => {
-                setSelectedDate(getTodayDateString());
-                setIsAllDates(false);
-              }}
-              style={{ minHeight: 34, padding: '5px 12px', fontSize: '12.5px', borderRadius: 4 }}
-            >
-              {t('Today', 'இன்று')}
-            </button>
+              {/* Mode Toggle Buttons: [ Today ] [ Custom Range ] */}
+              <div style={{ display: 'inline-flex', borderRadius: 6, border: '1px solid var(--border-color)', overflow: 'hidden' }}>
+                <button
+                  type="button"
+                  className={`btn small ${dateMode === 'today' ? 'primary' : 'secondary'}`}
+                  onClick={() => {
+                    if (dateMode !== 'today') {
+                      setDateMode('today');
+                      setDateRangeError(null);
+                    }
+                  }}
+                  style={{
+                    minHeight: 34,
+                    padding: '6px 14px',
+                    fontSize: '12.5px',
+                    borderRadius: 0,
+                    border: 'none',
+                    fontWeight: dateMode === 'today' ? 700 : 500
+                  }}
+                >
+                  {t('Today', 'இன்று')}
+                </button>
 
-            {/* All Dates Button */}
-            <button
-              type="button"
-              className={`btn small ${isAllDates ? 'primary' : 'secondary'}`}
-              onClick={() => {
-                setIsAllDates(true);
-              }}
-              style={{ minHeight: 34, padding: '5px 12px', fontSize: '12.5px', borderRadius: 4 }}
-            >
-              {t('All Dates', 'அனைத்து தேதிகள்')}
-            </button>
+                <button
+                  type="button"
+                  className={`btn small ${dateMode === 'custom' ? 'primary' : 'secondary'}`}
+                  onClick={() => {
+                    if (dateMode !== 'custom') {
+                      setDateMode('custom');
+                    }
+                  }}
+                  style={{
+                    minHeight: 34,
+                    padding: '6px 14px',
+                    fontSize: '12.5px',
+                    borderRadius: 0,
+                    border: 'none',
+                    fontWeight: dateMode === 'custom' ? 700 : 500
+                  }}
+                >
+                  {t('Custom Range', 'தனிப்பயன் வரம்பு')}
+                </button>
+              </div>
 
-            {/* Specific Date Picker Input */}
-            <input
-              type="date"
-              value={isAllDates ? '' : selectedDate}
-              onChange={(e) => {
-                if (e.target.value) {
-                  setSelectedDate(e.target.value);
-                  setIsAllDates(false);
-                }
-              }}
-              title={t('Select Date', 'தேதியைத் தேர்ந்தெடுக்கவும்')}
-              style={{
-                padding: '5px 8px',
-                fontSize: '13px',
-                minHeight: 34,
-                borderRadius: 4,
-                border: '1px solid var(--border-color)',
-                background: isAllDates ? '#F8F9FA' : 'var(--white-surface)',
-                maxWidth: 150
-              }}
-            />
+              {/* Today Active Indicator */}
+              {dateMode === 'today' && (
+                <span
+                  style={{
+                    fontSize: '12px',
+                    fontWeight: 600,
+                    background: 'var(--pale-green, #EBF4F0)',
+                    color: 'var(--secondary-green, #07543D)',
+                    border: '1px solid var(--pale-green-border, #C8DFD4)',
+                    padding: '4px 10px',
+                    borderRadius: 12
+                  }}
+                >
+                  ✓ {language === 'ta' ? `இன்று (${formatDisplayDate(today)})` : `Today (${formatDisplayDate(today)})`}
+                </span>
+              )}
+            </div>
+
+            {/* Custom Range: From Date, To Date, Apply Filter */}
+            {dateMode === 'custom' && (
+              <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginTop: 4 }}>
+                <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                  <label style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)' }}>
+                    {t('From Date', 'தொடக்க தேதி')}:
+                  </label>
+                  <input
+                    type="date"
+                    value={fromDateInput}
+                    max={toDateInput || undefined}
+                    onChange={(e) => {
+                      setFromDateInput(e.target.value);
+                      if (dateRangeError) setDateRangeError(null);
+                    }}
+                    style={{
+                      padding: '5px 8px',
+                      fontSize: '13px',
+                      minHeight: 34,
+                      borderRadius: 4,
+                      border: dateRangeError ? '1.5px solid #B3261E' : '1px solid var(--border-color)',
+                      background: 'var(--white-surface)'
+                    }}
+                  />
+                </div>
+
+                <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                  <label style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)' }}>
+                    {t('To Date', 'முடிவு தேதி')}:
+                  </label>
+                  <input
+                    type="date"
+                    value={toDateInput}
+                    min={fromDateInput || undefined}
+                    onChange={(e) => {
+                      setToDateInput(e.target.value);
+                      if (dateRangeError) setDateRangeError(null);
+                    }}
+                    style={{
+                      padding: '5px 8px',
+                      fontSize: '13px',
+                      minHeight: 34,
+                      borderRadius: 4,
+                      border: dateRangeError ? '1.5px solid #B3261E' : '1px solid var(--border-color)',
+                      background: 'var(--white-surface)'
+                    }}
+                  />
+                </div>
+
+                <button
+                  type="button"
+                  className="btn primary small"
+                  onClick={handleApplyCustomRange}
+                  disabled={loading}
+                  style={{
+                    minHeight: 34,
+                    padding: '6px 14px',
+                    fontSize: '12.5px',
+                    borderRadius: 4,
+                    fontWeight: 700
+                  }}
+                >
+                  {t('Apply Filter', 'வடிகட்டியைப் பயன்படுத்து')}
+                </button>
+
+                {appliedFromDate && appliedToDate && (
+                  <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--primary-dark-green)' }}>
+                    ({formatDisplayDate(appliedFromDate)} – {formatDisplayDate(appliedToDate)})
+                  </span>
+                )}
+              </div>
+            )}
+
+            {/* Validation error message */}
+            {dateRangeError && (
+              <div style={{ color: '#B3261E', fontSize: '12px', fontWeight: 600, marginTop: 2 }}>
+                ⚠️ {dateRangeError}
+              </div>
+            )}
           </div>
 
           {/* FILTER 2: BRANCH FILTER */}
@@ -1251,29 +1414,32 @@ export function ReportsView({ userRole }) {
           </div>
           <div style={{ fontSize: '13px', color: 'var(--text-muted)', marginBottom: 16 }}>
             {language === 'ta'
-              ? 'வேறு தேதியைத் தேர்ந்தெடுக்கவும் அல்லது அனைத்து தேதிகளையும் பார்வையிட கீழே உள்ள பொத்தானைக் கிளிக் செய்யவும்.'
-              : 'Try selecting a different date or click below to view records across all dates.'}
+              ? 'வேறு தேதியை அல்லது தனிப்பயன் வரம்பைத் தேர்ந்தெடுக்கவும்.'
+              : 'Try selecting a different date or custom date range.'}
           </div>
           <div style={{ display: 'inline-flex', gap: 10 }}>
-            <button
-              type="button"
-              className="btn secondary small"
-              onClick={() => {
-                setSelectedDate(getTodayDateString());
-                setIsAllDates(false);
-              }}
-            >
-              📅 {t('Today', 'இன்று')}
-            </button>
-            <button
-              type="button"
-              className="btn primary small"
-              onClick={() => {
-                setIsAllDates(true);
-              }}
-            >
-              🗓️ {t('All Dates', 'அனைத்து தேதிகள்')}
-            </button>
+            {dateMode === 'custom' ? (
+              <button
+                type="button"
+                className="btn primary small"
+                onClick={() => {
+                  setDateMode('today');
+                  setDateRangeError(null);
+                }}
+              >
+                📅 {t('View Today', 'இன்றைய பதிவுகளைக் காண்க')}
+              </button>
+            ) : (
+              <button
+                type="button"
+                className="btn primary small"
+                onClick={() => {
+                  setDateMode('custom');
+                }}
+              >
+                📅 {t('Select Custom Range', 'தனிப்பயன் வரம்பைத் தேர்ந்தெடுக்கவும்')}
+              </button>
+            )}
             {selectedBranch !== 'ALL' && (
               <button
                 type="button"
@@ -1336,11 +1502,8 @@ export function ReportsView({ userRole }) {
                         <th style={{ textAlign: 'left', padding: '10px 14px' }}>
                           {t('Item Name', 'பொருள் பெயர்')}
                         </th>
-                        <th style={{ width: 100, textAlign: 'center', padding: '10px 10px' }}>
-                          {t('Unit', 'அலகு')}
-                        </th>
-                        <th style={{ width: 140, textAlign: 'right', padding: '10px 16px' }}>
-                          {t('Current Stock', 'தற்போதைய இருப்பு')}
+                        <th style={{ width: 160, textAlign: 'right', padding: '10px 16px' }}>
+                          {t('Available Stock', 'தற்போதைய இருப்பு')}
                         </th>
                         <th style={{ width: 220, textAlign: 'left', padding: '10px 14px' }}>
                           {t('Last Updated', 'கடைசியாக புதுப்பிக்கப்பட்டது')}
@@ -1360,10 +1523,7 @@ export function ReportsView({ userRole }) {
                         <th style={{ textAlign: 'left', padding: '10px 14px' }}>
                           {t('Item Name', 'பொருள் பெயர்')}
                         </th>
-                        <th style={{ width: 90, textAlign: 'center', padding: '10px 10px' }}>
-                          {t('Unit', 'அலகு')}
-                        </th>
-                        <th style={{ width: 140, textAlign: 'right', padding: '10px 16px' }}>
+                        <th style={{ width: 160, textAlign: 'right', padding: '10px 16px' }}>
                           {t('Requested Quantity', 'கோரப்பட்ட அளவு')}
                         </th>
                         <th style={{ width: 120, textAlign: 'center', padding: '10px 10px' }}>
@@ -1387,10 +1547,7 @@ export function ReportsView({ userRole }) {
                         <th style={{ textAlign: 'left', padding: '10px 14px' }}>
                           {t('Item Name', 'பொருள் பெயர்')}
                         </th>
-                        <th style={{ width: 100, textAlign: 'center', padding: '10px 10px' }}>
-                          {t('Unit', 'அலகு')}
-                        </th>
-                        <th style={{ width: 150, textAlign: 'right', padding: '10px 16px' }}>
+                        <th style={{ width: 170, textAlign: 'right', padding: '10px 16px' }}>
                           {t('Dispatched Quantity', 'அனுப்பப்பட்ட அளவு')}
                         </th>
                         <th style={{ width: 130, textAlign: 'center', padding: '10px 10px' }}>
@@ -1412,10 +1569,10 @@ export function ReportsView({ userRole }) {
                           {t('Total Items', 'மொத்த பொருட்கள்')}
                         </th>
                         <th style={{ width: 200, textAlign: 'right', padding: '10px 16px' }}>
-                          {t('Branch Requested Quantity', 'கிளை கோரிய அளவு')}
+                          {t('Requested Quantity', 'கோரப்பட்ட அளவு')}
                         </th>
                         <th style={{ width: 200, textAlign: 'right', padding: '10px 16px' }}>
-                          {t('Store Dispatched Quantity', 'கிடங்கு அனுப்பிய அளவு')}
+                          {t('Dispatched Quantity', 'அனுப்பப்பட்ட அளவு')}
                         </th>
                         <th style={{ width: 180, textAlign: 'right', padding: '10px 16px' }}>
                           {t('Pending Quantity', 'நிலுவை அளவு')}
@@ -1432,23 +1589,20 @@ export function ReportsView({ userRole }) {
                         <th style={{ textAlign: 'left', padding: '10px 14px' }}>
                           {t('Item Name', 'பொருள் பெயர்')}
                         </th>
-                        <th style={{ width: 85, textAlign: 'center', padding: '10px 10px' }}>
-                          {t('Unit', 'அலகு')}
-                        </th>
                         <th style={{ width: 150, textAlign: 'left', padding: '10px 14px' }}>
                           {t('Branch Name', 'கிளை பெயர்')}
                         </th>
                         <th style={{ width: 130, textAlign: 'left', padding: '10px 14px' }}>
                           {t('Department', 'துறை')}
                         </th>
-                        <th style={{ width: 120, textAlign: 'right', padding: '10px 14px' }}>
-                          {t('Requested', 'கோரப்பட்டது')}
+                        <th style={{ width: 140, textAlign: 'right', padding: '10px 14px' }}>
+                          {t('Requested Quantity', 'கோரப்பட்ட அளவு')}
                         </th>
-                        <th style={{ width: 120, textAlign: 'right', padding: '10px 14px' }}>
-                          {t('Dispatched', 'அனுப்பப்பட்டது')}
+                        <th style={{ width: 140, textAlign: 'right', padding: '10px 14px' }}>
+                          {t('Dispatched Quantity', 'அனுப்பப்பட்ட அளவு')}
                         </th>
-                        <th style={{ width: 110, textAlign: 'right', padding: '10px 14px' }}>
-                          {t('Pending', 'நிலுவை')}
+                        <th style={{ width: 130, textAlign: 'right', padding: '10px 14px' }}>
+                          {t('Pending Quantity', 'நிலுவை அளவு')}
                         </th>
                         <th style={{ width: 110, textAlign: 'center', padding: '10px 10px' }}>
                           {t('Request Date', 'கோரிக்கை தேதி')}
@@ -1484,13 +1638,8 @@ export function ReportsView({ userRole }) {
                           <td style={{ padding: '10px 14px', fontWeight: 600, color: 'var(--primary-dark-green)' }}>
                             {translateItem(row.itemName)}
                           </td>
-                          <td style={{ textAlign: 'center', padding: '10px 10px' }}>
-                            <span style={{ background: '#F0EAD6', padding: '2px 8px', borderRadius: 4, fontSize: '12px', fontWeight: 600 }}>
-                              {translateUnit(row.unit)}
-                            </span>
-                          </td>
                           <td style={{ textAlign: 'right', padding: '10px 16px', fontWeight: 700, fontSize: '14px', color: row.currentStock < 0 ? '#B3261E' : 'var(--dark-text)' }}>
-                            {row.currentStock.toLocaleString()}
+                            {formatQuantityWithUnit(row.currentStock, row.unit, language === 'ta')}
                           </td>
                           <td style={{ padding: '10px 14px', color: 'var(--text-muted)', fontSize: '13px' }}>
                             {row.formattedLastUpdated}
@@ -1518,13 +1667,8 @@ export function ReportsView({ userRole }) {
                           <td style={{ padding: '10px 14px', fontWeight: 500 }}>
                             {translateItem(row.itemName)}
                           </td>
-                          <td style={{ textAlign: 'center', padding: '10px 10px' }}>
-                            <span style={{ background: '#F0EAD6', padding: '2px 8px', borderRadius: 4, fontSize: '12px', fontWeight: 600 }}>
-                              {translateUnit(row.unit)}
-                            </span>
-                          </td>
                           <td style={{ textAlign: 'right', padding: '10px 16px', fontWeight: 700, fontSize: '14px', color: 'var(--primary-dark-green)' }}>
-                            {row.requestedQuantity.toLocaleString()}
+                            {formatQuantityWithUnit(row.requestedQuantity, row.unit, language === 'ta')}
                           </td>
                           <td style={{ textAlign: 'center', padding: '10px 10px', color: 'var(--dark-text)', fontSize: '13px' }}>
                             {row.formattedDate}
@@ -1566,13 +1710,8 @@ export function ReportsView({ userRole }) {
                           <td style={{ padding: '10px 14px', fontWeight: 500 }}>
                             {translateItem(row.itemName)}
                           </td>
-                          <td style={{ textAlign: 'center', padding: '10px 10px' }}>
-                            <span style={{ background: '#F0EAD6', padding: '2px 8px', borderRadius: 4, fontSize: '12px', fontWeight: 600 }}>
-                              {translateUnit(row.unit)}
-                            </span>
-                          </td>
                           <td style={{ textAlign: 'right', padding: '10px 16px', fontWeight: 700, fontSize: '14px', color: 'var(--secondary-green)' }}>
-                            {row.dispatchedQuantity.toLocaleString()}
+                            {formatQuantityWithUnit(row.dispatchedQuantity, row.unit, language === 'ta')}
                           </td>
                           <td style={{ textAlign: 'center', padding: '10px 10px', color: 'var(--dark-text)', fontSize: '13px' }}>
                             {row.formattedDate}
@@ -1642,11 +1781,6 @@ export function ReportsView({ userRole }) {
                           <td style={{ padding: '10px 14px', fontWeight: 600, color: 'var(--primary-dark-green)' }}>
                             {translateItem(row.itemName)}
                           </td>
-                          <td style={{ textAlign: 'center', padding: '10px 10px' }}>
-                            <span style={{ background: '#F0EAD6', padding: '2px 8px', borderRadius: 4, fontSize: '12px', fontWeight: 600 }}>
-                              {translateUnit(row.unit)}
-                            </span>
-                          </td>
                           <td style={{ padding: '10px 14px', fontWeight: 500 }}>
                             {row.branchName}
                           </td>
@@ -1662,13 +1796,13 @@ export function ReportsView({ userRole }) {
                             )}
                           </td>
                           <td style={{ textAlign: 'right', padding: '10px 14px', fontWeight: 700, fontSize: '13.5px', color: 'var(--primary-dark-green)' }}>
-                            {(Number(row.requestedQuantity) || 0).toLocaleString()}
+                            {formatQuantityWithUnit(row.requestedQuantity, row.unit, language === 'ta')}
                           </td>
                           <td style={{ textAlign: 'right', padding: '10px 14px', fontWeight: 700, fontSize: '13.5px', color: 'var(--secondary-green)' }}>
-                            {(Number(row.dispatchedQuantity) || 0).toLocaleString()}
+                            {formatQuantityWithUnit(row.dispatchedQuantity, row.unit, language === 'ta')}
                           </td>
                           <td style={{ textAlign: 'right', padding: '10px 14px', fontWeight: 700, fontSize: '13.5px', color: (Number(row.pendingQuantity) || 0) > 0 ? '#C05621' : 'var(--text-muted)' }}>
-                            {(Number(row.pendingQuantity) || 0).toLocaleString()}
+                            {formatQuantityWithUnit(row.pendingQuantity, row.unit, language === 'ta')}
                           </td>
                           <td style={{ textAlign: 'center', padding: '10px 10px', color: 'var(--dark-text)', fontSize: '12.5px' }}>
                             {formatDisplayDateTime(row.requestDate, false)}
@@ -1794,26 +1928,23 @@ export function ReportsView({ userRole }) {
 
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 6, marginTop: 8, paddingTop: 8, borderTop: '1px dashed var(--border-color)', fontSize: '12px' }}>
                       <div>
-                        <span style={{ color: 'var(--text-muted)', fontSize: '11px' }}>{t('Unit', 'அலகு')}:</span><br />
-                        <b>{translateUnit(row.unit)}</b>
+                        <span style={{ color: 'var(--text-muted)', fontSize: '11px' }}>{t('Requested Quantity', 'கோரப்பட்டது')}:</span><br />
+                        <b style={{ color: 'var(--primary-dark-green)' }}>{formatQuantityWithUnit(row.requestedQuantity, row.unit, language === 'ta')}</b>
                       </div>
                       <div style={{ textAlign: 'center' }}>
-                        <span style={{ color: 'var(--text-muted)', fontSize: '11px' }}>{t('Requested', 'கோரப்பட்டது')}:</span><br />
-                        <b style={{ color: 'var(--primary-dark-green)' }}>{(Number(row.requestedQuantity) || 0).toLocaleString()}</b>
+                        <span style={{ color: 'var(--text-muted)', fontSize: '11px' }}>{t('Dispatched Quantity', 'அனுப்பப்பட்டது')}:</span><br />
+                        <b style={{ color: 'var(--secondary-green)' }}>{formatQuantityWithUnit(row.dispatchedQuantity, row.unit, language === 'ta')}</b>
                       </div>
                       <div style={{ textAlign: 'right' }}>
-                        <span style={{ color: 'var(--text-muted)', fontSize: '11px' }}>{t('Dispatched', 'அனுப்பப்பட்டது')}:</span><br />
-                        <b style={{ color: 'var(--secondary-green)' }}>{(Number(row.dispatchedQuantity) || 0).toLocaleString()}</b>
+                        <span style={{ color: 'var(--text-muted)', fontSize: '11px' }}>{t('Pending Quantity', 'நிலுவை')}:</span><br />
+                        <b style={{ color: (Number(row.pendingQuantity) || 0) > 0 ? '#C05621' : 'var(--text-muted)' }}>
+                          {formatQuantityWithUnit(row.pendingQuantity, row.unit, language === 'ta')}
+                        </b>
                       </div>
                     </div>
 
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 8, paddingTop: 6, borderTop: '1px dotted var(--border-color)', fontSize: '11.5px' }}>
-                      <div>
-                        <span style={{ color: 'var(--text-muted)' }}>{t('Pending', 'நிலுவை')}:</span>{' '}
-                        <b style={{ color: (Number(row.pendingQuantity) || 0) > 0 ? '#C05621' : 'var(--text-muted)' }}>
-                          {(Number(row.pendingQuantity) || 0).toLocaleString()}
-                        </b>
-                      </div>
+                      <div></div>
                       <div style={{ color: 'var(--text-muted)' }}>
                         {formatDisplayDateTime(row.requestDate, false)}
                       </div>
@@ -1884,44 +2015,38 @@ export function ReportsView({ userRole }) {
                 <div
                   style={{
                     display: 'grid',
-                    gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+                    gridTemplateColumns: '1fr',
                     gap: 8,
                     marginTop: 8,
                     paddingTop: 8,
                     borderTop: '1px dashed var(--border-color)',
-                    fontSize: '12.5px'
+                    fontSize: '13px'
                   }}
                 >
-                  {/* Unit */}
-                  <div>
-                    <span style={{ color: 'var(--text-muted)', fontSize: '11px' }}>{t('Unit', 'அலகு')}:</span>{' '}
-                    <b style={{ color: 'var(--dark-text)' }}>{translateUnit(row.unit)}</b>
-                  </div>
-
-                  {/* Quantity / Stock */}
+                  {/* Quantity / Stock with Combined Unit */}
                   {activeTab === 'inventory' && (
-                    <div style={{ textAlign: 'right' }}>
-                      <span style={{ color: 'var(--text-muted)', fontSize: '11px' }}>{t('Current Stock', 'தற்போதைய இருப்பு')}:</span>{' '}
-                      <b style={{ color: row.currentStock < 0 ? '#B3261E' : 'var(--primary-dark-green)', fontSize: '14px' }}>
-                        {row.currentStock.toLocaleString()}
+                    <div>
+                      <span style={{ color: 'var(--text-muted)', fontSize: '11.5px' }}>{t('Available Stock', 'தற்போதைய இருப்பு')}:</span>{' '}
+                      <b style={{ color: row.currentStock < 0 ? '#B3261E' : 'var(--primary-dark-green)', fontSize: '15px' }}>
+                        {formatQuantityWithUnit(row.currentStock, row.unit, language === 'ta')}
                       </b>
                     </div>
                   )}
 
                   {activeTab === 'requests' && (
-                    <div style={{ textAlign: 'right' }}>
-                      <span style={{ color: 'var(--text-muted)', fontSize: '11px' }}>{t('Requested Quantity', 'கோரப்பட்ட அளவு')}:</span>{' '}
-                      <b style={{ color: 'var(--primary-dark-green)', fontSize: '14px' }}>
-                        {row.requestedQuantity.toLocaleString()}
+                    <div>
+                      <span style={{ color: 'var(--text-muted)', fontSize: '11.5px' }}>{t('Requested Quantity', 'கோரப்பட்ட அளவு')}:</span>{' '}
+                      <b style={{ color: 'var(--primary-dark-green)', fontSize: '15px' }}>
+                        {formatQuantityWithUnit(row.requestedQuantity, row.unit, language === 'ta')}
                       </b>
                     </div>
                   )}
 
                   {activeTab === 'dispatches' && (
-                    <div style={{ textAlign: 'right' }}>
-                      <span style={{ color: 'var(--text-muted)', fontSize: '11px' }}>{t('Dispatched Quantity', 'அனுப்பப்பட்ட அளவு')}:</span>{' '}
-                      <b style={{ color: 'var(--secondary-green)', fontSize: '14px' }}>
-                        {row.dispatchedQuantity.toLocaleString()}
+                    <div>
+                      <span style={{ color: 'var(--text-muted)', fontSize: '11.5px' }}>{t('Dispatched Quantity', 'அனுப்பப்பட்ட அளவு')}:</span>{' '}
+                      <b style={{ color: 'var(--secondary-green)', fontSize: '15px' }}>
+                        {formatQuantityWithUnit(row.dispatchedQuantity, row.unit, language === 'ta')}
                       </b>
                     </div>
                   )}

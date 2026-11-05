@@ -536,9 +536,15 @@ export const api = {
     const qs = params.toString();
     return request(`/api/reports/summary${qs ? `?${qs}` : ''}`);
   },
-  getCentralInventoryReport: (search) => {
+  getCentralInventoryReport: (arg) => {
     const params = new URLSearchParams();
-    if (search) params.append('search', search);
+    if (typeof arg === 'string') {
+      if (arg) params.append('search', arg);
+    } else if (arg && typeof arg === 'object') {
+      if (arg.fromDate) params.append('fromDate', arg.fromDate);
+      if (arg.toDate) params.append('toDate', arg.toDate);
+      if (arg.search) params.append('search', arg.search);
+    }
     const qs = params.toString();
     return request(`/api/reports/central-inventory${qs ? `?${qs}` : ''}`);
   },

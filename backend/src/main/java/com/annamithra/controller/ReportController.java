@@ -42,11 +42,13 @@ public class ReportController {
 
     @GetMapping("/central-inventory")
     public List<CentralInventoryReportDto> getCentralInventoryReport(
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate fromDate,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate toDate,
             @RequestParam(required = false) String search,
             HttpServletRequest request) {
         UserSession user = security.requireRole(request, "Store Manager", "Organisation Admin");
         Long orgId = security.requireOrganisationId(user);
-        return reportService.getCentralInventoryReport(search, orgId);
+        return reportService.getCentralInventoryReport(fromDate, toDate, search, orgId);
     }
 
     @GetMapping("/purchase-orders")

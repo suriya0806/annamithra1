@@ -91,6 +91,10 @@ public class ReportService {
     }
 
     public List<CentralInventoryReportDto> getCentralInventoryReport(String search, Long orgId) {
+        return getCentralInventoryReport(null, null, search, orgId);
+    }
+
+    public List<CentralInventoryReportDto> getCentralInventoryReport(LocalDate fromDate, LocalDate toDate, String search, Long orgId) {
         List<Item> items = (orgId != null)
                 ? itemRepo.findByOrganisationIdOrderByNameAsc(orgId)
                 : itemRepo.findAllByOrderByNameAsc();
@@ -131,6 +135,36 @@ public class ReportService {
                     totalDispatched
             );
 
+            if (!txs.isEmpty() && txs.get(0).transactionDate != null) {
+                dto.lastUpdated = txs.get(0).transactionDate;
+            } else if (item.updatedAt != null) {
+                dto.lastUpdated = item.updatedAt;
+            } else {
+                dto.lastUpdated = item.createdAt;
+            }
+
+            // Filter by transaction / update date range if provided
+            if (fromDate != null || toDate != null) {
+                boolean hasActivityInRange = false;
+                for (InventoryTransaction t : txs) {
+                    if (t.transactionDate != null) {
+                        LocalDate td = t.transactionDate.toLocalDate();
+                        if ((fromDate == null || !td.isBefore(fromDate)) && (toDate == null || !td.isAfter(toDate))) {
+                            hasActivityInRange = true;
+                            break;
+                        }
+                    }
+                }
+                LocalDate updatedDate = item.updatedAt != null ? item.updatedAt.toLocalDate() : null;
+                boolean updatedInRange = updatedDate != null && (fromDate == null || !updatedDate.isBefore(fromDate)) && (toDate == null || !updatedDate.isAfter(toDate));
+                LocalDate createdDate = item.createdAt != null ? item.createdAt.toLocalDate() : null;
+                boolean createdInRange = createdDate != null && (fromDate == null || !createdDate.isBefore(fromDate)) && (toDate == null || !createdDate.isAfter(toDate));
+
+                if (!hasActivityInRange && !updatedInRange && !createdInRange) {
+                    continue;
+                }
+            }
+
             for (InventoryTransaction t : txs) {
                 dto.activity.add(new InventoryActivityDto(
                         t.id,
@@ -164,8 +198,8 @@ public class ReportService {
                     if (date != null) {
                         if (orderCreatedDate == null || !orderCreatedDate.equals(date)) return false;
                     } else {
-                        if (fromDate != null && orderCreatedDate != null && orderCreatedDate.isBefore(fromDate)) return false;
-                        if (toDate != null && orderCreatedDate != null && orderCreatedDate.isAfter(toDate)) return false;
+                        if (fromDate != null && (orderCreatedDate == null || orderCreatedDate.isBefore(fromDate))) return false;
+                        if (toDate != null && (orderCreatedDate == null || orderCreatedDate.isAfter(toDate))) return false;
                     }
                     if (status != null && !status.isBlank() && !"ALL".equalsIgnoreCase(status)) {
                         if (!status.equalsIgnoreCase(po.status)) return false;
@@ -220,8 +254,8 @@ public class ReportService {
                     if (date != null) {
                         if (txDate == null || !txDate.equals(date)) return false;
                     } else {
-                        if (fromDate != null && txDate != null && txDate.isBefore(fromDate)) return false;
-                        if (toDate != null && txDate != null && txDate.isAfter(toDate)) return false;
+                        if (fromDate != null && (txDate == null || txDate.isBefore(fromDate))) return false;
+                        if (toDate != null && (txDate == null || txDate.isAfter(toDate))) return false;
                     }
                     if (search != null && !search.isBlank()) {
                         String s = search.trim().toLowerCase();
@@ -268,8 +302,9 @@ public class ReportService {
 
         return requests.stream()
                 .filter(r -> {
-                    if (fromDate != null && r.requestDate != null && r.requestDate.isBefore(fromDate)) return false;
-                    if (toDate != null && r.requestDate != null && r.requestDate.isAfter(toDate)) return false;
+                    LocalDate rDate = r.requestDate != null ? r.requestDate : (r.createdAt != null ? r.createdAt.toLocalDate() : null);
+                    if (fromDate != null && (rDate == null || rDate.isBefore(fromDate))) return false;
+                    if (toDate != null && (rDate == null || rDate.isAfter(toDate))) return false;
                     if (branch != null && !branch.isBlank() && !"ALL".equalsIgnoreCase(branch)) {
                         if (!branch.equalsIgnoreCase(r.branch)) return false;
                     }
@@ -364,8 +399,8 @@ public class ReportService {
                     if (date != null) {
                         if (dt == null || !dt.equals(date)) return false;
                     } else {
-                        if (fromDate != null && dt != null && dt.isBefore(fromDate)) return false;
-                        if (toDate != null && dt != null && dt.isAfter(toDate)) return false;
+                        if (fromDate != null && (dt == null || dt.isBefore(fromDate))) return false;
+                        if (toDate != null && (dt == null || dt.isAfter(toDate))) return false;
                     }
                     if (branch != null && !branch.isBlank() && !"ALL".equalsIgnoreCase(branch)) {
                         if (!branch.equalsIgnoreCase(d.branchName)) return false;
@@ -491,8 +526,8 @@ public class ReportService {
             if (date != null) {
                 if (rDate == null || !rDate.equals(date)) continue;
             } else {
-                if (fromDate != null && rDate != null && rDate.isBefore(fromDate)) continue;
-                if (toDate != null && rDate != null && rDate.isAfter(toDate)) continue;
+                if (fromDate != null && (rDate == null || rDate.isBefore(fromDate))) continue;
+                if (toDate != null && (rDate == null || rDate.isAfter(toDate))) continue;
             }
 
             if (branch != null && !branch.isBlank() && !"ALL".equalsIgnoreCase(branch)) {

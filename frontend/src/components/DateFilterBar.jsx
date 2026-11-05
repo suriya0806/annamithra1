@@ -1,33 +1,93 @@
-import React from 'react';
-import { getTodayDateString, formatDateLabel } from '../utils/dateGrouping';
+import React, { useState } from 'react';
+import { getTodayDateString, formatDateLabel, toLocalDateString } from '../utils/dateGrouping';
 import { useLanguage } from '../i18n/LanguageContext';
 
 /**
- * Standard Date Filter Bar across Annamithra portals.
- * Supports:
- * - Specific single date selection (defaults to Today)
- * - "Today" quick button
- * - "All Dates" toggle (triggers date-grouped section rendering)
- * - Optional Date Range mode (from / to) for reports and history
+ * Helper to format date as DD/MM/YYYY
+ */
+function formatDDMMYYYY(dStr) {
+  if (!dStr) return '';
+  const clean = toLocalDateString(dStr);
+  if (!clean) return '';
+  const parts = clean.split('-');
+  if (parts.length === 3) {
+    return `${parts[2]}/${parts[1]}/${parts[0]}`;
+  }
+  return clean;
+}
+
+/**
+ * Standardized Date Filter Bar across Annamithra reports and portals.
+ * Strictly supports exactly two date filter modes:
+ * 1. Today
+ * 2. Custom Range (From Date – To Date) with Apply Filter button
+ * "All Dates" and single-date-only filters are removed.
  */
 export default function DateFilterBar({
   label,
   selectedDate,
   onDateChange,
-  isAllDates = false,
-  onToggleAllDates,
-  availableDates = [],
-  showRange = false,
   fromDate,
   toDate,
   onFromDateChange,
   onToDateChange,
+  onApplyRange,
   totalCount,
   extraControls
 }) {
   const { language, t } = useLanguage();
   const today = getTodayDateString();
   const displayLabel = label ? t(label) : t('Date Filter');
+
+  // Internal mode: 'today' | 'custom'
+  const isInitiallyCustom = Boolean((fromDate && fromDate !== today) || (toDate && toDate !== today));
+  const [mode, setMode] = useState(isInitiallyCustom ? 'custom' : 'today');
+
+  // Local state for Custom Range inputs
+  const [localFrom, setLocalFrom] = useState(fromDate || selectedDate || today);
+  const [localTo, setLocalTo] = useState(toDate || selectedDate || today);
+  const [appliedRange, setAppliedRange] = useState({
+    from: fromDate || (mode === 'today' ? today : localFrom),
+    to: toDate || (mode === 'today' ? today : localTo)
+  });
+  const [rangeError, setRangeError] = useState(null);
+
+  const handleSelectToday = () => {
+    setMode('today');
+    setRangeError(null);
+    setLocalFrom(today);
+    setLocalTo(today);
+    setAppliedRange({ from: today, to: today });
+    if (onFromDateChange) onFromDateChange(today);
+    if (onToDateChange) onToDateChange(today);
+    if (onDateChange) onDateChange(today);
+    if (onApplyRange) onApplyRange(today, today);
+  };
+
+  const handleSelectCustomMode = () => {
+    setMode('custom');
+  };
+
+  const handleApplyFilter = () => {
+    if (!localFrom || !localTo) {
+      setRangeError(language === 'ta'
+        ? 'தொடக்க தேதி மற்றும் முடிவு தேதி இரண்டையும் தேர்ந்தெடுக்கவும்.'
+        : 'Please select both From Date and To Date.');
+      return;
+    }
+    if (localFrom > localTo) {
+      setRangeError(language === 'ta'
+        ? 'தொடக்க தேதி முடிவு தேதியை விட பிந்தையதாக இருக்கக்கூடாது.'
+        : 'From Date cannot be later than To Date.');
+      return;
+    }
+    setRangeError(null);
+    setAppliedRange({ from: localFrom, to: localTo });
+    if (onFromDateChange) onFromDateChange(localFrom);
+    if (onToDateChange) onToDateChange(localTo);
+    if (onDateChange) onDateChange(localFrom);
+    if (onApplyRange) onApplyRange(localFrom, localTo);
+  };
 
   return (
     <div className="date-filter-bar" style={{
@@ -43,161 +103,142 @@ export default function DateFilterBar({
       marginBottom: '16px'
     }}>
       {/* Left side: Controls */}
-      <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '10px' }}>
-        <span style={{
-          fontWeight: '600',
-          color: 'var(--primary-dark-green, #003B2B)',
-          display: 'inline-flex',
-          alignItems: 'center',
-          gap: '6px',
-          fontSize: '13px'
-        }}>
-          📅 {displayLabel}:
-        </span>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+        <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '10px' }}>
+          <span style={{
+            fontWeight: '700',
+            color: 'var(--primary-dark-green, #003B2B)',
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '6px',
+            fontSize: '13px'
+          }}>
+            📅 {displayLabel}:
+          </span>
 
-        {showRange ? (
-          /* Range filter mode */
-          <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-            <label style={{ fontSize: '12px', color: 'var(--text-muted)' }}>{t('From:')}</label>
-            <input
-              type="date"
-              value={fromDate || ''}
-              onChange={(e) => onFromDateChange && onFromDateChange(e.target.value)}
-              className="date-input"
-              style={{
-                padding: '6px 10px',
-                border: '1px solid var(--border-color, #E5DDC9)',
-                borderRadius: '6px',
-                background: '#fff',
-                fontSize: '13px',
-                color: 'var(--dark-text)'
-              }}
-            />
-            <label style={{ fontSize: '12px', color: 'var(--text-muted)' }}>{t('To:')}</label>
-            <input
-              type="date"
-              value={toDate || ''}
-              onChange={(e) => onToDateChange && onToDateChange(e.target.value)}
-              className="date-input"
-              style={{
-                padding: '6px 10px',
-                border: '1px solid var(--border-color, #E5DDC9)',
-                borderRadius: '6px',
-                background: '#fff',
-                fontSize: '13px',
-                color: 'var(--dark-text)'
-              }}
-            />
+          {/* Mode Switcher: Exactly [ Today ] [ Custom Range ] */}
+          <div style={{
+            display: 'inline-flex',
+            borderRadius: '6px',
+            border: '1px solid var(--border-color, #E5DDC9)',
+            overflow: 'hidden'
+          }}>
             <button
               type="button"
-              className="btn btn-sm"
-              onClick={() => {
-                if (onFromDateChange) onFromDateChange(today);
-                if (onToDateChange) onToDateChange(today);
+              className={`btn btn-sm ${mode === 'today' ? 'primary' : ''}`}
+              onClick={handleSelectToday}
+              style={{
+                padding: '6px 14px',
+                fontSize: '12px',
+                borderRadius: 0,
+                border: 'none',
+                fontWeight: mode === 'today' ? 700 : 500
               }}
-              style={{ padding: '6px 12px', fontSize: '12px' }}
             >
-              {t('Today')}
+              {t('Today', 'இன்று')}
             </button>
             <button
               type="button"
-              className="btn btn-sm"
-              onClick={() => {
-                if (onFromDateChange) onFromDateChange('');
-                if (onToDateChange) onToDateChange('');
+              className={`btn btn-sm ${mode === 'custom' ? 'primary' : ''}`}
+              onClick={handleSelectCustomMode}
+              style={{
+                padding: '6px 14px',
+                fontSize: '12px',
+                borderRadius: 0,
+                border: 'none',
+                fontWeight: mode === 'custom' ? 700 : 500
               }}
-              style={{ padding: '6px 12px', fontSize: '12px' }}
             >
-              {t('Clear Range')}
+              {t('Custom Range', 'தனிப்பயன் வரம்பு')}
             </button>
           </div>
-        ) : (
-          /* Single Date / All Dates mode */
-          <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+
+          {/* Today Indicator */}
+          {mode === 'today' && (
+            <span style={{
+              fontSize: '12px',
+              fontWeight: '600',
+              background: 'var(--pale-green, #EBF4F0)',
+              color: 'var(--secondary-green, #07543D)',
+              border: '1px solid var(--pale-green-border, #C8DFD4)',
+              padding: '4px 10px',
+              borderRadius: '12px'
+            }}>
+              ✓ {language === 'ta' ? `இன்று (${formatDDMMYYYY(today)})` : `Today (${formatDDMMYYYY(today)})`}
+            </span>
+          )}
+
+          {extraControls}
+        </div>
+
+        {/* Custom Range: From Date, To Date & Apply Filter */}
+        {mode === 'custom' && (
+          <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', marginTop: '2px' }}>
+            <label style={{ fontSize: '12px', fontWeight: '600', color: 'var(--text-muted)' }}>
+              {t('From Date', 'தொடக்க தேதி')}:
+            </label>
             <input
               type="date"
-              value={isAllDates ? '' : (selectedDate || '')}
-              disabled={isAllDates}
+              value={localFrom || ''}
+              max={localTo || undefined}
               onChange={(e) => {
-                if (onToggleAllDates && isAllDates) onToggleAllDates(false);
-                if (onDateChange) onDateChange(e.target.value);
+                setLocalFrom(e.target.value);
+                if (rangeError) setRangeError(null);
               }}
               className="date-input"
               style={{
-                padding: '6px 10px',
-                border: '1px solid var(--border-color, #E5DDC9)',
+                padding: '5px 8px',
+                border: rangeError ? '1.5px solid #B3261E' : '1px solid var(--border-color, #E5DDC9)',
                 borderRadius: '6px',
-                background: isAllDates ? '#f0ede6' : '#fff',
+                background: '#fff',
                 fontSize: '13px',
-                color: 'var(--dark-text)',
-                cursor: isAllDates ? 'not-allowed' : 'text'
+                color: 'var(--dark-text)'
               }}
             />
-
+            <label style={{ fontSize: '12px', fontWeight: '600', color: 'var(--text-muted)' }}>
+              {t('To Date', 'முடிவு தேதி')}:
+            </label>
+            <input
+              type="date"
+              value={localTo || ''}
+              min={localFrom || undefined}
+              onChange={(e) => {
+                setLocalTo(e.target.value);
+                if (rangeError) setRangeError(null);
+              }}
+              className="date-input"
+              style={{
+                padding: '5px 8px',
+                border: rangeError ? '1.5px solid #B3261E' : '1px solid var(--border-color, #E5DDC9)',
+                borderRadius: '6px',
+                background: '#fff',
+                fontSize: '13px',
+                color: 'var(--dark-text)'
+              }}
+            />
             <button
               type="button"
-              className={`btn btn-sm ${!isAllDates && selectedDate === today ? 'primary' : ''}`}
-              onClick={() => {
-                if (onToggleAllDates) onToggleAllDates(false);
-                if (onDateChange) onDateChange(today);
-              }}
-              style={{ padding: '6px 12px', fontSize: '12px' }}
+              className="btn btn-sm primary"
+              onClick={handleApplyFilter}
+              style={{ padding: '6px 14px', fontSize: '12px', fontWeight: 700 }}
             >
-              {t('Today')}
+              {t('Apply Filter', 'வடிகட்டியைப் பயன்படுத்து')}
             </button>
 
-            {onToggleAllDates && (
-              <button
-                type="button"
-                className={`btn btn-sm ${isAllDates ? 'primary' : ''}`}
-                onClick={() => onToggleAllDates(!isAllDates)}
-                style={{
-                  padding: '6px 12px',
-                  fontSize: '12px',
-                  borderColor: isAllDates ? 'var(--primary-dark-green)' : 'var(--border-color)'
-                }}
-              >
-                {isAllDates ? t('✓ All Dates (Grouped)') : t('All Dates')}
-              </button>
-            )}
-
-            {availableDates && availableDates.length > 0 && (
-              <select
-                value={isAllDates ? 'ALL' : (selectedDate || '')}
-                onChange={(e) => {
-                  const val = e.target.value;
-                  if (val === 'ALL') {
-                    if (onToggleAllDates) onToggleAllDates(true);
-                  } else {
-                    if (onToggleAllDates && isAllDates) onToggleAllDates(false);
-                    if (onDateChange) onDateChange(val);
-                  }
-                }}
-                className="date-select"
-                style={{
-                  padding: '6px 10px',
-                  border: '1px solid var(--border-color, #E5DDC9)',
-                  borderRadius: '6px',
-                  background: '#fff',
-                  fontSize: '13px',
-                  color: 'var(--dark-text)',
-                  cursor: 'pointer'
-                }}
-                title={t('Select Previous Date')}
-              >
-                <option value="" disabled>{t('Quick Dates')}</option>
-                <option value="ALL">{t('All Dates')}</option>
-                {availableDates.map(d => (
-                  <option key={d} value={d}>
-                    {d === today ? `📅 ${t('Today')} (${d})` : `📅 ${formatDateLabel(d, language)}`}
-                  </option>
-                ))}
-              </select>
+            {appliedRange.from && appliedRange.to && (
+              <span style={{ fontSize: '12px', fontWeight: '600', color: 'var(--primary-dark-green)' }}>
+                ({formatDDMMYYYY(appliedRange.from)} – {formatDDMMYYYY(appliedRange.to)})
+              </span>
             )}
           </div>
         )}
 
-        {extraControls}
+        {/* Validation Error */}
+        {rangeError && (
+          <div style={{ color: '#B3261E', fontSize: '12px', fontWeight: '600', marginTop: '2px' }}>
+            ⚠️ {rangeError}
+          </div>
+        )}
       </div>
 
       {/* Right side: Status indicator / record counter */}
@@ -207,13 +248,9 @@ export default function DateFilterBar({
           color: 'var(--text-muted, #4A6B5F)',
           fontWeight: '500'
         }}>
-          {isAllDates
-            ? t('Displaying all historical dates (newest first)')
-            : selectedDate
-              ? `${t('Filtered')}: ${formatDateLabel(selectedDate, language)}`
-              : (fromDate || toDate)
-                ? `${t('Date Range')}: ${fromDate || t('Any')} ${t('To')} ${toDate || t('Any')}`
-                : t('All Dates')}
+          {mode === 'today'
+            ? `${t('Filtered')}: ${formatDDMMYYYY(today)}`
+            : `${t('Date Range')}: ${formatDDMMYYYY(appliedRange.from)} – ${formatDDMMYYYY(appliedRange.to)}`}
         </span>
         {typeof totalCount === 'number' && (
           <span style={{
@@ -283,7 +320,7 @@ export function DateSectionHeader({ label, count, date }) {
 /**
  * Empty date message component
  */
-export function EmptyDateMessage({ date, message, onResetToday, onShowAll }) {
+export function EmptyDateMessage({ date, message, onResetToday, onSelectCustomRange }) {
   const { language, t } = useLanguage();
   const dateText = date ? formatDateLabel(date, language) : (language === 'ta' ? 'தேர்ந்தெடுக்கப்பட்ட தேதி' : 'the selected date');
   return (
@@ -302,13 +339,13 @@ export function EmptyDateMessage({ date, message, onResetToday, onShowAll }) {
       </p>
       <div style={{ display: 'inline-flex', gap: '10px' }}>
         {onResetToday && (
-          <button type="button" className="btn btn-sm" onClick={onResetToday}>
-            {t('View Today')}
+          <button type="button" className="btn btn-sm primary" onClick={onResetToday}>
+            {t('Today', 'இன்று')}
           </button>
         )}
-        {onShowAll && (
-          <button type="button" className="btn btn-sm primary" onClick={onShowAll}>
-            {t('View All Historical Dates')}
+        {onSelectCustomRange && (
+          <button type="button" className="btn btn-sm" onClick={onSelectCustomRange}>
+            {t('Custom Range', 'தனிப்பயன் வரம்பு')}
           </button>
         )}
       </div>

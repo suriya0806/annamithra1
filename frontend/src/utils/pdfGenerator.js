@@ -1,3 +1,4 @@
+import { formatQuantityWithUnit, formatUnitSummary, cleanUnitName } from './quantityFormatter.js';
 import { jsPDF } from 'jspdf';
 import html2canvas from 'html2canvas';
 import { itemTranslations, unitTranslations, statusTranslations, categoryTranslations } from '../i18n/translations';
@@ -152,7 +153,7 @@ async function generateOrderHtmlPdf({ orderNumber, items, formatType, orderDate,
       if (pageItems.length === 0) {
         itemsRowsHtml = `
           <tr>
-            <td colspan="${isOrgAdmin ? 2 : 3}" style="padding: 24px 14px; text-align: center; color: #5A6962; font-style: italic; border: 1px solid #E5DDC9; font-size: 14px;">
+            <td colspan="2" style="padding: 24px 14px; text-align: center; color: #5A6962; font-style: italic; border: 1px solid #E5DDC9; font-size: 14px;">
               ${isTa ? 'இந்த ஆர்டரில் எந்தப் பொருட்களும் இல்லை.' : 'No items found in this order.'}
             </td>
           </tr>
@@ -162,36 +163,19 @@ async function generateOrderHtmlPdf({ orderNumber, items, formatType, orderDate,
           const rawName = String(line.itemName || line.item || '').trim();
           const translatedName = isTa ? translateItemName(rawName) : rawName;
           const rawUnit = String(line.unit || '').trim();
-          const translatedUnit = isTa ? translateUnitName(rawUnit) : rawUnit;
           const rawQty = line.quantity ?? line.orderQuantity ?? 0;
+          const combinedQty = formatQuantityWithUnit(rawQty, rawUnit, isTa);
 
-          if (isOrgAdmin) {
-            const qtyText = rawUnit ? `${rawQty} ${translatedUnit}` : `${rawQty}`;
-            itemsRowsHtml += `
-              <tr style="border-bottom: 1px solid #E5DDC9;">
-                <td style="padding: 11px 14px; border: 1px solid #E5DDC9; font-weight: 600; color: #17352B; font-size: 14.5px;">
-                  ${translatedName}
-                </td>
-                <td style="padding: 11px 14px; border: 1px solid #E5DDC9; text-align: right; font-weight: 700; color: #003B2B; font-size: 15px;">
-                  ${qtyText}
-                </td>
-              </tr>
-            `;
-          } else {
-            itemsRowsHtml += `
-              <tr style="border-bottom: 1px solid #E5DDC9;">
-                <td style="padding: 11px 14px; border: 1px solid #E5DDC9; font-weight: 600; color: #17352B; font-size: 14.5px;">
-                  ${translatedName}
-                </td>
-                <td style="padding: 11px 14px; border: 1px solid #E5DDC9; text-align: center; color: #5A6962; font-size: 14px; font-weight: 500;">
-                  ${translatedUnit || '—'}
-                </td>
-                <td style="padding: 11px 14px; border: 1px solid #E5DDC9; text-align: right; font-weight: 700; color: #003B2B; font-size: 15px;">
-                  ${rawQty}
-                </td>
-              </tr>
-            `;
-          }
+          itemsRowsHtml += `
+            <tr style="border-bottom: 1px solid #E5DDC9;">
+              <td style="padding: 11px 14px; border: 1px solid #E5DDC9; font-weight: 600; color: #17352B; font-size: 14.5px;">
+                ${translatedName}
+              </td>
+              <td style="padding: 11px 14px; border: 1px solid #E5DDC9; text-align: right; font-weight: 700; color: #003B2B; font-size: 15px;">
+                ${combinedQty}
+              </td>
+            </tr>
+          `;
         });
       }
 
@@ -240,16 +224,11 @@ async function generateOrderHtmlPdf({ orderNumber, items, formatType, orderDate,
         <table style="width: 100%; border-collapse: collapse; margin-bottom: 16px;">
           <thead>
             <tr style="background: #F5EFE0; border: 1px solid #E5DDC9;">
-              <th style="padding: 11px 14px; text-align: left; font-size: 15.5px; font-weight: 700; color: #003B2B; border: 1px solid #E5DDC9; width: ${isOrgAdmin ? '70%' : '54%'};">
+              <th style="padding: 11px 14px; text-align: left; font-size: 15.5px; font-weight: 700; color: #003B2B; border: 1px solid #E5DDC9; width: 68%;">
                 ${isTa ? 'பொருளின் பெயர்' : 'Item Name'}
               </th>
-              ${!isOrgAdmin ? `
-                <th style="padding: 11px 14px; text-align: center; font-size: 15px; font-weight: 700; color: #003B2B; border: 1px solid #E5DDC9; width: 22%;">
-                  ${isTa ? 'அலகு' : 'Unit'}
-                </th>
-              ` : ''}
-              <th style="padding: 11px 14px; text-align: right; font-size: 15.5px; font-weight: 700; color: #003B2B; border: 1px solid #E5DDC9; width: ${isOrgAdmin ? '30%' : '24%'};">
-                ${isOrgAdmin ? (isTa ? 'அளவு' : 'Quantity') : (isTa ? 'ஆர்டர் அளவு' : 'Ordered Quantity')}
+              <th style="padding: 11px 14px; text-align: right; font-size: 15.5px; font-weight: 700; color: #003B2B; border: 1px solid #E5DDC9; width: 32%;">
+                ${isTa ? 'ஆர்டர் அளவு' : 'Ordered Quantity'}
               </th>
             </tr>
           </thead>
@@ -1000,8 +979,14 @@ export async function downloadBranchOrderListPdf({
   const displayDate = date || new Date().toISOString().split('T')[0];
   const safeItems = Array.isArray(items) ? items : [];
 
-  const totalQuantity = Math.round(safeItems.reduce((acc, it) => acc + (Number(it.requestedQuantity ?? it.quantity) || 0), 0) * 1000) / 1000;
   const totalItemCount = safeItems.length;
+  const orderListUnitTotals = {};
+  safeItems.forEach(it => {
+    const u = it.unit || 'KG';
+    const q = Number(it.requestedQuantity ?? it.quantity) || 0;
+    orderListUnitTotals[u] = (orderListUnitTotals[u] || 0) + q;
+  });
+  const summaryTotalQuantityStr = formatUnitSummary(orderListUnitTotals, isTa);
 
   // Generate current timestamp for report
   const now = new Date();
@@ -1197,7 +1182,7 @@ export async function downloadBranchOrderListPdf({
       if (pageInfo.items.length === 0) {
         rowsHtml = `
           <tr>
-            <td colspan="5" style="padding: 24px 14px; text-align: center; color: #5A6962; font-style: italic; border: 1px solid #E5DDC9; background: #ffffff;">
+            <td colspan="4" style="padding: 24px 14px; text-align: center; color: #5A6962; font-style: italic; border: 1px solid #E5DDC9; background: #ffffff;">
               ${isTa ? 'கோரிக்கை பட்டியலில் பொருட்கள் எதுவும் இல்லை.' : 'No items in the order list.'}
             </td>
           </tr>
@@ -1227,11 +1212,8 @@ export async function downloadBranchOrderListPdf({
                   ${rawDepartment}
                 </span>
               </td>
-              <td style="padding: 8px 10px; text-align: center; border: 1px solid #E5DDC9; color: #5A6962; font-size: 14px; font-weight: 600; width: 85px;">
-                ${translatedUnit}
-              </td>
-              <td style="padding: 8px 14px; text-align: right; border: 1px solid #E5DDC9; font-weight: 700; color: #003B2B; font-size: 15px; width: 120px;">
-                ${qty}
+              <td style="padding: 8px 14px; text-align: right; border: 1px solid #E5DDC9; font-weight: 700; color: #003B2B; font-size: 15px; width: 150px;">
+                ${formatQuantityWithUnit(qty, rawUnit, isTa)}
               </td>
             </tr>
           `;
@@ -1250,14 +1232,11 @@ export async function downloadBranchOrderListPdf({
                 <th style="padding: 10px 12px; text-align: left; font-size: 15px; font-weight: 700; border: 1px solid #003B2B;">
                   ${isTa ? 'பொருளின் பெயர் (Item Name)' : 'Item Name'}
                 </th>
-                <th style="padding: 10px 12px; text-align: left; font-size: 14.5px; font-weight: 700; border: 1px solid #003B2B; width: 140px;">
+                <th style="padding: 10px 12px; text-align: left; font-size: 14.5px; font-weight: 700; border: 1px solid #003B2B; width: 160px;">
                   ${isTa ? 'துறை (Department)' : 'Department'}
                 </th>
-                <th style="padding: 10px 10px; text-align: center; font-size: 14.5px; font-weight: 700; border: 1px solid #003B2B; width: 85px;">
-                  ${isTa ? 'அலகு (Unit)' : 'Unit'}
-                </th>
-                <th style="padding: 10px 14px; text-align: right; font-size: 15px; font-weight: 700; border: 1px solid #003B2B; width: 120px;">
-                  ${isTa ? 'கோரப்பட்ட அளவு (Quantity)' : 'Requested Quantity'}
+                <th style="padding: 10px 14px; text-align: right; font-size: 15px; font-weight: 700; border: 1px solid #003B2B; width: 150px;">
+                  ${isTa ? 'கோரப்பட்ட அளவு (Requested Quantity)' : 'Requested Quantity'}
                 </th>
               </tr>
             </thead>
@@ -1267,11 +1246,11 @@ export async function downloadBranchOrderListPdf({
             ${pageInfo.isLastPage && safeItems.length > 0 ? `
               <tfoot>
                 <tr style="background: #F5EFE0; border: 2px solid #D4A63B; font-weight: 800; color: #003B2B;">
-                  <td colspan="4" style="padding: 10px 14px; text-align: right; font-size: 15.5px; border: 1px solid #E5DDC9;">
+                  <td colspan="3" style="padding: 10px 14px; text-align: right; font-size: 15.5px; border: 1px solid #E5DDC9;">
                     ${isTa ? ('மொத்தம் (' + totalItemCount + ' பொருட்கள்):') : ('Grand Total (' + totalItemCount + ' Items):')}
                   </td>
                   <td style="padding: 10px 14px; text-align: right; font-size: 16px; font-weight: 800; color: #003B2B; border: 1px solid #E5DDC9;">
-                    ${totalQuantity}
+                    ${summaryTotalQuantityStr}
                   </td>
                 </tr>
               </tfoot>
@@ -1340,10 +1319,19 @@ export async function downloadBranchRecentRequestsPdf({
   const displayDate = date || new Date().toISOString().split('T')[0];
   const safeRecentRequests = Array.isArray(recentRequests) ? recentRequests : [];
 
-  const totalBReq = Math.round(safeRecentRequests.reduce((acc, r) => acc + (Number(r.requested) || 0), 0) * 1000) / 1000;
-  const totalBDisp = Math.round(safeRecentRequests.reduce((acc, r) => acc + (Number(r.dispatched) || 0), 0) * 1000) / 1000;
-  const totalBRec = Math.round(safeRecentRequests.reduce((acc, r) => acc + (Number(r.received) || 0), 0) * 1000) / 1000;
   const totalCount = safeRecentRequests.length;
+  const recentReqUnitTotals = {};
+  const recentDispUnitTotals = {};
+  const recentRecUnitTotals = {};
+  safeRecentRequests.forEach(r => {
+    const u = r.unit || 'KG';
+    recentReqUnitTotals[u] = (recentReqUnitTotals[u] || 0) + (Number(r.requested) || 0);
+    recentDispUnitTotals[u] = (recentDispUnitTotals[u] || 0) + (Number(r.dispatched) || 0);
+    recentRecUnitTotals[u] = (recentRecUnitTotals[u] || 0) + (Number(r.received) || 0);
+  });
+  const totalReqSummary = formatUnitSummary(recentReqUnitTotals, isTa);
+  const totalDispSummary = formatUnitSummary(recentDispUnitTotals, isTa);
+  const totalRecSummary = formatUnitSummary(recentRecUnitTotals, isTa);
 
   // Formatting helpers
   const formatDateTimeStr = (dtStr) => {
@@ -1566,7 +1554,7 @@ export async function downloadBranchRecentRequestsPdf({
       if (pageInfo.items.length === 0) {
         rowsHtml = `
           <tr>
-            <td colspan="9" style="padding: 24px 14px; text-align: center; color: #5A6962; font-style: italic; border: 1px solid #E5DDC9; background: #ffffff;">
+            <td colspan="8" style="padding: 24px 14px; text-align: center; color: #5A6962; font-style: italic; border: 1px solid #E5DDC9; background: #ffffff;">
               ${isTa ? 'தேர்ந்தெடுக்கப்பட்ட வடிகட்டிக்கு சமீபத்திய கோரிக்கைகள் எதுவும் இல்லை.' : 'No recent requests found for the selected filter.'}
             </td>
           </tr>
@@ -1603,17 +1591,14 @@ export async function downloadBranchRecentRequestsPdf({
                   ${rawDept}
                 </span>
               </td>
-              <td style="padding: 7px 6px; text-align: center; border: 1px solid #E5DDC9; color: #5A6962; font-size: 12.5px; font-weight: 600; width: 55px;">
-                ${translatedUnit}
+              <td style="padding: 7px 8px; text-align: right; border: 1px solid #E5DDC9; font-weight: 700; color: #003B2B; font-size: 13.5px; width: 90px;">
+                ${formatQuantityWithUnit(reqQty, rawUnit, isTa)}
               </td>
-              <td style="padding: 7px 8px; text-align: right; border: 1px solid #E5DDC9; font-weight: 700; color: #003B2B; font-size: 13.5px; width: 68px;">
-                ${reqQty}
+              <td style="padding: 7px 8px; text-align: right; border: 1px solid #E5DDC9; font-weight: 700; color: #8c671b; font-size: 13.5px; width: 90px;">
+                ${formatQuantityWithUnit(dispQty, rawUnit, isTa)}
               </td>
-              <td style="padding: 7px 8px; text-align: right; border: 1px solid #E5DDC9; font-weight: 700; color: #8c671b; font-size: 13.5px; width: 68px;">
-                ${dispQty}
-              </td>
-              <td style="padding: 7px 8px; text-align: right; border: 1px solid #E5DDC9; font-weight: 700; color: #003B2B; font-size: 13.5px; width: 68px;">
-                ${recQty}
+              <td style="padding: 7px 8px; text-align: right; border: 1px solid #E5DDC9; font-weight: 700; color: #003B2B; font-size: 13.5px; width: 95px;">
+                ${formatQuantityWithUnit(recQty, rawUnit, isTa)}
               </td>
               <td style="padding: 7px 8px; text-align: center; border: 1px solid #E5DDC9; width: 100px;">
                 <span style="display: inline-block; padding: 2px 7px; border-radius: 4px; font-size: 11px; font-weight: 700; ${badgeStyle}">
@@ -1643,17 +1628,14 @@ export async function downloadBranchRecentRequestsPdf({
                 <th style="padding: 9px 8px; text-align: left; font-size: 13px; font-weight: 700; border: 1px solid #003B2B; width: 95px;">
                   ${isTa ? 'துறை' : 'Department'}
                 </th>
-                <th style="padding: 9px 6px; text-align: center; font-size: 13px; font-weight: 700; border: 1px solid #003B2B; width: 55px;">
-                  ${isTa ? 'அலகு' : 'Unit'}
+                <th style="padding: 9px 8px; text-align: right; font-size: 13px; font-weight: 700; border: 1px solid #003B2B; width: 90px;">
+                  ${isTa ? 'கோரப்பட்ட அளவு' : 'Requested Quantity'}
                 </th>
-                <th style="padding: 9px 8px; text-align: right; font-size: 13px; font-weight: 700; border: 1px solid #003B2B; width: 68px;">
-                  ${isTa ? 'கோரியது' : 'Requested'}
+                <th style="padding: 9px 8px; text-align: right; font-size: 13px; font-weight: 700; border: 1px solid #003B2B; width: 90px;">
+                  ${isTa ? 'அனுப்பப்பட்ட அளவு' : 'Dispatched Quantity'}
                 </th>
-                <th style="padding: 9px 8px; text-align: right; font-size: 13px; font-weight: 700; border: 1px solid #003B2B; width: 68px;">
-                  ${isTa ? 'அனுப்பியது' : 'Dispatched'}
-                </th>
-                <th style="padding: 9px 8px; text-align: right; font-size: 13px; font-weight: 700; border: 1px solid #003B2B; width: 68px;">
-                  ${isTa ? 'பெற்றது' : 'Received'}
+                <th style="padding: 9px 8px; text-align: right; font-size: 13px; font-weight: 700; border: 1px solid #003B2B; width: 95px;">
+                  ${isTa ? 'பெறப்பட்ட அளவு' : 'Received Quantity'}
                 </th>
                 <th style="padding: 9px 8px; text-align: center; font-size: 13px; font-weight: 700; border: 1px solid #003B2B; width: 100px;">
                   ${isTa ? 'நிலை (Status)' : 'Status'}
@@ -1666,17 +1648,17 @@ export async function downloadBranchRecentRequestsPdf({
             ${pageInfo.isLastPage && safeRecentRequests.length > 0 ? `
               <tfoot>
                 <tr style="background: #F5EFE0; border: 2px solid #D4A63B; font-weight: 800; color: #003B2B;">
-                  <td colspan="5" style="padding: 9px 10px; text-align: right; font-size: 14px; border: 1px solid #E5DDC9;">
+                  <td colspan="4" style="padding: 9px 10px; text-align: right; font-size: 13.5px; border: 1px solid #E5DDC9;">
                     ${isTa ? ('மொத்தம் (' + totalCount + ' பதிவுகள்):') : ('Total (' + totalCount + ' Records):')}
                   </td>
-                  <td style="padding: 9px 8px; text-align: right; font-size: 14px; font-weight: 800; color: #003B2B; border: 1px solid #E5DDC9;">
-                    ${totalBReq}
+                  <td style="padding: 9px 8px; text-align: right; font-size: 13px; font-weight: 800; color: #003B2B; border: 1px solid #E5DDC9;">
+                    ${totalReqSummary}
                   </td>
-                  <td style="padding: 9px 8px; text-align: right; font-size: 14px; font-weight: 800; color: #8c671b; border: 1px solid #E5DDC9;">
-                    ${totalBDisp}
+                  <td style="padding: 9px 8px; text-align: right; font-size: 13px; font-weight: 800; color: #8c671b; border: 1px solid #E5DDC9;">
+                    ${totalDispSummary}
                   </td>
-                  <td style="padding: 9px 8px; text-align: right; font-size: 14px; font-weight: 800; color: #003B2B; border: 1px solid #E5DDC9;">
-                    ${totalBRec}
+                  <td style="padding: 9px 8px; text-align: right; font-size: 13px; font-weight: 800; color: #003B2B; border: 1px solid #E5DDC9;">
+                    ${totalRecSummary}
                   </td>
                   <td style="padding: 9px 8px; border: 1px solid #E5DDC9;"></td>
                 </tr>
@@ -1714,8 +1696,8 @@ export async function downloadBranchRecentRequestsPdf({
     }
 
     const cleanBranch = String(branchName || 'Branch').replace(/[^a-zA-Z0-9_-]/g, '_');
-    const cleanDate = String(displayDate).replace(/[^0-9-]/g, '');
-    const fileName = `${cleanBranch}_Recent_Requests_${cleanDate}.pdf`;
+    const rangeSuffix = dateFilterLabel ? String(dateFilterLabel).replace(/[^a-zA-Z0-9_-]/g, '_') : String(displayDate).replace(/[^0-9-]/g, '');
+    const fileName = `${cleanBranch}_Recent_Requests_${rangeSuffix}.pdf`;
     pdf.save(fileName);
     return true;
   } finally {
@@ -1895,11 +1877,16 @@ async function renderHtmlPagesToPdf({ pages, filename, orientation = 'portrait' 
  * 1. Simple Inventory Report PDF
  * Columns: Item Name, Unit, Current Stock, Last Updated Date
  */
-export async function downloadSimpleInventoryPdf({ items = [], dateLabel = 'All Dates' } = {}) {
+export async function downloadSimpleInventoryPdf({ items = [], dateLabel = 'Today', filename } = {}) {
   const ITEMS_PER_PAGE = 14;
   const totalPages = Math.max(1, Math.ceil(items.length / ITEMS_PER_PAGE));
-  const totalStock = items.reduce((sum, it) => sum + (Number(it.currentStock) || 0), 0);
-  const subtitle = `Total Items: ${items.length}   |   Total Central Stock: ${totalStock.toLocaleString()}`;
+  const invStockUnitTotals = {};
+  items.forEach(it => {
+    const u = it.unit || 'KG';
+    invStockUnitTotals[u] = (invStockUnitTotals[u] || 0) + (Number(it.currentStock) || 0);
+  });
+  const summaryStockStr = formatUnitSummary(invStockUnitTotals, false);
+  const subtitle = `Total Items: ${items.length}   |   Total Central Stock: ${summaryStockStr}`;
 
   const pages = [];
 
@@ -1922,7 +1909,7 @@ export async function downloadSimpleInventoryPdf({ items = [], dateLabel = 'All 
     if (items.length === 0) {
       tableRowsHtml = `
         <tr>
-          <td colspan="5" style="padding: 24px 14px; text-align: center; color: #5A6962; font-style: italic; border: 1px solid #E5DDC9; font-size: 14px;">
+          <td colspan="4" style="padding: 24px 14px; text-align: center; color: #5A6962; font-style: italic; border: 1px solid #E5DDC9; font-size: 14px;">
             No inventory records found matching the selected filter criteria.
           </td>
         </tr>
@@ -1944,11 +1931,8 @@ export async function downloadSimpleInventoryPdf({ items = [], dateLabel = 'All 
             <td style="padding: 9px 12px; border: 1px solid #E5DDC9; font-weight: 600; color: #17352B; font-size: 14.5px; word-break: break-word;">
               ${itemDisplay}
             </td>
-            <td style="padding: 9px 10px; text-align: center; border: 1px solid #E5DDC9; font-size: 14px; font-weight: 500; color: #5A6962; width: 85px;">
-              ${unitDisplay}
-            </td>
-            <td style="padding: 9px 14px; text-align: right; border: 1px solid #E5DDC9; font-weight: 600; color: #003B2B; font-size: 15px; width: 130px;">
-              ${stockVal.toLocaleString()}
+            <td style="padding: 9px 14px; text-align: right; border: 1px solid #E5DDC9; font-weight: 700; color: #003B2B; font-size: 15px; width: 160px;">
+              ${formatQuantityWithUnit(stockVal, unitDisplay)}
             </td>
             <td style="padding: 9px 12px; text-align: center; border: 1px solid #E5DDC9; font-size: 13.5px; font-weight: 500; color: #5A6962; width: 145px;">
               ${dateDisplay}
@@ -1961,11 +1945,11 @@ export async function downloadSimpleInventoryPdf({ items = [], dateLabel = 'All 
     const summaryFooterHtml = isLastPage && items.length > 0 ? `
       <tfoot>
         <tr style="background: #F5EFE0; border: 1.5px solid #D4A63B; font-weight: 700; color: #003B2B;">
-          <td colspan="3" style="padding: 10px 14px; border: 1px solid #E5DDC9; font-size: 16px; font-weight: 700;">
+          <td colspan="2" style="padding: 10px 14px; border: 1px solid #E5DDC9; font-size: 16px; font-weight: 700;">
             Total Items: ${items.length}
           </td>
-          <td style="padding: 10px 14px; text-align: right; border: 1px solid #E5DDC9; font-size: 16.5px; font-weight: 800; color: #003B2B;">
-            ${totalStock.toLocaleString()}
+          <td style="padding: 10px 14px; text-align: right; border: 1px solid #E5DDC9; font-size: 16px; font-weight: 800; color: #003B2B;">
+            ${summaryStockStr}
           </td>
           <td style="padding: 10px 12px; text-align: center; border: 1px solid #E5DDC9; font-size: 14px; font-weight: 600; color: #5A6962;">
             Central Stock Total
@@ -1982,9 +1966,8 @@ export async function downloadSimpleInventoryPdf({ items = [], dateLabel = 'All 
             <tr style="background: #F5EFE0; border: 1px solid #E5DDC9;">
               <th style="padding: 11px 10px; text-align: center; font-size: 15px; font-weight: 700; color: #003B2B; border: 1px solid #E5DDC9; width: 42px;">#</th>
               <th style="padding: 11px 12px; text-align: left; font-size: 15.5px; font-weight: 700; color: #003B2B; border: 1px solid #E5DDC9;">Item Name</th>
-              <th style="padding: 11px 10px; text-align: center; font-size: 15px; font-weight: 700; color: #003B2B; border: 1px solid #E5DDC9; width: 85px;">Unit</th>
-              <th style="padding: 11px 14px; text-align: right; font-size: 15.5px; font-weight: 700; color: #003B2B; border: 1px solid #E5DDC9; width: 130px;">Current Stock</th>
-              <th style="padding: 11px 12px; text-align: center; font-size: 15px; font-weight: 700; color: #003B2B; border: 1px solid #E5DDC9; width: 145px;">Last Updated</th>
+              <th style="padding: 11px 14px; text-align: right; font-size: 15.5px; font-weight: 700; color: #003B2B; border: 1px solid #E5DDC9; width: 160px;">Available Stock</th>
+              <th style="padding: 11px 12px; text-align: center; font-size: 15px; font-weight: 700; color: #003B2B; border: 1px solid #E5DDC9; width: 160px;">Last Updated</th>
             </tr>
           </thead>
           <tbody>
@@ -2000,21 +1983,25 @@ export async function downloadSimpleInventoryPdf({ items = [], dateLabel = 'All 
     pages.push(pageEl);
   }
 
-  const filename = `Annamithra_Inventory_Report_${new Date().toISOString().slice(0, 10)}.pdf`;
-  return await renderHtmlPagesToPdf({ pages, filename, orientation: 'portrait' });
+  const defaultFilename = `Annamithra_Inventory_Report_${new Date().toISOString().slice(0, 10)}.pdf`;
+  return await renderHtmlPagesToPdf({ pages, filename: filename || defaultFilename, orientation: 'portrait' });
 }
 
 /**
  * 2. Simple Branch Request Report PDF
  * Columns: Branch Name, Department, Item Name, Unit, Requested Quantity, Request Date, Status
  */
-export async function downloadSimpleBranchRequestPdf({ items = [], branch = 'All Branches', department = 'All Departments', dateLabel = 'All Dates' } = {}) {
+export async function downloadSimpleBranchRequestPdf({ items = [], branch = 'All Branches', department = 'All Departments', dateLabel = 'Today', filename } = {}) {
   const ITEMS_PER_PAGE = 14;
   const totalPages = Math.max(1, Math.ceil(items.length / ITEMS_PER_PAGE));
-  const totalQty = items.reduce((sum, it) => sum + (Number(it.requestedQuantity) || 0), 0);
-
+  const branchReqUnitTotals = {};
+  items.forEach(it => {
+    const u = it.unit || 'KG';
+    branchReqUnitTotals[u] = (branchReqUnitTotals[u] || 0) + (Number(it.requestedQuantity) || 0);
+  });
+  const summaryBranchReqStr = formatUnitSummary(branchReqUnitTotals, false);
   const deptPart = department && department !== 'All Departments' ? `   |   Dept: ${department}` : '';
-  const subtitle = `Branch: ${branch || 'All Branches'}${deptPart}   |   Total Requests: ${items.length}   |   Total Requested: ${totalQty.toLocaleString()}`;
+  const subtitle = `Branch: ${branch || 'All Branches'}${deptPart}   |   Total Requests: ${items.length}   |   Total Requested: ${summaryBranchReqStr}`;
 
   const pages = [];
 
@@ -2037,7 +2024,7 @@ export async function downloadSimpleBranchRequestPdf({ items = [], branch = 'All
     if (items.length === 0) {
       tableRowsHtml = `
         <tr>
-          <td colspan="8" style="padding: 24px 14px; text-align: center; color: #5A6962; font-style: italic; border: 1px solid #E5DDC9; font-size: 14px;">
+          <td colspan="7" style="padding: 24px 14px; text-align: center; color: #5A6962; font-style: italic; border: 1px solid #E5DDC9; font-size: 14px;">
             No branch request records found matching the selected filter criteria.
           </td>
         </tr>
@@ -2068,11 +2055,8 @@ export async function downloadSimpleBranchRequestPdf({ items = [], branch = 'All
             <td style="padding: 9px 10px; border: 1px solid #E5DDC9; font-weight: 600; color: #17352B; font-size: 14.5px; word-break: break-word;">
               ${itName}
             </td>
-            <td style="padding: 9px 6px; text-align: center; border: 1px solid #E5DDC9; font-size: 14px; font-weight: 500; color: #5A6962; width: 55px;">
-              ${unitName}
-            </td>
-            <td style="padding: 9px 10px; text-align: right; border: 1px solid #E5DDC9; font-weight: 600; color: #003B2B; font-size: 15px; width: 85px;">
-              ${reqVal.toLocaleString()}
+            <td style="padding: 9px 10px; text-align: right; border: 1px solid #E5DDC9; font-weight: 700; color: #003B2B; font-size: 15px; width: 120px;">
+              ${formatQuantityWithUnit(reqVal, unitName)}
             </td>
             <td style="padding: 9px 8px; text-align: center; border: 1px solid #E5DDC9; font-size: 13.5px; font-weight: 500; color: #5A6962; width: 80px;">
               ${dateDisplay}
@@ -2132,21 +2116,25 @@ export async function downloadSimpleBranchRequestPdf({ items = [], branch = 'All
     pages.push(pageEl);
   }
 
-  const filename = `Annamithra_Branch_Request_Report_${new Date().toISOString().slice(0, 10)}.pdf`;
-  return await renderHtmlPagesToPdf({ pages, filename, orientation: 'portrait' });
+  const defaultFilename = `Annamithra_Branch_Request_Report_${new Date().toISOString().slice(0, 10)}.pdf`;
+  return await renderHtmlPagesToPdf({ pages, filename: filename || defaultFilename, orientation: 'portrait' });
 }
 
 /**
  * 3. Simple Dispatch Report PDF
  * Columns: Branch Name, Department, Item Name, Unit, Dispatched Quantity, Dispatch Date, Acknowledgement Status
  */
-export async function downloadSimpleDispatchPdf({ items = [], branch = 'All Branches', department = 'All Departments', dateLabel = 'All Dates' } = {}) {
+export async function downloadSimpleDispatchPdf({ items = [], branch = 'All Branches', department = 'All Departments', dateLabel = 'Today', filename } = {}) {
   const ITEMS_PER_PAGE = 14;
   const totalPages = Math.max(1, Math.ceil(items.length / ITEMS_PER_PAGE));
-  const totalQty = items.reduce((sum, it) => sum + (Number(it.dispatchedQuantity) || 0), 0);
-
+  const branchDispUnitTotals = {};
+  items.forEach(it => {
+    const u = it.unit || 'KG';
+    branchDispUnitTotals[u] = (branchDispUnitTotals[u] || 0) + (Number(it.dispatchedQuantity) || 0);
+  });
+  const summaryBranchDispStr = formatUnitSummary(branchDispUnitTotals, false);
   const deptPart = department && department !== 'All Departments' ? `   |   Dept: ${department}` : '';
-  const subtitle = `Branch: ${branch || 'All Branches'}${deptPart}   |   Total Dispatches: ${items.length}   |   Total Dispatched: ${totalQty.toLocaleString()}`;
+  const subtitle = `Branch: ${branch || 'All Branches'}${deptPart}   |   Total Dispatches: ${items.length}   |   Total Dispatched: ${summaryBranchDispStr}`;
 
   const pages = [];
 
@@ -2169,7 +2157,7 @@ export async function downloadSimpleDispatchPdf({ items = [], branch = 'All Bran
     if (items.length === 0) {
       tableRowsHtml = `
         <tr>
-          <td colspan="8" style="padding: 24px 14px; text-align: center; color: #5A6962; font-style: italic; border: 1px solid #E5DDC9; font-size: 14px;">
+          <td colspan="7" style="padding: 24px 14px; text-align: center; color: #5A6962; font-style: italic; border: 1px solid #E5DDC9; font-size: 14px;">
             No dispatch records found matching the selected filter criteria.
           </td>
         </tr>
@@ -2200,11 +2188,8 @@ export async function downloadSimpleDispatchPdf({ items = [], branch = 'All Bran
             <td style="padding: 9px 10px; border: 1px solid #E5DDC9; font-weight: 600; color: #17352B; font-size: 14.5px; word-break: break-word;">
               ${itName}
             </td>
-            <td style="padding: 9px 6px; text-align: center; border: 1px solid #E5DDC9; font-size: 14px; font-weight: 500; color: #5A6962; width: 55px;">
-              ${unitName}
-            </td>
-            <td style="padding: 9px 10px; text-align: right; border: 1px solid #E5DDC9; font-weight: 600; color: #003B2B; font-size: 15px; width: 85px;">
-              ${dispVal.toLocaleString()}
+            <td style="padding: 9px 10px; text-align: right; border: 1px solid #E5DDC9; font-weight: 700; color: #003B2B; font-size: 15px; width: 120px;">
+              ${formatQuantityWithUnit(dispVal, unitName)}
             </td>
             <td style="padding: 9px 8px; text-align: center; border: 1px solid #E5DDC9; font-size: 13.5px; font-weight: 500; color: #5A6962; width: 80px;">
               ${dateDisplay}
@@ -2264,8 +2249,8 @@ export async function downloadSimpleDispatchPdf({ items = [], branch = 'All Bran
     pages.push(pageEl);
   }
 
-  const filename = `Annamithra_Dispatch_Report_${new Date().toISOString().slice(0, 10)}.pdf`;
-  return await renderHtmlPagesToPdf({ pages, filename, orientation: 'portrait' });
+  const defaultFilename = `Annamithra_Dispatch_Report_${new Date().toISOString().slice(0, 10)}.pdf`;
+  return await renderHtmlPagesToPdf({ pages, filename: filename || defaultFilename, orientation: 'portrait' });
 }
 
 /**
@@ -2278,7 +2263,8 @@ export async function downloadCategorySummaryPdf({
   branch = 'All Branches',
   department = 'All Departments',
   category = 'All Categories',
-  dateLabel = 'All Dates'
+  dateLabel = 'Today',
+  filename
 } = {}) {
   const ITEMS_PER_PAGE = 14;
   const totalPages = Math.max(1, Math.ceil(summary.length / ITEMS_PER_PAGE));
@@ -2395,8 +2381,8 @@ export async function downloadCategorySummaryPdf({
     pages.push(pageEl);
   }
 
-  const filename = `Annamithra_Category_Summary_${new Date().toISOString().slice(0, 10)}.pdf`;
-  return await renderHtmlPagesToPdf({ pages, filename, orientation: 'portrait' });
+  const defaultFilename = `Annamithra_Category_Summary_${new Date().toISOString().slice(0, 10)}.pdf`;
+  return await renderHtmlPagesToPdf({ pages, filename: filename || defaultFilename, orientation: 'portrait' });
 }
 
 /**
@@ -2408,13 +2394,23 @@ export async function downloadCategoryDetailPdf({
   items = [],
   branch = 'All Branches',
   department = 'All Departments',
-  dateLabel = 'All Dates'
+  dateLabel = 'Today',
+  filename
 } = {}) {
   const ITEMS_PER_PAGE = 10;
   const totalPages = Math.max(1, Math.ceil(items.length / ITEMS_PER_PAGE));
-  const totalReq = items.reduce((sum, it) => sum + (Number(it.requestedQuantity) || 0), 0);
-  const totalDisp = items.reduce((sum, it) => sum + (Number(it.dispatchedQuantity) || 0), 0);
-  const totalPend = items.reduce((sum, it) => sum + (Number(it.pendingQuantity) || 0), 0);
+  const catDetailReqUnitTotals = {};
+  const catDetailDispUnitTotals = {};
+  const catDetailPendUnitTotals = {};
+  items.forEach(it => {
+    const u = it.unit || 'KG';
+    catDetailReqUnitTotals[u] = (catDetailReqUnitTotals[u] || 0) + (Number(it.requestedQuantity) || 0);
+    catDetailDispUnitTotals[u] = (catDetailDispUnitTotals[u] || 0) + (Number(it.dispatchedQuantity) || 0);
+    catDetailPendUnitTotals[u] = (catDetailPendUnitTotals[u] || 0) + (Number(it.pendingQuantity) || 0);
+  });
+  const summaryCatReqStr = formatUnitSummary(catDetailReqUnitTotals, false);
+  const summaryCatDispStr = formatUnitSummary(catDetailDispUnitTotals, false);
+  const summaryCatPendStr = formatUnitSummary(catDetailPendUnitTotals, false);
 
   const subtitle = `Category: ${categoryName}   |   Branch: ${branch}   |   Dept: ${department}   |   Items: ${items.length}`;
   const pages = [];
@@ -2438,7 +2434,7 @@ export async function downloadCategoryDetailPdf({
     if (items.length === 0) {
       tableRowsHtml = `
         <tr>
-          <td colspan="11" style="padding: 24px 14px; text-align: center; color: #5A6962; font-style: italic; border: 1px solid #E5DDC9; font-size: 14px;">
+          <td colspan="10" style="padding: 24px 14px; text-align: center; color: #5A6962; font-style: italic; border: 1px solid #E5DDC9; font-size: 14px;">
             No items found matching the selected filter criteria.
           </td>
         </tr>
@@ -2463,26 +2459,23 @@ export async function downloadCategoryDetailPdf({
             <td style="padding: 8px 6px; text-align: center; border: 1px solid #E5DDC9; font-size: 13px; font-weight: 600; color: #5A6962; width: 34px;">
               ${rowIdx}
             </td>
-            <td style="padding: 8px 8px; border: 1px solid #E5DDC9; font-weight: 600; color: #17352B; font-size: 14.5px; width: 180px; word-break: break-word;">
+            <td style="padding: 8px 8px; border: 1px solid #E5DDC9; font-weight: 600; color: #17352B; font-size: 14.5px; width: 190px; word-break: break-word;">
               ${iName}
             </td>
-            <td style="padding: 8px 6px; text-align: center; border: 1px solid #E5DDC9; font-size: 14px; font-weight: 500; color: #5A6962; width: 55px;">
-              ${uName}
-            </td>
-            <td style="padding: 8px 8px; border: 1px solid #E5DDC9; font-weight: 700; color: #17352B; font-size: 15px; width: 120px; word-break: break-word;">
+            <td style="padding: 8px 8px; border: 1px solid #E5DDC9; font-weight: 700; color: #17352B; font-size: 15px; width: 125px; word-break: break-word;">
               ${bName}
             </td>
-            <td style="padding: 8px 8px; border: 1px solid #E5DDC9; font-size: 14px; font-weight: 500; color: #5A6962; width: 105px; word-break: break-word;">
+            <td style="padding: 8px 8px; border: 1px solid #E5DDC9; font-size: 14px; font-weight: 500; color: #5A6962; width: 110px; word-break: break-word;">
               ${dName}
             </td>
-            <td style="padding: 8px 8px; text-align: right; border: 1px solid #E5DDC9; font-weight: 600; color: #003B2B; font-size: 15px; width: 85px;">
-              ${reqQty}
+            <td style="padding: 8px 8px; text-align: right; border: 1px solid #E5DDC9; font-weight: 700; color: #003B2B; font-size: 15px; width: 100px;">
+              ${formatQuantityWithUnit(it.requestedQuantity, it.unit)}
             </td>
-            <td style="padding: 8px 8px; text-align: right; border: 1px solid #E5DDC9; font-weight: 600; color: #07543D; font-size: 15px; width: 85px;">
-              ${dispQty}
+            <td style="padding: 8px 8px; text-align: right; border: 1px solid #E5DDC9; font-weight: 700; color: #07543D; font-size: 15px; width: 100px;">
+              ${formatQuantityWithUnit(it.dispatchedQuantity, it.unit)}
             </td>
-            <td style="padding: 8px 8px; text-align: right; border: 1px solid #E5DDC9; font-weight: 700; color: #003B2B; font-size: 15px; width: 85px;">
-              ${pendQty}
+            <td style="padding: 8px 8px; text-align: right; border: 1px solid #E5DDC9; font-weight: 700; color: #003B2B; font-size: 15px; width: 100px;">
+              ${formatQuantityWithUnit(it.pendingQuantity, it.unit)}
             </td>
             <td style="padding: 8px 6px; text-align: center; border: 1px solid #E5DDC9; font-size: 13.5px; font-weight: 500; color: #5A6962; width: 85px;">
               ${rDateStr}
@@ -2503,17 +2496,17 @@ export async function downloadCategoryDetailPdf({
     const summaryFooterHtml = isLastPage && items.length > 0 ? `
       <tfoot>
         <tr style="background: #F5EFE0; border: 1.5px solid #D4A63B; font-weight: 700; color: #003B2B;">
-          <td colspan="5" style="padding: 9px 10px; border: 1px solid #E5DDC9; font-size: 15.5px; font-weight: 700;">
+          <td colspan="4" style="padding: 9px 10px; border: 1px solid #E5DDC9; font-size: 15.5px; font-weight: 700;">
             Total Items: ${items.length}
           </td>
-          <td style="padding: 9px 8px; text-align: right; border: 1px solid #E5DDC9; font-size: 16px; font-weight: 800; color: #003B2B;">
-            ${totalReq.toLocaleString()}
+          <td style="padding: 9px 8px; text-align: right; border: 1px solid #E5DDC9; font-size: 15px; font-weight: 800; color: #003B2B;">
+            ${summaryCatReqStr}
           </td>
-          <td style="padding: 9px 8px; text-align: right; border: 1px solid #E5DDC9; font-size: 16px; font-weight: 800; color: #07543D;">
-            ${totalDisp.toLocaleString()}
+          <td style="padding: 9px 8px; text-align: right; border: 1px solid #E5DDC9; font-size: 15px; font-weight: 800; color: #07543D;">
+            ${summaryCatDispStr}
           </td>
-          <td style="padding: 9px 8px; text-align: right; border: 1px solid #E5DDC9; font-size: 16px; font-weight: 800; color: #003B2B;">
-            ${totalPend.toLocaleString()}
+          <td style="padding: 9px 8px; text-align: right; border: 1px solid #E5DDC9; font-size: 15px; font-weight: 800; color: #003B2B;">
+            ${summaryCatPendStr}
           </td>
           <td colspan="3" style="padding: 9px 8px; text-align: center; border: 1px solid #E5DDC9; font-size: 13.5px; font-weight: 600; color: #5A6962;">
             Grand Totals
@@ -2529,13 +2522,12 @@ export async function downloadCategoryDetailPdf({
           <thead>
             <tr style="background: #F5EFE0; border: 1px solid #E5DDC9;">
               <th style="padding: 9px 6px; text-align: center; font-size: 14px; font-weight: 700; color: #003B2B; border: 1px solid #E5DDC9; width: 34px;">#</th>
-              <th style="padding: 9px 8px; text-align: left; font-size: 15px; font-weight: 700; color: #003B2B; border: 1px solid #E5DDC9; width: 180px;">Item Name</th>
-              <th style="padding: 9px 6px; text-align: center; font-size: 14px; font-weight: 700; color: #003B2B; border: 1px solid #E5DDC9; width: 55px;">Unit</th>
-              <th style="padding: 9px 8px; text-align: left; font-size: 15px; font-weight: 700; color: #003B2B; border: 1px solid #E5DDC9; width: 120px;">Branch</th>
-              <th style="padding: 9px 8px; text-align: left; font-size: 14.5px; font-weight: 700; color: #003B2B; border: 1px solid #E5DDC9; width: 105px;">Department</th>
-              <th style="padding: 9px 8px; text-align: right; font-size: 15px; font-weight: 700; color: #003B2B; border: 1px solid #E5DDC9; width: 85px;">Requested</th>
-              <th style="padding: 9px 8px; text-align: right; font-size: 15px; font-weight: 700; color: #003B2B; border: 1px solid #E5DDC9; width: 85px;">Dispatched</th>
-              <th style="padding: 9px 8px; text-align: right; font-size: 15px; font-weight: 700; color: #003B2B; border: 1px solid #E5DDC9; width: 85px;">Pending</th>
+              <th style="padding: 9px 8px; text-align: left; font-size: 15px; font-weight: 700; color: #003B2B; border: 1px solid #E5DDC9; width: 190px;">Item Name</th>
+              <th style="padding: 9px 8px; text-align: left; font-size: 15px; font-weight: 700; color: #003B2B; border: 1px solid #E5DDC9; width: 125px;">Branch</th>
+              <th style="padding: 9px 8px; text-align: left; font-size: 14.5px; font-weight: 700; color: #003B2B; border: 1px solid #E5DDC9; width: 110px;">Department</th>
+              <th style="padding: 9px 8px; text-align: right; font-size: 15px; font-weight: 700; color: #003B2B; border: 1px solid #E5DDC9; width: 100px;">Requested Quantity</th>
+              <th style="padding: 9px 8px; text-align: right; font-size: 15px; font-weight: 700; color: #003B2B; border: 1px solid #E5DDC9; width: 100px;">Dispatched Quantity</th>
+              <th style="padding: 9px 8px; text-align: right; font-size: 15px; font-weight: 700; color: #003B2B; border: 1px solid #E5DDC9; width: 100px;">Pending Quantity</th>
               <th style="padding: 9px 6px; text-align: center; font-size: 14px; font-weight: 700; color: #003B2B; border: 1px solid #E5DDC9; width: 85px;">Req Date</th>
               <th style="padding: 9px 6px; text-align: center; font-size: 14px; font-weight: 700; color: #003B2B; border: 1px solid #E5DDC9; width: 85px;">Disp Date</th>
               <th style="padding: 9px 6px; text-align: center; font-size: 14px; font-weight: 700; color: #003B2B; border: 1px solid #E5DDC9; width: 95px;">Status</th>
@@ -2555,8 +2547,8 @@ export async function downloadCategoryDetailPdf({
   }
 
   const cleanCategory = String(categoryName || 'Category').replace(/\s*\/\s*/g, '_').replace(/[/\\?%*:|"<>]/g, '_').trim().replace(/\s+/g, '_');
-  const filename = `Annamithra_${cleanCategory}_Item_Details_${new Date().toISOString().slice(0, 10)}.pdf`;
-  return await renderHtmlPagesToPdf({ pages, filename, orientation: 'landscape' });
+  const defaultFilename = `Annamithra_${cleanCategory}_Item_Details_${new Date().toISOString().slice(0, 10)}.pdf`;
+  return await renderHtmlPagesToPdf({ pages, filename: filename || defaultFilename, orientation: 'landscape' });
 }
 
 /**
@@ -2578,59 +2570,51 @@ export function exportReportCsv({ reportType, items = [], filename = 'report.csv
   };
 
   if (reportType === 'inventory') {
-    headers = ['Item Name', 'Unit', 'Current Stock', 'Last Updated Date'];
+    headers = ['Item Name', 'Available Stock', 'Last Updated Date'];
     rows = items.map(it => [
       escapeCsv(it.itemName || it.name),
-      escapeCsv(it.unit),
-      escapeCsv(it.currentStock),
+      escapeCsv(formatQuantityWithUnit(it.currentStock, it.unit)),
       escapeCsv(it.formattedLastUpdated || it.lastUpdated)
     ]);
   } else if (reportType === 'requests') {
-    headers = ['Branch Name', 'Department', 'Item Name', 'Unit', 'Requested Quantity', 'Request Date', 'Status'];
+    headers = ['Branch Name', 'Department', 'Item Name', 'Requested Quantity', 'Request Date', 'Status'];
     rows = items.map(it => [
       escapeCsv(it.branchName || it.branch),
       escapeCsv(it.department || it.category || 'Not specified'),
       escapeCsv(it.itemName || it.item),
-      escapeCsv(it.unit),
-      escapeCsv(it.requestedQuantity),
+      escapeCsv(formatQuantityWithUnit(it.requestedQuantity, it.unit)),
       escapeCsv(it.formattedDate || it.date),
       escapeCsv(it.meaningfulStatus || it.status)
     ]);
   } else if (reportType === 'dispatches') {
-    headers = ['Branch Name', 'Department', 'Item Name', 'Unit', 'Dispatched Quantity', 'Dispatch Date', 'Acknowledgement Status'];
+    headers = ['Branch Name', 'Department', 'Item Name', 'Dispatched Quantity', 'Dispatch Date', 'Acknowledgement Status'];
     rows = items.map(it => [
       escapeCsv(it.branchName),
       escapeCsv(it.department || it.category || 'Not specified'),
       escapeCsv(it.itemName),
-      escapeCsv(it.unit),
-      escapeCsv(it.dispatchedQuantity),
+      escapeCsv(formatQuantityWithUnit(it.dispatchedQuantity, it.unit)),
       escapeCsv(it.formattedDate || it.dispatchDate),
       escapeCsv(it.meaningfulStatus || it.acknowledgementStatus || it.status)
     ]);
   } else if (reportType === 'category-summary') {
     headers = ['Category', 'Total Distinct Items', 'Requested Quantity', 'Dispatched Quantity', 'Pending Quantity'];
-    const formatUnitMap = (map) => {
-      if (!map || Object.keys(map).length === 0) return '0';
-      return Object.entries(map).map(([u, val]) => `${Number(val || 0)} ${u}`).join(', ');
-    };
     rows = items.map(c => [
       escapeCsv(c.category),
       escapeCsv(c.totalItems),
-      escapeCsv(formatUnitMap(c.requestedByUnit)),
-      escapeCsv(formatUnitMap(c.dispatchedByUnit)),
-      escapeCsv(formatUnitMap(c.pendingByUnit))
+      escapeCsv(formatUnitSummary(c.requestedByUnit)),
+      escapeCsv(formatUnitSummary(c.dispatchedByUnit)),
+      escapeCsv(formatUnitSummary(c.pendingByUnit))
     ]);
   } else if (reportType === 'category-details') {
-    headers = ['Item Name', 'Category', 'Unit', 'Branch Name', 'Department', 'Requested Quantity', 'Dispatched Quantity', 'Pending Quantity', 'Request Date', 'Dispatch Date', 'Dispatch Status'];
+    headers = ['Item Name', 'Category', 'Branch Name', 'Department', 'Requested Quantity', 'Dispatched Quantity', 'Pending Quantity', 'Request Date', 'Dispatch Date', 'Dispatch Status'];
     rows = items.map(it => [
       escapeCsv(it.itemName),
       escapeCsv(it.category),
-      escapeCsv(it.unit),
       escapeCsv(it.branchName),
       escapeCsv(it.department),
-      escapeCsv(it.requestedQuantity),
-      escapeCsv(it.dispatchedQuantity),
-      escapeCsv(it.pendingQuantity),
+      escapeCsv(formatQuantityWithUnit(it.requestedQuantity, it.unit)),
+      escapeCsv(formatQuantityWithUnit(it.dispatchedQuantity, it.unit)),
+      escapeCsv(formatQuantityWithUnit(it.pendingQuantity, it.unit)),
       escapeCsv(it.requestDate),
       escapeCsv(it.dispatchDate || '—'),
       escapeCsv(it.dispatchStatus || it.status)
@@ -2653,5 +2637,3 @@ export function exportReportCsv({ reportType, items = [], filename = 'report.csv
   URL.revokeObjectURL(url);
   return true;
 }
-
-

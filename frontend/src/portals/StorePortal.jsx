@@ -1896,8 +1896,7 @@ export function StorePortal({ activeTab }) {
                 <thead>
                   <tr>
                     <th>{t('Item Name', 'Item Name')}</th>
-                    <th>{t('Unit', 'Unit')}</th>
-                    <th>{t('Available Stock', 'Available Stock')}</th>
+                    <th style={{ textAlign: 'right' }}>{t('Available Stock', 'Available Stock')}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1905,8 +1904,7 @@ export function StorePortal({ activeTab }) {
                     inventory.map(item => (
                       <tr key={item.id}>
                         <td><b>{translateItem(item.name)}</b></td>
-                        <td>{translateUnit(item.unit)}</td>
-                        <td>
+                        <td style={{ textAlign: 'right' }}>
                           <span style={{
                             fontWeight: 700,
                             fontSize: 14,
@@ -1919,7 +1917,7 @@ export function StorePortal({ activeTab }) {
                     ))
                   ) : (
                     <tr>
-                      <td colSpan="3" className="empty">
+                      <td colSpan="2" className="empty">
                         {loading ? t('Loading...', 'Loading inventory...') : t('No records found.', 'No inventory records found in central warehouse')}
                       </td>
                     </tr>
@@ -2037,10 +2035,9 @@ export function StorePortal({ activeTab }) {
                           <tr>
                             <th>{t('Order Date & Time', 'Transaction Date & Time')}</th>
                             <th>{t('Item Name', 'Item Name')}</th>
-                            <th>{t('Unit', 'Unit')}</th>
                             <th>{t('Category', 'Type')}</th>
-                            <th>{t('Quantity', 'Quantity Changed')}</th>
-                            <th>{t('Available Stock', 'Balance After')}</th>
+                            <th style={{ textAlign: 'right' }}>{t('Quantity', 'Quantity Changed')}</th>
+                            <th style={{ textAlign: 'right' }}>{t('Available Stock', 'Balance After')}</th>
                             <th>{t('Role', 'Performed By')}</th>
                             <th>{t('Summary', 'Reference')}</th>
                           </tr>
@@ -3244,12 +3241,11 @@ export function StorePortal({ activeTab }) {
                             <thead>
                               <tr>
                                 <th>{t('Item Name', 'பொருளின் பெயர்')}</th>
-                                <th>{t('Unit', 'அலகு')}</th>
-                                <th style={{ textAlign: 'right' }}>{t('Total Requested', 'மொத்த கோரிக்கை')}</th>
-                                <th style={{ textAlign: 'right' }}>{t('Already Dispatched', 'ஏற்கனவே அனுப்பப்பட்டது')}</th>
-                                <th style={{ textAlign: 'right' }}>{t('Central Stock Available', 'மையத்தில் உள்ள இருப்பு')}</th>
-                                <th style={{ textAlign: 'center', width: 140 }}>{t('Dispatch Quantity', 'விநியோக அளவு')}</th>
-                                <th style={{ textAlign: 'right' }}>{t('Remaining to Dispatch', 'மீதமுள்ள விநியோகம்')}</th>
+                                <th style={{ textAlign: 'right' }}>{t('Requested Quantity', 'கோரப்பட்ட அளவு')}</th>
+                                <th style={{ textAlign: 'right' }}>{t('Dispatched Quantity', 'அனுப்பப்பட்ட அளவு')}</th>
+                                <th style={{ textAlign: 'right' }}>{t('Available Stock', 'மையத்தில் உள்ள இருப்பு')}</th>
+                                <th style={{ textAlign: 'center', width: 160 }}>{t('Dispatch Quantity', 'விநியோக அளவு')}</th>
+                                <th style={{ textAlign: 'right' }}>{t('Pending Quantity', 'மீதமுள்ள விநியோகம்')}</th>
                               </tr>
                             </thead>
                             <tbody>
@@ -3771,7 +3767,6 @@ export function StorePortal({ activeTab }) {
                           />
                         </th>
                         <th>{t('Item Name', 'பொருளின் பெயர்')}</th>
-                        <th>{t('Unit', 'அலகு')}</th>
                         <th style={{ textAlign: 'right' }}>{t('Total Requirement Quantity', 'Total Requirement Quantity')}</th>
                       </tr>
                     </thead>
@@ -3795,10 +3790,9 @@ export function StorePortal({ activeTab }) {
                                 />
                               </td>
                               <td><b>{translateItem(item.itemName)}</b></td>
-                              <td>{translateUnit(item.unit)}</td>
                               <td style={{ textAlign: 'right' }}>
                                 <span style={{ fontWeight: 700, color: 'var(--primary-dark-green)' }}>
-                                  {reqQty}
+                                  {reqQty} {translateUnit(item.unit)}
                                 </span>
                               </td>
                             </tr>
@@ -3858,7 +3852,6 @@ export function StorePortal({ activeTab }) {
                       <tr>
                         <th>{t('Order Number', 'Order Number')}</th>
                         <th>{t('Item Name', 'பொருளின் பெயர்')}</th>
-                        <th>{t('Unit', 'அலகு')}</th>
                         <th style={{ textAlign: 'right' }}>{t('Ordered Quantity', 'Ordered Quantity')}</th>
                         <th>{t('Order Date & Time', 'Order Date & Time')}</th>
                         <th style={{ textAlign: 'center' }}>{t('status', 'Status')}</th>
@@ -3868,7 +3861,7 @@ export function StorePortal({ activeTab }) {
                     <tbody>
                       {alreadyOrderedToday.length === 0 ? (
                         <tr>
-                          <td colSpan="7" className="empty" style={{ padding: '24px', textAlign: 'center', color: 'var(--text-muted)' }}>
+                          <td colSpan="6" className="empty" style={{ padding: '24px', textAlign: 'center', color: 'var(--text-muted)' }}>
                             {language === 'ta' ? 'இன்று எந்த ஆர்டர்களும் சமர்ப்பிக்கப்படவில்லை.' : 'No orders have been submitted today.'}
                           </td>
                         </tr>
@@ -4328,7 +4321,6 @@ export function StorePortal({ activeTab }) {
                   <thead>
                     <tr>
                       <th>{t('Item Name', 'Item Name')}</th>
-                      <th style={{ textAlign: 'center' }}>{t('Unit', 'Unit')}</th>
                       <th style={{ textAlign: 'right' }}>{t('Ordered Quantity', 'Ordered Quantity')}</th>
                     </tr>
                   </thead>
@@ -4350,7 +4342,7 @@ export function StorePortal({ activeTab }) {
                       })
                     ) : (
                       <tr>
-                        <td colSpan="3" className="empty">{t('No item lines found in this order.', 'No item lines found in this order.')}</td>
+                        <td colSpan="2" className="empty">{t('No item lines found in this order.', 'No item lines found in this order.')}</td>
                       </tr>
                     )}
                   </tbody>
@@ -4422,7 +4414,6 @@ export function StorePortal({ activeTab }) {
                     <th>{t('Request Time', 'Request Time')}</th>
                     <th>{t('Category', 'Category')}</th>
                     <th>{t('Item Name', 'Item Name')}</th>
-                    <th>{t('Unit', 'Unit')}</th>
                     <th style={{ textAlign: 'right' }}>{t('Requested Quantity', 'Requested Quantity')}</th>
                   </tr>
                 </thead>
