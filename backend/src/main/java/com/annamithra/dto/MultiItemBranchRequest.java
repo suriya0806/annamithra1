@@ -14,7 +14,10 @@ public class MultiItemBranchRequest {
     }
 
     public static class ItemLine {
+        public Long itemId;
         public String itemName;
+        public Long departmentId;
+        public String departmentName;
         public String unit;
         public String category;
         public String department;
@@ -22,6 +25,9 @@ public class MultiItemBranchRequest {
         public boolean isNewItem;
 
         public String getEffectiveDepartment() {
+            if (departmentName != null && !departmentName.isBlank()) {
+                return departmentName.trim();
+            }
             if (department != null && !department.isBlank()) {
                 return department.trim();
             }

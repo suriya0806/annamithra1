@@ -18,17 +18,20 @@ public class ReportService {
     private final BranchRequestRepository requestRepo;
     private final DispatchRepository dispatchRepo;
     private final InventoryTransactionRepository transactionRepo;
+    private final ItemCategoryRepository categoryRepo;
 
     public ReportService(ItemRepository itemRepo,
                          PurchaseOrderRepository poRepo,
                          BranchRequestRepository requestRepo,
                          DispatchRepository dispatchRepo,
-                         InventoryTransactionRepository transactionRepo) {
+                         InventoryTransactionRepository transactionRepo,
+                         ItemCategoryRepository categoryRepo) {
         this.itemRepo = itemRepo;
         this.poRepo = poRepo;
         this.requestRepo = requestRepo;
         this.dispatchRepo = dispatchRepo;
         this.transactionRepo = transactionRepo;
+        this.categoryRepo = categoryRepo;
     }
 
     public ReportSummaryDto getSummary(LocalDate fromDate, LocalDate toDate, Long orgId) {
@@ -251,10 +254,14 @@ public class ReportService {
     }
 
     public List<BranchRequestReportDto> getBranchRequestReport(LocalDate fromDate, LocalDate toDate, String branch, String search, String status, Long orgId) {
-        return getBranchRequestReport(fromDate, toDate, branch, search, status, null, orgId);
+        return getBranchRequestReport(fromDate, toDate, branch, search, status, null, null, orgId);
     }
 
     public List<BranchRequestReportDto> getBranchRequestReport(LocalDate fromDate, LocalDate toDate, String branch, String search, String status, String category, Long orgId) {
+        return getBranchRequestReport(fromDate, toDate, branch, search, status, category, null, orgId);
+    }
+
+    public List<BranchRequestReportDto> getBranchRequestReport(LocalDate fromDate, LocalDate toDate, String branch, String search, String status, String category, String department, Long orgId) {
         List<BranchRequest> requests = (orgId != null)
                 ? requestRepo.findByOrganisationIdOrderByCreatedAtDesc(orgId)
                 : requestRepo.findAllByOrderByCreatedAtDesc();
@@ -273,6 +280,10 @@ public class ReportService {
                     if (category != null && !category.isBlank() && !"ALL".equalsIgnoreCase(category)) {
                         if (r.category == null || !r.category.equalsIgnoreCase(category.trim())) return false;
                     }
+                    if (department != null && !department.isBlank() && !"ALL".equalsIgnoreCase(department)) {
+                        String dept = (r.department != null && !r.department.isBlank()) ? r.department : r.category;
+                        if (dept == null || !dept.equalsIgnoreCase(department.trim())) return false;
+                    }
                     if (search != null && !search.isBlank()) {
                         String s = search.trim().toLowerCase();
                         if (r.item == null || !r.item.toLowerCase().contains(s)) return false;
@@ -284,9 +295,12 @@ public class ReportService {
                         r.requestDate,
                         r.createdAt,
                         r.branch,
+                        r.itemId,
                         r.item,
                         r.unit,
                         r.category,
+                        r.departmentId,
+                        (r.department != null && !r.department.isBlank()) ? r.department : r.category,
                         r.requested,
                         r.dispatched,
                         r.received,
@@ -305,6 +319,10 @@ public class ReportService {
     }
 
     public List<BranchDispatchReportDto> getBranchDispatchReport(LocalDate date, LocalDate fromDate, LocalDate toDate, String branch, String search, String status, String category, Long orgId) {
+        return getBranchDispatchReport(date, fromDate, toDate, branch, search, status, category, null, orgId);
+    }
+
+    public List<BranchDispatchReportDto> getBranchDispatchReport(LocalDate date, LocalDate fromDate, LocalDate toDate, String branch, String search, String status, String category, String department, Long orgId) {
         List<Dispatch> dispatches = (orgId != null)
                 ? dispatchRepo.findByOrganisationIdOrderByCreatedAtDesc(orgId)
                 : dispatchRepo.findAllByOrderByCreatedAtDesc();
@@ -316,6 +334,7 @@ public class ReportService {
                 .collect(Collectors.toList());
         Map<Long, Double> requestQtyCache = new HashMap<>();
         Map<Long, String> requestCategoryCache = new HashMap<>();
+        Map<Long, String> requestDepartmentCache = new HashMap<>();
         if (!reqIds.isEmpty()) {
             for (BranchRequest r : requestRepo.findAllById(reqIds)) {
                 if (r.id != null) {
@@ -323,7 +342,19 @@ public class ReportService {
                     if (r.category != null) {
                         requestCategoryCache.put(r.id, r.category);
                     }
+                    String reqDept = r.getDepartment();
+                    if (reqDept != null && !reqDept.isBlank()) {
+                        requestDepartmentCache.put(r.id, reqDept.trim());
+                    }
                 }
+            }
+        }
+
+        Map<String, String> itemCategoryCache = new HashMap<>();
+        List<Item> allItems = (orgId != null) ? itemRepo.findByOrganisationIdOrderByNameAsc(orgId) : itemRepo.findAllByOrderByNameAsc();
+        for (Item it : allItems) {
+            if (it.name != null && it.category != null) {
+                itemCategoryCache.put(it.name.trim().toLowerCase(), it.category);
             }
         }
 
@@ -343,10 +374,24 @@ public class ReportService {
                     if (status != null && !status.isBlank() && !"ALL".equalsIgnoreCase(status)) {
                         if (!status.equalsIgnoreCase(st)) return false;
                     }
-                    String cat = (d.department != null && !d.department.isBlank()) ? d.department.trim() : (d.requestId != null ? requestCategoryCache.get(d.requestId) : null); if (cat == null && d.itemName != null) { cat = itemRepo.findByOrganisationIdAndNameIgnoreCase(orgId, d.itemName.trim()).map(it -> it.category).orElse(null); }
+
+                    // Department filtering
+                    String dept = (d.department != null && !d.department.isBlank())
+                            ? d.department.trim()
+                            : (d.requestId != null ? requestDepartmentCache.get(d.requestId) : null);
+                    if (department != null && !department.isBlank() && !"ALL".equalsIgnoreCase(department)) {
+                        if (dept == null || !dept.equalsIgnoreCase(department.trim())) return false;
+                    }
+
+                    // Category filtering
+                    String cat = (d.requestId != null ? requestCategoryCache.get(d.requestId) : null);
+                    if (cat == null && d.itemName != null) {
+                        cat = itemCategoryCache.get(d.itemName.trim().toLowerCase());
+                    }
                     if (category != null && !category.isBlank() && !"ALL".equalsIgnoreCase(category)) {
                         if (cat == null || !cat.equalsIgnoreCase(category.trim())) return false;
                     }
+
                     if (search != null && !search.isBlank()) {
                         String s = search.trim().toLowerCase();
                         boolean matchItem = d.itemName != null && d.itemName.toLowerCase().contains(s);
@@ -371,7 +416,13 @@ public class ReportService {
                     }
 
                     LocalDateTime dtTime = d.createdAt != null ? d.createdAt : (d.dispatchDate != null ? d.dispatchDate.atStartOfDay() : LocalDateTime.now());
-                    String cat = (d.department != null && !d.department.isBlank()) ? d.department.trim() : (d.requestId != null ? requestCategoryCache.get(d.requestId) : null); if (cat == null && d.itemName != null) { cat = itemRepo.findByOrganisationIdAndNameIgnoreCase(orgId, d.itemName.trim()).map(it -> it.category).orElse(null); }
+                    String dept = (d.department != null && !d.department.isBlank())
+                            ? d.department.trim()
+                            : (d.requestId != null ? requestDepartmentCache.get(d.requestId) : null);
+                    String cat = (d.requestId != null ? requestCategoryCache.get(d.requestId) : null);
+                    if (cat == null && d.itemName != null) {
+                        cat = itemCategoryCache.get(d.itemName.trim().toLowerCase());
+                    }
 
                     return new BranchDispatchReportDto(
                             d.id,
@@ -382,6 +433,7 @@ public class ReportService {
                             d.itemName,
                             d.unit,
                             cat,
+                            dept,
                             reqQty,
                             d.quantity,
                             ackQty,
@@ -395,5 +447,172 @@ public class ReportService {
                     );
                 })
                 .collect(Collectors.toList());
+    }
+
+    public CategoryWiseReportResponse getCategoryWiseReport(LocalDate date, LocalDate fromDate, LocalDate toDate, String branch, String department, String category, String search, Long orgId) {
+        // 1. Preload items mapping: name (lowercase) -> category
+        Map<String, String> itemCategoryCache = new HashMap<>();
+        List<Item> allItems = (orgId != null) ? itemRepo.findByOrganisationIdOrderByNameAsc(orgId) : itemRepo.findAllByOrderByNameAsc();
+        for (Item it : allItems) {
+            if (it.name != null && it.category != null && !it.category.isBlank()) {
+                itemCategoryCache.put(it.name.trim().toLowerCase(), it.category.trim());
+            }
+        }
+
+        // 2. Fetch branch requests
+        List<BranchRequest> requests = (orgId != null)
+                ? requestRepo.findByOrganisationIdOrderByCreatedAtDesc(orgId)
+                : requestRepo.findAllByOrderByCreatedAtDesc();
+
+        // 3. Preload latest dispatch dates for these requests
+        List<Long> reqIds = requests.stream().map(r -> r.id).filter(Objects::nonNull).distinct().collect(Collectors.toList());
+        Map<Long, LocalDate> latestDispatchDateMap = new HashMap<>();
+        Map<Long, LocalDateTime> latestDispatchDateTimeMap = new HashMap<>();
+        if (!reqIds.isEmpty()) {
+            List<Dispatch> dispatches = (orgId != null)
+                    ? dispatchRepo.findByOrganisationIdAndRequestIdIn(orgId, reqIds)
+                    : dispatchRepo.findByRequestIdIn(reqIds);
+            for (Dispatch d : dispatches) {
+                if (d.requestId != null) {
+                    LocalDate dDate = d.dispatchDate != null ? d.dispatchDate : (d.createdAt != null ? d.createdAt.toLocalDate() : null);
+                    LocalDateTime dDateTime = d.createdAt != null ? d.createdAt : (d.dispatchDate != null ? d.dispatchDate.atStartOfDay() : null);
+                    if (dDate != null && (!latestDispatchDateMap.containsKey(d.requestId) || dDate.isAfter(latestDispatchDateMap.get(d.requestId)))) {
+                        latestDispatchDateMap.put(d.requestId, dDate);
+                        latestDispatchDateTimeMap.put(d.requestId, dDateTime);
+                    }
+                }
+            }
+        }
+
+        // 4. Filter requests by Date, Branch, Department, Category, and Search
+        List<CategoryWiseReportItemDto> filteredItems = new ArrayList<>();
+        for (BranchRequest r : requests) {
+            LocalDate rDate = r.requestDate != null ? r.requestDate : (r.createdAt != null ? r.createdAt.toLocalDate() : null);
+            if (date != null) {
+                if (rDate == null || !rDate.equals(date)) continue;
+            } else {
+                if (fromDate != null && rDate != null && rDate.isBefore(fromDate)) continue;
+                if (toDate != null && rDate != null && rDate.isAfter(toDate)) continue;
+            }
+
+            if (branch != null && !branch.isBlank() && !"ALL".equalsIgnoreCase(branch)) {
+                if (!branch.equalsIgnoreCase(r.branch)) continue;
+            }
+
+            String reqDept = (r.department != null && !r.department.isBlank()) ? r.department.trim() : (r.category != null ? r.category.trim() : "Not specified");
+            if (department != null && !department.isBlank() && !"ALL".equalsIgnoreCase(department)) {
+                if (!department.equalsIgnoreCase(reqDept)) continue;
+            }
+
+            String itemCat = itemCategoryCache.getOrDefault(r.item != null ? r.item.trim().toLowerCase() : "", "Uncategorised");
+            if (category != null && !category.isBlank() && !"ALL".equalsIgnoreCase(category)) {
+                if (!category.equalsIgnoreCase(itemCat)) continue;
+            }
+
+            if (search != null && !search.isBlank()) {
+                String s = search.trim().toLowerCase();
+                boolean matchItem = r.item != null && r.item.toLowerCase().contains(s);
+                boolean matchBranch = r.branch != null && r.branch.toLowerCase().contains(s);
+                boolean matchDept = reqDept.toLowerCase().contains(s);
+                boolean matchCat = itemCat.toLowerCase().contains(s);
+                if (!matchItem && !matchBranch && !matchDept && !matchCat) continue;
+            }
+
+            double requestedQty = r.requested;
+            double dispatchedQty = r.dispatched;
+            double pendingQty = Math.max(0, requestedQty - dispatchedQty);
+
+            String dispatchStatus;
+            if (dispatchedQty >= requestedQty && requestedQty > 0) {
+                dispatchStatus = "Dispatched";
+            } else if (dispatchedQty > 0) {
+                dispatchStatus = "Partially Dispatched";
+            } else {
+                dispatchStatus = "Pending";
+            }
+
+            LocalDate dispDate = latestDispatchDateMap.get(r.id);
+            LocalDateTime dispDateTime = latestDispatchDateTimeMap.get(r.id);
+
+            filteredItems.add(new CategoryWiseReportItemDto(
+                    r.id,
+                    r.item,
+                    itemCat,
+                    r.unit,
+                    r.branch,
+                    reqDept,
+                    requestedQty,
+                    dispatchedQty,
+                    pendingQty,
+                    rDate,
+                    dispDate,
+                    dispDateTime,
+                    dispatchStatus,
+                    r.status
+            ));
+        }
+
+        // Sort items by requestDate desc, then branch, then itemName
+        filteredItems.sort((a, b) -> {
+            if (a.requestDate != null && b.requestDate != null && !b.requestDate.equals(a.requestDate)) {
+                return b.requestDate.compareTo(a.requestDate);
+            }
+            if (a.branchName != null && b.branchName != null && !a.branchName.equals(b.branchName)) {
+                return a.branchName.compareTo(b.branchName);
+            }
+            return (a.itemName != null ? a.itemName : "").compareTo(b.itemName != null ? b.itemName : "");
+        });
+
+        // 5. Build Category Summary
+        Map<String, List<CategoryWiseReportItemDto>> itemsByCategory = filteredItems.stream()
+                .collect(Collectors.groupingBy(it -> it.category));
+
+        Set<String> allCategoryNames = new LinkedHashSet<>();
+        if (category != null && !category.isBlank() && !"ALL".equalsIgnoreCase(category)) {
+            allCategoryNames.add(category.trim());
+        } else {
+            List<ItemCategory> masterCats = (orgId != null)
+                    ? categoryRepo.findByOrganisationIdAndActiveTrueOrderByNameAsc(orgId)
+                    : categoryRepo.findAllByActiveTrueOrderByNameAsc();
+            for (ItemCategory mc : masterCats) {
+                if (mc.name != null && !mc.name.isBlank()) {
+                    allCategoryNames.add(mc.name.trim());
+                }
+            }
+            itemsByCategory.keySet().forEach(allCategoryNames::add);
+        }
+
+        List<CategorySummaryDto> summaryList = new ArrayList<>();
+        for (String catName : allCategoryNames) {
+            List<CategoryWiseReportItemDto> catItems = itemsByCategory.getOrDefault(catName, Collections.emptyList());
+
+            int distinctItems = (int) catItems.stream()
+                    .map(it -> it.itemName != null ? it.itemName.toLowerCase().trim() : "")
+                    .filter(s -> !s.isEmpty())
+                    .distinct()
+                    .count();
+
+            Map<String, Double> reqByUnit = new TreeMap<>();
+            Map<String, Double> dispByUnit = new TreeMap<>();
+            Map<String, Double> pendByUnit = new TreeMap<>();
+
+            for (CategoryWiseReportItemDto it : catItems) {
+                String u = it.unit != null ? it.unit.toUpperCase().trim() : "KG";
+                reqByUnit.put(u, reqByUnit.getOrDefault(u, 0.0) + it.requestedQuantity);
+                dispByUnit.put(u, dispByUnit.getOrDefault(u, 0.0) + it.dispatchedQuantity);
+                pendByUnit.put(u, pendByUnit.getOrDefault(u, 0.0) + it.pendingQuantity);
+            }
+
+            summaryList.add(new CategorySummaryDto(catName, distinctItems, reqByUnit, dispByUnit, pendByUnit));
+        }
+
+        summaryList.sort((a, b) -> {
+            boolean aHas = a.totalItems > 0;
+            boolean bHas = b.totalItems > 0;
+            if (aHas != bHas) return aHas ? -1 : 1;
+            return a.category.compareToIgnoreCase(b.category);
+        });
+
+        return new CategoryWiseReportResponse(summaryList, filteredItems);
     }
 }

@@ -6,6 +6,7 @@ import com.annamithra.dto.PurchaseOrderReportDto;
 import com.annamithra.dto.InventoryEntryReportDto;
 import com.annamithra.dto.BranchRequestReportDto;
 import com.annamithra.dto.BranchDispatchReportDto;
+import com.annamithra.dto.CategoryWiseReportResponse;
 import com.annamithra.model.UserSession;
 import com.annamithra.security.SecurityHelper;
 import com.annamithra.service.ReportService;
@@ -81,10 +82,11 @@ public class ReportController {
             @RequestParam(required = false) String search,
             @RequestParam(required = false) String status,
             @RequestParam(required = false) String category,
+            @RequestParam(required = false) String department,
             HttpServletRequest request) {
         UserSession user = security.requireRole(request, "Store Manager", "Organisation Admin", "Master Admin");
         Long orgId = security.requireOrganisationId(user);
-        return reportService.getBranchRequestReport(fromDate, toDate, branch, search, status, category, orgId);
+        return reportService.getBranchRequestReport(fromDate, toDate, branch, search, status, category, department, orgId);
     }
 
     @GetMapping("/dispatches")
@@ -96,9 +98,25 @@ public class ReportController {
             @RequestParam(required = false) String search,
             @RequestParam(required = false) String status,
             @RequestParam(required = false) String category,
+            @RequestParam(required = false) String department,
             HttpServletRequest request) {
         UserSession user = security.requireRole(request, "Store Manager", "Organisation Admin", "Master Admin");
         Long orgId = security.requireOrganisationId(user);
-        return reportService.getBranchDispatchReport(date, fromDate, toDate, branch, search, status, category, orgId);
+        return reportService.getBranchDispatchReport(date, fromDate, toDate, branch, search, status, category, department, orgId);
+    }
+
+    @GetMapping("/category-wise")
+    public CategoryWiseReportResponse getCategoryWiseReport(
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate fromDate,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate toDate,
+            @RequestParam(required = false) String branch,
+            @RequestParam(required = false) String department,
+            @RequestParam(required = false) String category,
+            @RequestParam(required = false) String search,
+            HttpServletRequest request) {
+        UserSession user = security.requireRole(request, "Store Manager", "Organisation Admin", "Master Admin");
+        Long orgId = security.requireOrganisationId(user);
+        return reportService.getCategoryWiseReport(date, fromDate, toDate, branch, department, category, search, orgId);
     }
 }

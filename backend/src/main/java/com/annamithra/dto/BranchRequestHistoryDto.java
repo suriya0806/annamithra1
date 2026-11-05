@@ -13,6 +13,8 @@ public class BranchRequestHistoryDto {
     public String unit;
     public String category;
     public String department;
+    public Long departmentId;
+    public Long itemId;
     public double requested;
     public double dispatched;
     public double received;
@@ -44,5 +46,13 @@ public class BranchRequestHistoryDto {
         this.dispatched = dispatched;
         this.received = received;
         this.status = status;
+    }
+
+    public String getDepartmentName() {
+        return department;
+    }
+
+    public String getItemName() {
+        return item;
     }
 }

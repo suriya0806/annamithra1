@@ -1,1 +1,19 @@
-{"name":"annamithra-frontend","version":"1.0.0","private":true,"type":"module","scripts":{"dev":"vite","build":"vite build","preview":"vite preview"},"dependencies":{"@vitejs/plugin-react":"^4.3.4","jspdf":"^4.2.1","react":"^18.3.1","react-dom":"^18.3.1","vite":"^6.0.5"}}
+{
+  "name": "annamithra-frontend",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@vitejs/plugin-react": "^4.3.4",
+    "html2canvas": "^1.4.1",
+    "jspdf": "^4.2.1",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "vite": "^6.0.5"
+  }
+}

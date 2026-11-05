@@ -282,6 +282,56 @@ public class DataInitializer implements CommandLineRunner {
             jdbcTemplate.execute("ALTER TABLE branch_order_draft ADD COLUMN IF NOT EXISTS department VARCHAR(100)");
         } catch (Exception ignored) {}
 
+        // Add department_id and item_id to branch_request and dispatch
+        try {
+            jdbcTemplate.execute("ALTER TABLE branch_request ADD COLUMN IF NOT EXISTS department_id BIGINT");
+            jdbcTemplate.execute("ALTER TABLE branch_request ADD COLUMN IF NOT EXISTS item_id BIGINT");
+        } catch (Exception ignored) {}
+        try {
+            jdbcTemplate.execute("ALTER TABLE dispatch ADD COLUMN IF NOT EXISTS department_id BIGINT");
+            jdbcTemplate.execute("ALTER TABLE dispatch ADD COLUMN IF NOT EXISTS item_id BIGINT");
+        } catch (Exception ignored) {}
+
+        // Safe backfill of department_id from department table
+        try {
+            jdbcTemplate.execute(
+                "UPDATE branch_request br SET department_id = d.id " +
+                "FROM department d " +
+                "WHERE br.department_id IS NULL AND br.department IS NOT NULL " +
+                "AND LOWER(TRIM(br.department)) = LOWER(TRIM(d.name)) " +
+                "AND (br.organisation_id = d.organisation_id OR d.organisation_id = 1)"
+            );
+        } catch (Exception ignored) {}
+        try {
+            jdbcTemplate.execute(
+                "UPDATE dispatch ds SET department_id = d.id " +
+                "FROM department d " +
+                "WHERE ds.department_id IS NULL AND ds.department IS NOT NULL " +
+                "AND LOWER(TRIM(ds.department)) = LOWER(TRIM(d.name)) " +
+                "AND (ds.organisation_id = d.organisation_id OR d.organisation_id = 1)"
+            );
+        } catch (Exception ignored) {}
+
+        // Safe backfill of item_id from item table
+        try {
+            jdbcTemplate.execute(
+                "UPDATE branch_request br SET item_id = i.id " +
+                "FROM item i " +
+                "WHERE br.item_id IS NULL AND br.item IS NOT NULL " +
+                "AND LOWER(TRIM(br.item)) = LOWER(TRIM(i.name)) " +
+                "AND (br.organisation_id = i.organisation_id OR i.organisation_id = 1)"
+            );
+        } catch (Exception ignored) {}
+        try {
+            jdbcTemplate.execute(
+                "UPDATE dispatch ds SET item_id = i.id " +
+                "FROM item i " +
+                "WHERE ds.item_id IS NULL AND ds.item_name IS NOT NULL " +
+                "AND LOWER(TRIM(ds.item_name)) = LOWER(TRIM(i.name)) " +
+                "AND (ds.organisation_id = i.organisation_id OR i.organisation_id = 1)"
+            );
+        } catch (Exception ignored) {}
+
         // Seed default departments for organisation 1
         String[] defaultDepartments = {
             "General", "Front Office", "Kitchen", "Tea/Coffee", "Vada Stall", "Sweet/Savouries",

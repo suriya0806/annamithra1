@@ -92,26 +92,43 @@ public class BranchRequestService {
                 throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Department is required to place an order");
             }
 
+            final Long initialDeptId = line.departmentId;
+            Long resolvedDeptId = line.departmentId;
             String trimmedDept = effectiveDept.trim();
             String matchedDept = null;
-            if (departmentService != null && departmentService.isValidDepartment(orgId, trimmedDept)) {
-                matchedDept = departmentService.getDepartments(orgId).stream()
-                    .filter(d -> d.name.equalsIgnoreCase(trimmedDept))
-                    .map(d -> d.name)
-                    .findFirst()
-                    .orElse(trimmedDept);
-            } else {
+            if (departmentService != null) {
+                List<com.annamithra.model.Department> orgDepts = departmentService.getDepartments(orgId);
+                if (initialDeptId != null) {
+                    com.annamithra.model.Department match = orgDepts.stream()
+                        .filter(d -> d.id != null && d.id.equals(initialDeptId))
+                        .findFirst()
+                        .orElse(null);
+                    if (match != null) {
+                        matchedDept = match.name;
+                    }
+                }
+                if (matchedDept == null) {
+                    com.annamithra.model.Department match = orgDepts.stream()
+                        .filter(d -> d.name != null && d.name.equalsIgnoreCase(trimmedDept))
+                        .findFirst()
+                        .orElse(null);
+                    if (match != null) {
+                        matchedDept = match.name;
+                        resolvedDeptId = match.id;
+                    }
+                }
+            }
+            if (matchedDept == null) {
                 matchedDept = ALLOWED_CATEGORIES.stream()
-                    .filter(c -> c.equalsIgnoreCase(trimmedDept))
+                    .filter(cat -> cat.equalsIgnoreCase(trimmedDept))
                     .findFirst()
                     .orElse(null);
             }
-
             if (matchedDept == null) {
                 if (trimmedDept.equalsIgnoreCase("Misc") || trimmedDept.equalsIgnoreCase("Other") || trimmedDept.equalsIgnoreCase("Others")) {
                     matchedDept = "General";
                 } else {
-                    throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid department '" + effectiveDept + "'. Please select a valid department.");
+                    matchedDept = trimmedDept;
                 }
             }
 
@@ -122,18 +139,25 @@ public class BranchRequestService {
             Optional<Item> existing = (orgId != null)
                 ? itemRepo.findByOrganisationIdAndNameIgnoreCase(orgId, itemName)
                 : itemRepo.findByNameIgnoreCase(itemName);
+            Item itemRecord;
             if (existing.isEmpty()) {
                 Item newItem = new Item(itemName, unit, 0);
                 newItem.organisationId = orgId;
-                itemRepo.save(newItem);
+                itemRecord = itemRepo.save(newItem);
+            } else {
+                itemRecord = existing.get();
             }
+
+            Long resolvedItemId = line.itemId != null ? line.itemId : itemRecord.id;
 
             BranchRequest br = new BranchRequest();
             br.batchId = batchId;
             br.branch = branchName.trim();
             br.branchId = branchId;
+            br.itemId = resolvedItemId;
             br.item = itemName;
             br.unit = unit;
+            br.departmentId = resolvedDeptId;
             br.category = matchedDept;
             br.department = matchedDept;
             br.requested = line.requestedQuantity;
@@ -325,7 +349,7 @@ public class BranchRequestService {
             if (filterDate != null && !date.equals(filterDate)) {
                 continue;
             }
-            String itemKey = r.item.trim().toLowerCase() + "||" + r.unit.trim().toUpperCase();
+            String itemKey = r.item.trim().toLowerCase() + "||" + r.unit.trim().toUpperCase() + "||" + (r.department != null ? r.department.trim().toLowerCase() : (r.category != null ? r.category.trim().toLowerCase() : "general"));
             dateItemMap.computeIfAbsent(date, d -> new LinkedHashMap<>())
                        .computeIfAbsent(itemKey, k -> new ArrayList<>())
                        .add(r);
@@ -381,7 +405,7 @@ public class BranchRequestService {
                         ? br.requestDate.format(displayDateFmt)
                         : (br.createdAt != null ? br.createdAt.format(displayDateFmt) : "N/A");
 
-                    historyList.add(new BranchRequestHistoryDto(
+                    BranchRequestHistoryDto hist = new BranchRequestHistoryDto(
                         br.id,
                         br.requestDate,
                         formattedReqDate,
@@ -389,12 +413,15 @@ public class BranchRequestService {
                         br.createdAt,
                         br.item,
                         br.unit,
-                        br.category,
+                        br.getDepartment(),
                         br.requested,
                         actualDispatched,
                         actualReceived,
                         br.status
-                    ));
+                    );
+                    hist.department = br.getDepartment();
+                    hist.departmentId = br.departmentId;
+                    historyList.add(hist);
                 }
 
                 // Sort individual history records newest first
@@ -435,7 +462,7 @@ public class BranchRequestService {
                     sectionDate.format(displayDateFmt),
                     displayItem,
                     displayUnit,
-                    group.get(0).category,
+                    group.get(0).getDepartment(),
                     totalRequested,
                     alreadyDispatched,
                     confirmedReceived,

@@ -31,6 +31,14 @@ export function LanguageProvider({ children }) {
     }
   });
 
+  // Sync language attribute on <html> element for CSS font switching
+  useEffect(() => {
+    if (typeof document !== 'undefined') {
+      document.documentElement.lang = language;
+      document.documentElement.setAttribute('data-lang', language);
+    }
+  }, [language]);
+
   const setLanguage = (lang) => {
     const validLang = lang === 'ta' ? 'ta' : 'en';
     setLanguageState(validLang);
@@ -42,17 +50,36 @@ export function LanguageProvider({ children }) {
   };
 
   /**
-   * Main translation function for UI phrases, labels, messages, buttons
+   * Main translation function for UI phrases, labels, messages, buttons.
+   * Guarantees human-readable display labels in English and proper Tamil glyphs in Tamil.
    */
   const t = (key, fallback) => {
     if (!key) return '';
+
+    // If English is active
     if (language === 'en') {
+      // If key is a camelCase developer identifier (e.g. 'requestDate', 'itemName', 'dispatchQty')
+      // and a human-readable English label was provided as fallback, return the fallback!
+      if (fallback && (/^[a-z]+[A-Z0-9]/.test(key) || (/^[a-z]+$/.test(key) && /^[A-Z]/.test(fallback)))) {
+        return fallback;
+      }
       return key;
     }
+
+    // Tamil language mode
     const trimmed = String(key).trim();
     if (dictionary[trimmed]) {
       return dictionary[trimmed];
     }
+    // Also check if fallback has a translation in dictionary
+    if (fallback && dictionary[String(fallback).trim()]) {
+      return dictionary[String(fallback).trim()];
+    }
+    // If fallback is provided and contains Tamil characters, return fallback directly
+    if (fallback && /[\u0B80-\u0BFF]/.test(fallback)) {
+      return fallback;
+    }
+
     return fallback !== undefined ? fallback : key;
   };
 

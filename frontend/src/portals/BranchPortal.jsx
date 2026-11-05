@@ -4,7 +4,7 @@ import { Alert } from '../components/Alert';
 import DateFilterBar, { DateSectionHeader, EmptyDateMessage } from '../components/DateFilterBar';
 import { useAddItemShortcut } from '../utils/useAddItemShortcut';
 import { useLanguage } from '../i18n/LanguageContext';
-import { downloadBranchOrderListPdf } from '../utils/pdfGenerator';
+import { downloadBranchOrderListPdf, downloadBranchRecentRequestsPdf } from '../utils/pdfGenerator';
 import {
   getTodayDateString,
   toLocalDateString,
@@ -125,6 +125,7 @@ export function BranchPortal({ user, activeTab, onSelectTab }) {
   const [loadingDrafts, setLoadingDrafts] = useState(false);
   const [savingDraft, setSavingDraft] = useState(false);
   const [downloadingOrderPdf, setDownloadingOrderPdf] = useState(false);
+  const [downloadingRecentPdf, setDownloadingRecentPdf] = useState(false);
   const [downloadingDraftPdfId, setDownloadingDraftPdfId] = useState(null);
 
   // Review / Edit Draft Modal state
@@ -206,29 +207,114 @@ export function BranchPortal({ user, activeTab, onSelectTab }) {
     }
   };
 
-  // Download Order List PDF
+  // Download Order List PDF (Section A ONLY)
   const handleDownloadOrderListPdf = async () => {
     if (orderItemsList.length === 0) {
-      showAlert('error', language === 'ta' ? 'பதிவிறக்க பட்டியலில் பொருட்கள் எதுவும் இல்லை.' : 'No items in order list to generate PDF.');
+      showAlert('error', language === 'ta'
+        ? 'பதிவிறக்க ஆர்டர் பட்டியலில் பொருட்கள் எதுவும் இல்லை.'
+        : 'No items in order list to generate PDF.');
       return;
     }
 
     try {
       setDownloadingOrderPdf(true);
+      const todayStr = getTodayDateString();
+
       await downloadBranchOrderListPdf({
         organisationName: user?.organisationName || 'Saravana Bhavan',
         branchName: user?.branchName || 'Branch 1',
-        date: getTodayDateString(),
+        branchManager: user?.fullName ? `${user.fullName} (${user.username})` : (user?.username || 'Branch Manager'),
+        date: todayStr,
         items: orderItemsList,
         isDraft: false,
         language
       });
-      showAlert('success', language === 'ta' ? '✓ ஆர்டர் பட்டியல் PDF வெற்றிகரமாக பதிவிறக்கப்பட்டது!' : '✓ Order list PDF downloaded successfully!');
+
+      showAlert('success', language === 'ta'
+        ? '✓ கிளை ஆர்டர் பட்டியல் PDF வெற்றிகரமாக பதிவிறக்கப்பட்டது!'
+        : '✓ Branch Order PDF downloaded successfully!');
     } catch (err) {
-      console.error('Error generating Order List PDF', err);
-      showAlert('error', err.message || (language === 'ta' ? 'PDF உருவாக்குவதில் பிழை' : 'Failed to generate PDF'));
+      console.error('Error generating Order PDF', err);
+      showAlert('error', err.message || (language === 'ta' ? 'PDF உருவாக்குவதில் பிழை' : 'Failed to generate Order PDF'));
     } finally {
       setDownloadingOrderPdf(false);
+    }
+  };
+
+  // Download Recent Requests PDF (Section B ONLY)
+  const handleDownloadRecentRequestsPdf = async () => {
+    try {
+      setDownloadingRecentPdf(true);
+
+      // Fetch fresh matching branch requests using the currently selected date filter
+      const queryDate = requestIsAllDates ? '' : requestFilterDate;
+      let branchRequests = [];
+      try {
+        const fetched = await api.getMyBranchRequests(queryDate);
+        if (Array.isArray(fetched)) {
+          branchRequests = fetched;
+        }
+      } catch (err) {
+        console.warn('Could not re-fetch branch requests for PDF, using state', err);
+        branchRequests = myRequests;
+      }
+
+      // Filter matching current branch and current date filter
+      const bName = (user?.branchName || '').trim().toLowerCase();
+      const bId = user?.branchId;
+
+      const filteredRecent = (branchRequests || []).filter(r => {
+        // Enforce branch isolation (do not include records from other branches)
+        const reqBranch = (r.branch || '').trim().toLowerCase();
+        if (bName && reqBranch && reqBranch !== bName) {
+          if (!bId || !r.branchId || r.branchId !== bId) return false;
+        }
+
+        // Apply date filter
+        if (requestIsAllDates) return true;
+        const d = toLocalDateString(r.requestDate || r.createdAt);
+        return d === requestFilterDate;
+      }).sort((a, b) => {
+        const tA = new Date(a.createdAt || a.requestDate || 0).getTime();
+        const tB = new Date(b.createdAt || b.requestDate || 0).getTime();
+        return tB - tA;
+      });
+
+      if (filteredRecent.length === 0) {
+        showAlert('error', language === 'ta'
+          ? 'தேர்ந்தெடுக்கப்பட்ட வடிகட்டிக்கு சமீபத்திய கோரிக்கைகள் எதுவும் இல்லை.'
+          : 'No recent requests available for the selected date filter.');
+        return;
+      }
+
+      const todayStr = getTodayDateString();
+      let dateFilterLabel = '';
+      if (requestIsAllDates) {
+        dateFilterLabel = language === 'ta' ? 'அனைத்து தேதிகள் (All Dates)' : 'All Dates';
+      } else if (requestFilterDate === todayStr) {
+        dateFilterLabel = language === 'ta' ? `இன்று (${todayStr})` : `Today (${todayStr})`;
+      } else {
+        dateFilterLabel = requestFilterDate;
+      }
+
+      await downloadBranchRecentRequestsPdf({
+        organisationName: user?.organisationName || 'Saravana Bhavan',
+        branchName: user?.branchName || 'Branch 1',
+        branchManager: user?.fullName ? `${user.fullName} (${user.username})` : (user?.username || 'Branch Manager'),
+        date: todayStr,
+        recentRequests: filteredRecent,
+        dateFilterLabel,
+        language
+      });
+
+      showAlert('success', language === 'ta'
+        ? '✓ சமீபத்திய கோரிக்கைகள் PDF வெற்றிகரமாக பதிவிறக்கப்பட்டது!'
+        : '✓ Recent Requests PDF downloaded successfully!');
+    } catch (err) {
+      console.error('Error generating Recent Requests PDF', err);
+      showAlert('error', err.message || (language === 'ta' ? 'PDF உருவாக்குவதில் பிழை' : 'Failed to generate Recent Requests PDF'));
+    } finally {
+      setDownloadingRecentPdf(false);
     }
   };
 
@@ -1444,12 +1530,12 @@ export function BranchPortal({ user, activeTab, onSelectTab }) {
                     fontSize: 12.5,
                     borderRadius: 6
                   }}
-                  title={language === 'ta' ? 'தற்போதைய ஆர்டர் பட்டியலை PDF ஆக பதிவிறக்கவும்' : 'Download current order list as PDF'}
+                  title={language === 'ta' ? 'கிளை ஆர்டர் பட்டியலை PDF ஆக பதிவிறக்கவும்' : 'Print / Download Order PDF'}
                 >
                   <span>📄</span>
                   {downloadingOrderPdf
                     ? (language === 'ta' ? 'தயாராகிறது...' : 'Generating...')
-                    : (language === 'ta' ? 'PDF அச்சிடு / பதிவிறக்கு' : 'Print / Download PDF')}
+                    : (language === 'ta' ? 'ஆர்டர் PDF அச்சிடு / பதிவிறக்கு' : 'Print / Download Order PDF')}
                 </button>
               </div>
 
@@ -1980,13 +2066,38 @@ export function BranchPortal({ user, activeTab, onSelectTab }) {
                   Requests recorded and organized by their original request creation dates and timestamps.
                 </p>
               </div>
-              <button
-                type="button"
-                className="secondary small"
-                onClick={() => loadMyRequests(requestFilterDate, requestIsAllDates)}
-              >
-                ↻ Refresh
-              </button>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                <button
+                  type="button"
+                  className="secondary small"
+                  id="btn-download-recent-requests-pdf"
+                  onClick={handleDownloadRecentRequestsPdf}
+                  disabled={myRequests.length === 0 || downloadingRecentPdf}
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    height: 34,
+                    padding: '0 12px',
+                    fontWeight: 600,
+                    fontSize: 12.5,
+                    borderRadius: 6
+                  }}
+                  title={language === 'ta' ? 'சமீபத்திய கோரிக்கைகளை PDF ஆக பதிவிறக்கவும்' : 'Print / Download Recent Requests PDF'}
+                >
+                  <span>📄</span>
+                  {downloadingRecentPdf
+                    ? (language === 'ta' ? 'தயாராகிறது...' : 'Generating...')
+                    : (language === 'ta' ? 'சமீபத்திய கோரிக்கைகள் PDF' : 'Print / Download Recent Requests PDF')}
+                </button>
+                <button
+                  type="button"
+                  className="secondary small"
+                  onClick={() => loadMyRequests(requestFilterDate, requestIsAllDates)}
+                >
+                  ↻ Refresh
+                </button>
+              </div>
             </div>
 
             <DateFilterBar
@@ -2037,6 +2148,7 @@ export function BranchPortal({ user, activeTab, onSelectTab }) {
                           <tr>
                             <th>{t('Request Date & Time', 'Request Date & Time')}</th>
                             <th>{t('Item Name', 'Item Name')}</th>
+                            <th>{t('Department', 'துறை')}</th>
                             <th>{t('Unit', 'Unit')}</th>
                             <th>{t('Requested Quantity', 'Requested Quantity')}</th>
                             <th>{t('Dispatched Quantity', 'Dispatched Quantity')}</th>
@@ -2049,6 +2161,11 @@ export function BranchPortal({ user, activeTab, onSelectTab }) {
                             <tr key={r.id}>
                               <td>{formatDateTime(r.createdAt || r.requestDate, language)}</td>
                               <td><b>{translateItem(r.item)}</b></td>
+                              <td>
+                                <span style={{ background: '#e2ece9', color: '#003B2B', padding: '2px 8px', borderRadius: 4, fontSize: 12, fontWeight: 600 }}>
+                                  {translateCategory(r.department || r.category || 'General')}
+                                </span>
+                              </td>
                               <td>{translateUnit(r.unit)}</td>
                               <td>{r.requested}</td>
                               <td><span style={{ fontWeight: 600, color: '#8c671b' }}>{r.dispatched || 0}</span></td>
@@ -2079,6 +2196,7 @@ export function BranchPortal({ user, activeTab, onSelectTab }) {
                       <tr>
                         <th>{t('Request Date & Time', 'Request Date & Time')}</th>
                         <th>{t('Item Name', 'Item Name')}</th>
+                        <th>{t('Department', 'துறை')}</th>
                         <th>{t('Unit', 'Unit')}</th>
                         <th>{t('Requested Quantity', 'Requested Quantity')}</th>
                         <th>{t('Dispatched Quantity', 'Dispatched Quantity')}</th>
@@ -2091,6 +2209,11 @@ export function BranchPortal({ user, activeTab, onSelectTab }) {
                         <tr key={r.id}>
                           <td>{formatDateTime(r.createdAt || r.requestDate, language)}</td>
                           <td><b>{translateItem(r.item)}</b></td>
+                          <td>
+                            <span style={{ background: '#e2ece9', color: '#003B2B', padding: '2px 8px', borderRadius: 4, fontSize: 12, fontWeight: 600 }}>
+                              {translateCategory(r.department || r.category || 'General')}
+                            </span>
+                          </td>
                           <td>{translateUnit(r.unit)}</td>
                           <td>{r.requested}</td>
                           <td><span style={{ fontWeight: 600, color: '#8c671b' }}>{r.dispatched || 0}</span></td>

@@ -3,6 +3,30 @@
    Palette grounded in the official Annamithra Emblem
    ========================================================================== */
 
+@font-face {
+  font-family: 'Noto Sans Tamil';
+  src: url('/fonts/NotoSansTamil-Regular.ttf') format('truetype');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Noto Sans Tamil';
+  src: url('/fonts/NotoSansTamil-Bold.ttf') format('truetype');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+[data-lang="en"], html[lang="en"] {
+  --font-family-body: var(--font-family-english);
+}
+
+[data-lang="ta"], html[lang="ta"] {
+  --font-family-body: var(--font-family-tamil);
+}
+
 :root {
   /* Core Brand Tokens */
   --primary-dark-green: #003B2B;
@@ -37,9 +61,13 @@
   --cream:              var(--cream-bg);
   --cream-dark:         #EDE5D1;
   --line:               var(--border-color);
+  --muted-text:         var(--text-muted);
+  --muted:              var(--text-muted);
 
   /* Typography */
-  --font-family-body:    'Outfit', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-family-english: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  --font-family-tamil:   'Noto Sans Tamil', 'Inter', 'Nirmala UI', system-ui, sans-serif;
+  --font-family-body:    var(--font-family-english);
   --font-family-heading: 'Cinzel', 'Playfair Display', Georgia, serif;
 }
 
@@ -56,6 +84,8 @@ body {
   color: var(--dark-text);
   min-height: 100vh;
   -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
 }
 
 /* ==========================================================================
@@ -73,7 +103,11 @@ button {
   color: var(--dark-text);
   border-radius: 6px;
   padding: 8px 16px;
-  font-weight: 500;
+  font-family: var(--font-family-body);
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.4;
+  letter-spacing: 0.1px;
   transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
   display: inline-flex;
   align-items: center;
@@ -119,8 +153,9 @@ button.secondary:hover:not(:disabled) {
 }
 
 button.small {
-  padding: 5px 11px;
-  font-size: 12px;
+  padding: 6px 12px;
+  font-size: 13px;
+  font-weight: 500;
   border-radius: 5px;
 }
 
@@ -161,7 +196,7 @@ label {
   flex-direction: column;
   gap: 6px;
   font-weight: 600;
-  font-size: 13px;
+  font-size: 13.5px;
   color: var(--primary-dark-green);
 }
 
@@ -444,15 +479,15 @@ label {
   border: 1px solid transparent;
   background: transparent;
   font-weight: 600;
-  font-size: 13.5px;
-  padding: 6px 12px;
+  font-size: 14px;
+  padding: 6px 14px;
   border-radius: 6px;
   white-space: nowrap;
   color: var(--primary-dark-green);
   transition: all 0.15s ease;
   flex-shrink: 0;
   cursor: pointer;
-  line-height: 1.3;
+  line-height: 1.35;
 }
 
 .nav-item:hover {
@@ -957,7 +992,7 @@ label {
 
 .subnav-btn {
   padding: 7px 16px;
-  font-size: 13.5px;
+  font-size: 14px;
   font-weight: 600;
   border-radius: 20px;
   border: 1px solid var(--border-color);
@@ -999,18 +1034,21 @@ label {
 }
 
 .page-header h2 {
-  font-size: 22px;
+  font-size: 24px;
   color: var(--primary-dark-green);
   margin: 0;
   font-weight: 700;
+  line-height: 1.3;
   letter-spacing: -0.2px;
 }
 
 .page h3 {
-  font-size: 16px;
+  font-size: 18px;
   color: var(--primary-dark-green);
   margin: 20px 0 12px;
-  font-weight: 700;
+  font-weight: 600;
+  line-height: 1.35;
+  letter-spacing: -0.1px;
 }
 
 .narrow {
@@ -1035,9 +1073,11 @@ label {
 }
 
 .card-title {
-  font-size: 16px;
-  font-weight: 700;
+  font-size: 18px;
+  font-weight: 600;
+  line-height: 1.35;
   color: var(--primary-dark-green);
+  letter-spacing: -0.1px;
   margin: 0;
 }
 
@@ -1101,14 +1141,24 @@ th, td {
   border-right: 1px solid var(--border-color);
   border-bottom: 1px solid var(--border-color);
   vertical-align: middle;
+  font-family: var(--font-family-body);
+}
+
+td {
+  font-size: 14px;
+  line-height: 1.45;
+  color: var(--dark-text);
 }
 
 th {
   background: var(--table-header-bg);
-  font-weight: 700;
-  font-size: 12.5px;
+  font-family: var(--font-family-body);
+  font-weight: 600;
+  font-size: 14px;
+  line-height: 1.4;
   color: var(--primary-dark-green);
   white-space: nowrap;
+  letter-spacing: 0.1px;
 }
 
 th:last-child, td:last-child {
@@ -1149,6 +1199,14 @@ td input {
   max-width: 320px;
   min-width: 180px;
   flex: 1;
+}
+
+/* Secondary / Muted Information: 12-13px, regular */
+.muted {
+  color: var(--text-muted);
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 1.45;
 }
 
 /* ==========================================================================

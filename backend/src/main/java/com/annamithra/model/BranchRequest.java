@@ -25,6 +25,8 @@ public class BranchRequest {
 
     public Long branchId;
 
+    public Long itemId;
+
     @Column(nullable = false)
     public String item;
 
@@ -35,6 +37,8 @@ public class BranchRequest {
     public double requested;
 
     public String category;
+
+    public Long departmentId;
 
     @Column(length = 100)
     public String department;
@@ -53,6 +57,21 @@ public class BranchRequest {
             this.department = dep.trim();
             this.category = dep.trim();
         }
+    }
+
+    @com.fasterxml.jackson.annotation.JsonProperty("departmentName")
+    public String getDepartmentName() {
+        return getDepartment();
+    }
+
+    @com.fasterxml.jackson.annotation.JsonProperty("itemName")
+    public String getItemName() {
+        return item;
+    }
+
+    @com.fasterxml.jackson.annotation.JsonProperty("requestedQuantity")
+    public double getRequestedQuantity() {
+        return requested;
     }
 
     public double dispatched = 0; // Already Dispatched Quantity

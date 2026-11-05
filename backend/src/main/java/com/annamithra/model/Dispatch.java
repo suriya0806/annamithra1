@@ -23,16 +23,30 @@ public class Dispatch {
 
     public Long branchId;
 
+    public Long itemId;
+
     @Column(nullable = false)
     public String itemName;
 
+    public Long departmentId;
+
     @Column(length = 100)
     public String department;
+
+    @com.fasterxml.jackson.annotation.JsonProperty("departmentName")
+    public String getDepartmentName() {
+        return department;
+    }
 
     public String unit = "KG";
 
     @Column(nullable = false)
     public double quantity; // Dispatched Quantity
+
+    @com.fasterxml.jackson.annotation.JsonProperty("dispatchedQuantity")
+    public double getDispatchedQuantity() {
+        return quantity;
+    }
 
     public boolean isAdditional = false;
 

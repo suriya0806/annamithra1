@@ -562,7 +562,7 @@ export const api = {
     const qs = params.toString();
     return request(`/api/reports/inventory-entries${qs ? `?${qs}` : ''}`);
   },
-  getBranchRequestReport: ({ fromDate, toDate, branch, search, status, category } = {}) => {
+  getBranchRequestReport: ({ fromDate, toDate, branch, search, status, category, department } = {}) => {
     const params = new URLSearchParams();
     if (fromDate) params.append('fromDate', fromDate);
     if (toDate) params.append('toDate', toDate);
@@ -570,10 +570,11 @@ export const api = {
     if (search) params.append('search', search);
     if (status && status !== 'ALL') params.append('status', status);
     if (category && category !== 'ALL') params.append('category', category);
+    if (department && department !== 'ALL') params.append('department', department);
     const qs = params.toString();
     return request(`/api/reports/branch-requests${qs ? `?${qs}` : ''}`);
   },
-  getBranchDispatchReport: ({ date, fromDate, toDate, branch, search, status, category } = {}) => {
+  getBranchDispatchReport: ({ date, fromDate, toDate, branch, search, status, category, department } = {}) => {
     const params = new URLSearchParams();
     if (date) params.append('date', date);
     if (fromDate) params.append('fromDate', fromDate);
@@ -582,8 +583,21 @@ export const api = {
     if (search) params.append('search', search);
     if (status && status !== 'ALL') params.append('status', status);
     if (category && category !== 'ALL') params.append('category', category);
+    if (department && department !== 'ALL') params.append('department', department);
     const qs = params.toString();
     return request(`/api/reports/dispatches${qs ? `?${qs}` : ''}`);
+  },
+  getCategoryWiseReport: ({ date, fromDate, toDate, branch, department, category, search } = {}) => {
+    const params = new URLSearchParams();
+    if (date) params.append('date', date);
+    if (fromDate) params.append('fromDate', fromDate);
+    if (toDate) params.append('toDate', toDate);
+    if (branch && branch !== 'ALL') params.append('branch', branch);
+    if (department && department !== 'ALL') params.append('department', department);
+    if (category && category !== 'ALL') params.append('category', category);
+    if (search) params.append('search', search);
+    const qs = params.toString();
+    return request(`/api/reports/category-wise${qs ? `?${qs}` : ''}`);
   },
 
   // Master Admin

@@ -1286,8 +1286,10 @@ export function StorePortal({ activeTab }) {
       const itemId = cMatch ? cMatch.id : (req.itemId || (req.item || '').trim().toLowerCase());
       const unit = (req.unit || 'KG').trim().toUpperCase();
       const itemName = req.item ? req.item.trim() : '';
+      const deptName = (req.departmentName || req.department || req.category || 'General').trim();
+      const deptId = req.departmentId || null;
 
-      const groupKey = `${branchId}_${itemId}_${unit}`.toLowerCase();
+      const groupKey = `${branchId}_${itemId}_${deptName}_${unit}`.toLowerCase();
 
       if (!groupMap.has(groupKey)) {
         groupMap.set(groupKey, {
@@ -1297,6 +1299,8 @@ export function StorePortal({ activeTab }) {
           itemId,
           itemName,
           unit,
+          department: deptName,
+          departmentId: deptId,
           totalRequested: 0,
           alreadyDispatched: 0,
           remainingToDispatch: 0,
@@ -1419,7 +1423,8 @@ export function StorePortal({ activeTab }) {
         requests: allBranchRequests,
         dateFilter: dispatchReqDate,
         isAllDates: !dispatchReqDate,
-        language
+        language,
+        catalogueItems
       });
       showAlert('success', language === 'ta'
         ? '✓ அனைத்து கிளைகளின் கோரிக்கைகள் அறிக்கை PDF வெற்றிகரமாக பதிவிறக்கப்பட்டது!'
@@ -1446,7 +1451,8 @@ export function StorePortal({ activeTab }) {
         dateFilter: dispatchReqDate,
         isAllDates: !dispatchReqDate,
         language,
-        singleBranch: branch
+        singleBranch: branch,
+        catalogueItems
       });
       showAlert('success', language === 'ta'
         ? `✓ ${branchName} கிளையின் கோரிக்கை அறிக்கை PDF வெற்றிகரமாக பதிவிறக்கப்பட்டது!`
@@ -1499,9 +1505,15 @@ export function StorePortal({ activeTab }) {
         const reqRemaining = Math.max(0, (req.requested || 0) - (req.dispatched || 0));
         if (reqRemaining <= 0) continue;
         const toAlloc = Math.min(needed, reqRemaining);
+        const reqDept = (req.departmentName || req.department || req.category || group.department || 'General').trim();
+        const reqDeptId = req.departmentId || group.departmentId || null;
         itemsToDispatch.push({
           requestId: req.id,
+          itemId: req.itemId || group.itemId || null,
           itemName: req.item,
+          department: reqDept,
+          departmentId: reqDeptId,
+          departmentName: reqDept,
           unit: req.unit,
           dispatchQty: toAlloc,
           isAdditional: false
@@ -1513,7 +1525,11 @@ export function StorePortal({ activeTab }) {
       if (needed > 0) {
         itemsToDispatch.push({
           requestId: null,
+          itemId: group.itemId || null,
           itemName: group.itemName,
+          department: group.department || 'General',
+          departmentId: group.departmentId || null,
+          departmentName: group.department || 'General',
           unit: group.unit,
           dispatchQty: needed,
           isAdditional: true
@@ -2400,7 +2416,7 @@ export function StorePortal({ activeTab }) {
                               {group.orderDateTime ? formatDisplayDateTime(group.orderDateTime) : formatDisplayDate(group.orderDate)}
                             </td>
                             <td style={{ textAlign: 'center', fontSize: 12, fontWeight: 600 }}>
-                              {group.totalItems} {t('items', 'Items')}
+                              {group.totalItems} {t('Items', 'பொருட்கள்')}
                             </td>
                             <td style={{ textAlign: 'center', whiteSpace: 'nowrap' }}>
                               {group.remainingItemsCount > 0 ? (
@@ -2414,7 +2430,7 @@ export function StorePortal({ activeTab }) {
                                     fontSize: 11
                                   }}
                                 >
-                                  {group.remainingItemsCount} {t('items', 'Items')} {t('Pending', 'Remaining')}
+                                  {group.remainingItemsCount} {t('Items', 'பொருட்கள்')} {t('Pending', 'Remaining')}
                                 </span>
                               ) : (
                                 <span className="badge badge-completed" style={{ fontSize: 11 }}>
@@ -2514,7 +2530,7 @@ export function StorePortal({ activeTab }) {
                                   marginLeft: 4
                                 }}
                               >
-                                {group.remainingItemsCount} {t('items', 'Items')} {t('Pending', 'Remaining')}
+                                {group.remainingItemsCount} {t('Items', 'பொருட்கள்')} {t('Pending', 'Remaining')}
                               </span>
                             )}
                           </div>
@@ -2903,7 +2919,7 @@ export function StorePortal({ activeTab }) {
               type="button"
               className="subnav-btn active"
             >
-              {t('dispatch', 'Dispatch')}
+              {t('Dispatch', 'விநியோகம்')}
             </button>
           </div>
 
@@ -2925,7 +2941,7 @@ export function StorePortal({ activeTab }) {
                     whiteSpace: 'nowrap'
                   }}
                 >
-                  <span>📅</span> {t('requestDate:', 'Request Date:')}
+                  <span>📅</span> {t('Request Date:', 'கோரிக்கை தேதி:')}
                 </label>
 
                 <input
@@ -2968,7 +2984,7 @@ export function StorePortal({ activeTab }) {
                   }}
                   title={language === 'ta' ? 'இன்று சமர்ப்பிக்கப்பட்ட கோரிக்கைகள்' : 'View requests submitted today'}
                 >
-                  {t('today', 'Today')}
+                  {t('Today', 'இன்று')}
                 </button>
 
                 <button
@@ -2989,7 +3005,7 @@ export function StorePortal({ activeTab }) {
                   }}
                   title={language === 'ta' ? 'அனைத்து தேதிகளின் நிலுவை கோரிக்கைகள்' : 'View outstanding requests across all dates'}
                 >
-                  {t('allDates', 'All Dates')}
+                  {t('All Dates', 'அனைத்து தேதிகள்')}
                 </button>
 
                 <span
@@ -3002,11 +3018,11 @@ export function StorePortal({ activeTab }) {
                   }}
                 >
                   {!dispatchReqDate ? (
-                    t('allDates', 'Showing All Dates')
+                    t('Showing All Dates', 'அனைத்து தேதிகளும் காட்டப்படுகின்றன')
                   ) : (
                     dispatchReqDate === getTodayDateString()
-                      ? `${t('today', 'Today')}: ${formatDDMMYYYY(getTodayDateString())}`
-                      : `${t('date', 'Date')}: ${formatDDMMYYYY(dispatchReqDate)}`
+                      ? `${t('Today', 'இன்று')}: ${formatDDMMYYYY(getTodayDateString())}`
+                      : `${t('Date', 'தேதி')}: ${formatDDMMYYYY(dispatchReqDate)}`
                   )}
                 </span>
               </div>
@@ -3035,7 +3051,7 @@ export function StorePortal({ activeTab }) {
                   style={{ height: 32, padding: '0 10px', fontSize: 12 }}
                   title={language === 'ta' ? 'புதுப்பிக்கவும்' : 'Refresh All Branches'}
                 >
-                  ↻ {t('refresh', 'Refresh')}
+                  ↻ {t('Refresh', 'புதுப்பி')}
                 </button>
 
                 <button
@@ -3202,7 +3218,7 @@ export function StorePortal({ activeTab }) {
                           }}
                           title={language === 'ta' ? `${bName} கிளைக்கு கூடுதல் உருப்படியைச் சேர்` : `Add Additional Non-Requested Item to ${bName}`}
                         >
-                          <span>➕</span> {t('addItem', 'Add Item')}
+                          <span>➕</span> {t('Add Item', 'பொருள் சேர்')}
                         </button>
                       </div>
                     </div>
@@ -3227,13 +3243,13 @@ export function StorePortal({ activeTab }) {
                           <table className="compact-table" style={{ margin: 0, width: '100%', minWidth: 680 }}>
                             <thead>
                               <tr>
-                                <th>{t('itemName', 'Item Name')}</th>
-                                <th>{t('unit', 'Unit')}</th>
-                                <th style={{ textAlign: 'right' }}>{t('totalRequested', 'Total Requested')}</th>
-                                <th style={{ textAlign: 'right' }}>{t('alreadyDispatched', 'Already Dispatched')}</th>
-                                <th style={{ textAlign: 'right' }}>{t('centralStockAvailable', 'Central Stock Available')}</th>
-                                <th style={{ textAlign: 'center', width: 140 }}>{t('dispatchQty', 'Dispatch Qty')}</th>
-                                <th style={{ textAlign: 'right' }}>{t('remainingToDispatch', 'Remaining to Dispatch')}</th>
+                                <th>{t('Item Name', 'பொருளின் பெயர்')}</th>
+                                <th>{t('Unit', 'அலகு')}</th>
+                                <th style={{ textAlign: 'right' }}>{t('Total Requested', 'மொத்த கோரிக்கை')}</th>
+                                <th style={{ textAlign: 'right' }}>{t('Already Dispatched', 'ஏற்கனவே அனுப்பப்பட்டது')}</th>
+                                <th style={{ textAlign: 'right' }}>{t('Central Stock Available', 'மையத்தில் உள்ள இருப்பு')}</th>
+                                <th style={{ textAlign: 'center', width: 140 }}>{t('Dispatch Quantity', 'விநியோக அளவு')}</th>
+                                <th style={{ textAlign: 'right' }}>{t('Remaining to Dispatch', 'மீதமுள்ள விநியோகம்')}</th>
                               </tr>
                             </thead>
                             <tbody>
@@ -3266,34 +3282,23 @@ export function StorePortal({ activeTab }) {
                                             {item.requests.length} {language === 'ta' ? 'கோரிக்கைகள்' : 'reqs'}
                                           </span>
                                         )}
-                                        {/* Ordering Department Badge */}
-                                        {(() => {
-                                          const depts = Array.from(new Set((item.requests || []).map(r => r.department || r.category).filter(Boolean)));
-                                          if (depts.length === 0) return null;
-                                          return (
-                                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 4 }}>
-                                              {depts.map(d => (
-                                                <span
-                                                  key={d}
-                                                  style={{
-                                                    fontSize: 10.5,
-                                                    fontWeight: 600,
-                                                    background: '#e0f2fe',
-                                                    color: '#0369a1',
-                                                    padding: '1px 6px',
-                                                    borderRadius: 4,
-                                                    display: 'inline-flex',
-                                                    alignItems: 'center',
-                                                    gap: 3
-                                                  }}
-                                                  title={`Ordering Department: ${d}`}
-                                                >
-                                                  🏢 {translateCategory(d)}
-                                                </span>
-                                              ))}
-                                            </div>
-                                          );
-                                        })()}
+                                      </td>
+                                      <td>
+                                        <span
+                                          style={{
+                                            fontSize: 12,
+                                            fontWeight: 600,
+                                            background: '#e0f2fe',
+                                            color: '#0369a1',
+                                            padding: '2px 8px',
+                                            borderRadius: 4,
+                                            display: 'inline-flex',
+                                            alignItems: 'center',
+                                            gap: 3
+                                          }}
+                                        >
+                                          🏢 {translateCategory(item.department || item.requests?.[0]?.department || 'General')}
+                                        </span>
                                       </td>
                                       <td>{translateUnit(item.unit)}</td>
                                       <td style={{ textAlign: 'right', fontWeight: 600 }}>{item.totalRequested}</td>
@@ -3348,12 +3353,12 @@ export function StorePortal({ activeTab }) {
                                             style={{ height: 32, padding: '0 6px', fontSize: 11 }}
                                             title={`Fill requested amount (${unfulfilled})`}
                                           >
-                                            {t('max', 'Max')}
+                                            {t('Max', 'அதிகபட்சம்')}
                                           </button>
                                         </div>
                                         {exceedsStock && (
                                           <div style={{ color: '#b45309', fontSize: 10, marginTop: 2, fontWeight: 600 }}>
-                                            ⚠️ {t('exceedsStock', 'Exceeds stock')} ({centralStock})
+                                            ⚠️ {t('Exceeds stock', 'இருப்பை விட அதிகம்')} ({centralStock})
                                           </div>
                                         )}
                                       </td>
@@ -3373,7 +3378,7 @@ export function StorePortal({ activeTab }) {
                                 })
                               ) : (
                                 <tr>
-                                  <td colSpan="7" className="empty" style={{ padding: '24px 12px' }}>
+                                  <td colSpan="8" className="empty" style={{ padding: '24px 12px' }}>
                                     {language === 'ta'
                                       ? `${bName} கிளைக்கு நிலுவையில் உள்ள கோரிக்கைகள் இல்லை. கீழே கூடுதல் பொருட்களை அனுப்பலாம்.`
                                       : `No unfulfilled requests for ${bName}${dispatchReqDate ? ` on ${formatDisplayDate(dispatchReqDate)}` : ''}. You can dispatch additional items below.`}
@@ -3389,10 +3394,10 @@ export function StorePortal({ activeTab }) {
                       <div style={{ marginTop: 12, paddingTop: 10, borderTop: '1px dashed var(--border-color)' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
                           <h4 style={{ margin: 0, color: 'var(--primary-dark-green)', fontSize: 13, display: 'flex', alignItems: 'center', gap: 6 }}>
-                            <span>➕</span> {t('additionalNonRequestedItems', 'Additional Non-Requested Items')}
+                            <span>➕</span> {t('Additional Items', 'கூடுதல் பொருட்கள்')}
                             {branchAdditional.length > 0 && (
                               <span className="badge badge-ordered" style={{ fontSize: 10 }}>
-                                {branchAdditional.length} {t('added', 'Added')}
+                                {branchAdditional.length} {t('Added', 'சேர்க்கப்பட்டது')}
                               </span>
                             )}
                           </h4>
@@ -3409,12 +3414,12 @@ export function StorePortal({ activeTab }) {
                             <table className="compact-table" style={{ margin: 0, minWidth: 680 }}>
                               <thead>
                                 <tr>
-                                  <th>{t('itemName', 'Item Name')}</th>
-                                  <th>{t('unit', 'Unit')}</th>
-                                  <th>{t('itemType', 'Item Type')}</th>
-                                  <th style={{ textAlign: 'right' }}>{t('centralStockAvailable', 'Central Stock Available')}</th>
-                                  <th style={{ textAlign: 'center', width: 140 }}>{t('dispatchQty', 'Dispatch Qty')}</th>
-                                  <th style={{ textAlign: 'center' }}>{t('action', 'Action')}</th>
+                                  <th>{t('Item Name', 'பொருளின் பெயர்')}</th>
+                                  <th>{t('Unit', 'அலகு')}</th>
+                                  <th>{t('Item Type', 'பொருள் வகை')}</th>
+                                  <th style={{ textAlign: 'right' }}>{t('Central Stock Available', 'மையத்தில் உள்ள இருப்பு')}</th>
+                                  <th style={{ textAlign: 'center', width: 140 }}>{t('Dispatch Quantity', 'விநியோக அளவு')}</th>
+                                  <th style={{ textAlign: 'center' }}>{t('Action', 'செயல்')}</th>
                                 </tr>
                               </thead>
                               <tbody>
@@ -3463,7 +3468,7 @@ export function StorePortal({ activeTab }) {
                                             fontWeight: 600
                                           }}
                                         >
-                                          {t('additionalItem', 'Additional Item')}
+                                          {t('Additional Item', 'கூடுதல் பொருள்')}
                                         </span>
                                       </td>
                                       <td style={{ textAlign: 'right' }}>
@@ -3508,7 +3513,7 @@ export function StorePortal({ activeTab }) {
                                         />
                                         {exceedsAddStock && (
                                           <div style={{ color: '#b45309', fontSize: 10, marginTop: 2, fontWeight: 600 }}>
-                                            ⚠️ {t('exceedsStock', 'Exceeds stock')} ({addStock})
+                                            ⚠️ {t('Exceeds stock', 'இருப்பை விட அதிகம்')} ({addStock})
                                           </div>
                                         )}
                                       </td>
@@ -3519,7 +3524,7 @@ export function StorePortal({ activeTab }) {
                                           onClick={() => handleRemoveAdditionalItem(bName, item.id)}
                                           style={{ height: 28, padding: '0 8px', fontSize: 11 }}
                                         >
-                                          ✕ {t('remove', 'Remove')}
+                                          ✕ {t('Remove', 'நீக்கு')}
                                         </button>
                                       </td>
                                     </tr>
@@ -3726,13 +3731,13 @@ export function StorePortal({ activeTab }) {
                       loadAlreadyOrderedToday();
                     }}
                   >
-                    ↻ {t('refresh', 'Refresh')}
+                    ↻ {t('Refresh', 'புதுப்பி')}
                   </button>
                 </div>
 
                 <div style={{ marginBottom: 16 }}>
                   <DateFilterBar
-                    label={t('filterByRequestDate:', 'Filter by Request Date:')}
+                    label={t('Filter by Request Date:', 'கோரிக்கை தேதி வாரியாக வடிகட்டு:')}
                     selectedDate={consolidatedReqDate}
                     isAllDates={consolidatedIsAllDates}
                     onDateChange={d => {
@@ -3748,7 +3753,7 @@ export function StorePortal({ activeTab }) {
                 </div>
 
                 <DateSectionHeader
-                  date={consolidatedIsAllDates ? t('allDates', 'All Dates') : consolidatedReqDate}
+                  date={consolidatedIsAllDates ? t('All Dates', 'அனைத்து தேதிகள்') : consolidatedReqDate}
                   count={displayedConsolidatedItems.length}
                   unit={t('consolidated requirements', 'consolidated requirements')}
                 />
@@ -3765,8 +3770,8 @@ export function StorePortal({ activeTab }) {
                             aria-label="Select all requirement rows"
                           />
                         </th>
-                        <th>{t('itemName', 'Item Name')}</th>
-                        <th>{t('unit', 'Unit')}</th>
+                        <th>{t('Item Name', 'பொருளின் பெயர்')}</th>
+                        <th>{t('Unit', 'அலகு')}</th>
                         <th style={{ textAlign: 'right' }}>{t('Total Requirement Quantity', 'Total Requirement Quantity')}</th>
                       </tr>
                     </thead>
@@ -3803,7 +3808,7 @@ export function StorePortal({ activeTab }) {
                         <tr>
                           <td colSpan="4" className="empty">
                             {loading
-                              ? t('loading', 'Calculating requirements...')
+                              ? t('Calculating requirements...', 'தேவைகள் கணக்கிடப்படுகின்றன...')
                               : (consolidatedReqDate && !consolidatedIsAllDates
                                   ? (language === 'ta' ? 'இந்த தேதிக்கான நிலுவை கிளை தேவைகள் எதுவும் கிடைக்கவில்லை.' : 'No outstanding branch requirements found for this date.')
                                   : (language === 'ta' ? 'நிலுவை கிளை தேவைகள் எதுவும் கிடைக்கவில்லை.' : 'No outstanding branch requirements found.'))}
@@ -3843,7 +3848,7 @@ export function StorePortal({ activeTab }) {
                     onClick={loadAlreadyOrderedToday}
                     disabled={loadingAlreadyOrdered}
                   >
-                    {loadingAlreadyOrdered ? t('loading', 'Refreshing...') : `↻ ${language === 'ta' ? 'இன்றைய ஆர்டர்களைப் புதுப்பி' : "Refresh Today's Orders"}`}
+                    {loadingAlreadyOrdered ? t('Refreshing...', 'புதுப்பிக்கப்படுகிறது...') : `↻ ${language === 'ta' ? 'இன்றைய ஆர்டர்களைப் புதுப்பி' : "Refresh Today's Orders"}`}
                   </button>
                 </div>
 
@@ -3852,8 +3857,8 @@ export function StorePortal({ activeTab }) {
                     <thead>
                       <tr>
                         <th>{t('Order Number', 'Order Number')}</th>
-                        <th>{t('itemName', 'Item Name')}</th>
-                        <th>{t('unit', 'Unit')}</th>
+                        <th>{t('Item Name', 'பொருளின் பெயர்')}</th>
+                        <th>{t('Unit', 'அலகு')}</th>
                         <th style={{ textAlign: 'right' }}>{t('Ordered Quantity', 'Ordered Quantity')}</th>
                         <th>{t('Order Date & Time', 'Order Date & Time')}</th>
                         <th style={{ textAlign: 'center' }}>{t('status', 'Status')}</th>
@@ -4001,12 +4006,12 @@ export function StorePortal({ activeTab }) {
                 <table>
                   <thead>
                     <tr>
-                      <th>{t('itemName', 'Item Name')}</th>
-                      <th>{t('unit', 'Unit')}</th>
+                      <th>{t('Item Name', 'பொருளின் பெயர்')}</th>
+                      <th>{t('Unit', 'அலகு')}</th>
                       <th style={{ textAlign: 'right' }}>{t('Total Requirement Quantity', 'Total Requirement Quantity')}</th>
                       <th style={{ textAlign: 'right' }}>{t('Central Available Stock', 'Central Available Stock')}</th>
                       <th>{t('Order Quantity', 'Order Quantity')}</th>
-                      <th style={{ textAlign: 'center' }}>{t('action', 'Action')}</th>
+                      <th style={{ textAlign: 'center' }}>{t('Action', 'செயல்')}</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -4156,7 +4161,7 @@ export function StorePortal({ activeTab }) {
                   </p>
                 </div>
                 <button type="button" className="secondary small" onClick={() => loadPreviousOrders(previousOrderDate, previousOrderIsAllDates)}>
-                  ↻ {t('refresh', 'Refresh')}
+                  ↻ {t('Refresh', 'புதுப்பி')}
                 </button>
               </div>
 
@@ -4181,7 +4186,7 @@ export function StorePortal({ activeTab }) {
                 <EmptyDateMessage
                   message={
                     loading
-                      ? t('loading', 'Loading previous orders...')
+                      ? t('Loading previous orders...', 'முந்தைய ஆர்டர்கள் ஏற்றப்படுகின்றன...')
                       : previousOrderIsAllDates
                       ? (language === 'ta' ? 'கொள்முதல் ஆர்டர்கள் எதுவும் சமர்ப்பிக்கப்படவில்லை.' : 'No purchase orders submitted yet.')
                       : (language === 'ta' ? `${formatDisplayDate(previousOrderDate)} அன்று முந்தைய ஆர்டர்கள் எதுவும் இல்லை.` : `No previous orders found for ${formatDisplayDate(previousOrderDate)}.`)
@@ -4198,8 +4203,8 @@ export function StorePortal({ activeTab }) {
                             <th>{t('Order Number', 'Order Number')}</th>
                             <th>{t('Order Date & Time', 'Order Date & Time')}</th>
                             <th>{t('Total Items', 'Total Items')}</th>
-                            <th>{t('status', 'Status')}</th>
-                            <th style={{ textAlign: 'right' }}>{t('action', 'Action')}</th>
+                            <th>{t('Status', 'நிலை')}</th>
+                            <th style={{ textAlign: 'right' }}>{t('Action', 'செயல்')}</th>
                           </tr>
                         </thead>
                         <tbody>
@@ -4246,8 +4251,8 @@ export function StorePortal({ activeTab }) {
                           <th>{t('Order Number', 'Order Number')}</th>
                           <th>{t('Order Date & Time', 'Order Date & Time')}</th>
                           <th>{t('Total Items', 'Total Items')}</th>
-                          <th>{t('status', 'Status')}</th>
-                          <th style={{ textAlign: 'right' }}>{t('action', 'Action')}</th>
+                          <th>{t('Status', 'நிலை')}</th>
+                          <th style={{ textAlign: 'right' }}>{t('Action', 'செயல்')}</th>
                         </tr>
                       </thead>
                       <tbody>

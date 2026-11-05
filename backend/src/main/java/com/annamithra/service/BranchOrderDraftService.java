@@ -165,9 +165,14 @@ public class BranchOrderDraftService {
                 line.itemName = item.itemName != null ? item.itemName.trim() : "";
                 line.unit = (item.unit != null && !item.unit.isBlank()) ? item.unit.trim().toUpperCase() : "KG";
 
-                String cat = (draft.department != null && !draft.department.isBlank())
-                    ? draft.department.trim()
-                    : (item.getEffectiveDepartment() != null ? item.getEffectiveDepartment().trim() : (item.category != null ? item.category.trim() : "General"));
+                String cat = (item.departmentName != null && !item.departmentName.isBlank())
+                    ? item.departmentName.trim()
+                    : (item.department != null && !item.department.isBlank()
+                        ? item.department.trim()
+                        : (item.getEffectiveDepartment() != null ? item.getEffectiveDepartment().trim() : (draft.department != null && !draft.department.isBlank() ? draft.department.trim() : "General")));
+                line.itemId = item.itemId;
+                line.departmentId = item.departmentId;
+                line.departmentName = cat;
                 line.category = cat;
                 line.department = cat;
 
@@ -223,8 +228,9 @@ public class BranchOrderDraftService {
                     .orElse(cTrim);
             }
 
-            DraftItemLine cleanLine = new DraftItemLine(itemName, unit, category, line.requestedQuantity, line.isNewItem);
+            DraftItemLine cleanLine = new DraftItemLine(line.itemId, itemName, line.departmentId, category, unit, category, line.requestedQuantity, line.isNewItem);
             cleanLine.department = category;
+            cleanLine.departmentName = category;
             result.add(cleanLine);
         }
         return result;

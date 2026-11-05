@@ -6,6 +6,8 @@ import {
   downloadSimpleInventoryPdf,
   downloadSimpleBranchRequestPdf,
   downloadSimpleDispatchPdf,
+  downloadCategorySummaryPdf,
+  downloadCategoryDetailPdf,
   exportReportCsv
 } from '../utils/pdfGenerator';
 
@@ -130,34 +132,64 @@ function getStatusBadgeStyle(status) {
   }
 }
 
+/**
+ * Helper to format unit quantity maps (e.g. {"KG": 100, "L": 50} -> "100 KG, 50 L")
+ */
+function formatUnitQuantities(unitMap, emptyFallback = '0') {
+  if (!unitMap || typeof unitMap !== 'object') return emptyFallback;
+  const entries = Object.entries(unitMap).filter(([_, val]) => Number(val) > 0);
+  if (entries.length === 0) return emptyFallback;
+  return entries.map(([u, val]) => `${Number(val || 0).toLocaleString()} ${u}`).join(', ');
+}
+
 export function ReportsView({ userRole }) {
   const { language, t, translateItem, translateUnit, translateStatus, translateCategory } = useLanguage();
 
   // 1. Category Tabs: 'inventory', 'requests', 'dispatches'
   const [activeTab, setActiveTab] = useState('inventory');
 
-  // 2. Only two filters: Date and Branch
+  // 2. Filters: Date, Branch, Department, and Category
   const [selectedDate, setSelectedDate] = useState(getTodayDateString());
   const [isAllDates, setIsAllDates] = useState(false);
   const [selectedBranch, setSelectedBranch] = useState('ALL');
+  const [selectedDepartment, setSelectedDepartment] = useState('ALL');
+  const [selectedCategoryFilter, setSelectedCategoryFilter] = useState('ALL');
 
-  // Branch list
+  // Category Detail view focus: null = Summary View, string = Category Name
+  const [selectedCategoryView, setSelectedCategoryView] = useState(null);
+
+  // Branch, Department, and Category lists
   const [branches, setBranches] = useState([]);
+  const [departments, setDepartments] = useState([]);
+  const [itemCategories, setItemCategories] = useState([]);
 
   // Data states
   const [rawInventory, setRawInventory] = useState([]);
   const [rawRequests, setRawRequests] = useState([]);
   const [rawDispatches, setRawDispatches] = useState([]);
+  const [rawCategoryReport, setRawCategoryReport] = useState({ summary: [], items: [] });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
-  // Load branch list once
+  // Load branch list and department list once
   useEffect(() => {
     api.getBranches()
       .then(bList => {
         if (Array.isArray(bList)) setBranches(bList);
       })
       .catch(err => console.warn('Could not load branches for reports:', err));
+
+    api.getDepartments()
+      .then(dList => {
+        if (Array.isArray(dList)) setDepartments(dList);
+      })
+      .catch(err => console.warn('Could not load departments for reports:', err));
+
+    api.getCategories()
+      .then(cList => {
+        if (Array.isArray(cList)) setItemCategories(cList);
+      })
+      .catch(err => console.warn('Could not load categories for reports:', err));
   }, []);
 
   // Fetch report data from existing backend API
@@ -171,21 +203,39 @@ export function ReportsView({ userRole }) {
       } else if (activeTab === 'requests') {
         const queryDate = isAllDates ? '' : selectedDate;
         const branchParam = selectedBranch === 'ALL' ? '' : selectedBranch;
+        const deptParam = selectedDepartment === 'ALL' ? '' : selectedDepartment;
         const data = await api.getBranchRequestReport({
           fromDate: queryDate,
           toDate: queryDate,
-          branch: branchParam
+          branch: branchParam,
+          department: deptParam
         });
         if (Array.isArray(data)) setRawRequests(data);
       } else if (activeTab === 'dispatches') {
         const queryDate = isAllDates ? '' : selectedDate;
         const branchParam = selectedBranch === 'ALL' ? '' : selectedBranch;
+        const deptParam = selectedDepartment === 'ALL' ? '' : selectedDepartment;
         const data = await api.getBranchDispatchReport({
           date: queryDate,
-          branch: branchParam
+          branch: branchParam,
+          department: deptParam
         });
         if (Array.isArray(data)) setRawDispatches(data);
 
+      } else if (activeTab === 'categories') {
+        const queryDate = isAllDates ? '' : selectedDate;
+        const branchParam = selectedBranch === 'ALL' ? '' : selectedBranch;
+        const deptParam = selectedDepartment === 'ALL' ? '' : selectedDepartment;
+        const catParam = selectedCategoryFilter === 'ALL' ? '' : selectedCategoryFilter;
+        const data = await api.getCategoryWiseReport({
+          date: queryDate,
+          branch: branchParam,
+          department: deptParam,
+          category: catParam
+        });
+        if (data && typeof data === 'object') {
+          setRawCategoryReport(data);
+        }
       }
     } catch (err) {
       console.error('Error loading report data:', err);
@@ -193,12 +243,122 @@ export function ReportsView({ userRole }) {
     } finally {
       setLoading(false);
     }
-  }, [activeTab, isAllDates, selectedDate, selectedBranch]);
+  }, [activeTab, isAllDates, selectedDate, selectedBranch, selectedDepartment, selectedCategoryFilter]);
 
   // Refetch when activeTab, date or branch changes
   useEffect(() => {
     fetchReportData();
   }, [fetchReportData]);
+
+  // Unique department options for dropdown filter
+  const departmentOptions = useMemo(() => {
+    const set = new Set();
+    (departments || []).forEach(d => {
+      const name = typeof d === 'string' ? d : (d?.name || d?.departmentName);
+      if (name && name.trim()) set.add(name.trim());
+    });
+    // Also include any saved department values from raw requests (excluding 'Not specified')
+    (rawRequests || []).forEach(r => {
+      const d = (r.department || '').trim();
+      if (d && d !== 'Not specified') set.add(d);
+    });
+    // Also include any saved department values from raw dispatches (excluding 'Not specified')
+    (rawDispatches || []).forEach(dp => {
+      const d = (dp.department || '').trim();
+      if (d && d !== 'Not specified') set.add(d);
+    });
+    return Array.from(set).sort((a, b) => a.localeCompare(b));
+  }, [departments, rawRequests, rawDispatches]);
+
+  // Unique item category options for Category filter dropdown
+  const categoryFilterOptions = useMemo(() => {
+    const set = new Set();
+    (itemCategories || []).forEach(c => {
+      const name = typeof c === 'string' ? c : c?.name;
+      if (name && name.trim()) set.add(name.trim());
+    });
+    (rawCategoryReport.summary || []).forEach(s => {
+      if (s.category && s.category.trim()) set.add(s.category.trim());
+    });
+    return Array.from(set).sort((a, b) => a.localeCompare(b));
+  }, [itemCategories, rawCategoryReport.summary]);
+
+  // Filtered Category Summary Rows
+  const categorySummaryData = useMemo(() => {
+    if (activeTab !== 'categories') return [];
+    let list = rawCategoryReport.summary || [];
+    if (selectedCategoryFilter && selectedCategoryFilter !== 'ALL') {
+      list = list.filter(c => c.category && c.category.toLowerCase() === selectedCategoryFilter.trim().toLowerCase());
+    }
+    return list;
+  }, [activeTab, rawCategoryReport.summary, selectedCategoryFilter]);
+
+  // Filtered Category Detail Items for selectedCategoryView
+  const categoryDetailItems = useMemo(() => {
+    if (activeTab !== 'categories' || !selectedCategoryView) return [];
+    let items = rawCategoryReport.items || [];
+    items = items.filter(it => it.category && it.category.toLowerCase() === selectedCategoryView.trim().toLowerCase());
+    if (selectedBranch && selectedBranch !== 'ALL') {
+      items = items.filter(it => it.branchName === selectedBranch);
+    }
+    if (selectedDepartment && selectedDepartment !== 'ALL') {
+      items = items.filter(it => it.department && it.department.toLowerCase() === selectedDepartment.trim().toLowerCase());
+    }
+    if (!isAllDates && selectedDate) {
+      items = items.filter(it => String(it.requestDate || '').slice(0, 10) === selectedDate);
+    }
+    return items;
+  }, [activeTab, rawCategoryReport.items, selectedCategoryView, selectedBranch, selectedDepartment, isAllDates, selectedDate]);
+
+  // Overall metrics for Category-Wise Report Cards
+  const categoryOverallTotals = useMemo(() => {
+    if (activeTab !== 'categories') return null;
+    if (selectedCategoryView) {
+      const distinctItems = new Set(categoryDetailItems.map(it => (it.itemName || '').trim().toLowerCase())).size;
+      const reqByUnit = {};
+      const dispByUnit = {};
+      const pendByUnit = {};
+      categoryDetailItems.forEach(it => {
+        const u = it.unit || 'KG';
+        reqByUnit[u] = (reqByUnit[u] || 0) + (Number(it.requestedQuantity) || 0);
+        dispByUnit[u] = (dispByUnit[u] || 0) + (Number(it.dispatchedQuantity) || 0);
+        pendByUnit[u] = (pendByUnit[u] || 0) + (Number(it.pendingQuantity) || 0);
+      });
+      return {
+        totalCategories: 1,
+        totalDistinctItems: distinctItems,
+        requestedStr: formatUnitQuantities(reqByUnit),
+        dispatchedStr: formatUnitQuantities(dispByUnit),
+        pendingStr: formatUnitQuantities(pendByUnit)
+      };
+    } else {
+      const activeSummary = categorySummaryData.filter(c => c.totalItems > 0);
+      const totalCategories = activeSummary.length || categorySummaryData.length;
+      let totalDistinctItems = 0;
+      const reqByUnit = {};
+      const dispByUnit = {};
+      const pendByUnit = {};
+      categorySummaryData.forEach(c => {
+        totalDistinctItems += (c.totalItems || 0);
+        Object.entries(c.requestedByUnit || {}).forEach(([u, val]) => {
+          reqByUnit[u] = (reqByUnit[u] || 0) + (Number(val) || 0);
+        });
+        Object.entries(c.dispatchedByUnit || {}).forEach(([u, val]) => {
+          dispByUnit[u] = (dispByUnit[u] || 0) + (Number(val) || 0);
+        });
+        Object.entries(c.pendingByUnit || {}).forEach(([u, val]) => {
+          pendByUnit[u] = (pendByUnit[u] || 0) + (Number(val) || 0);
+        });
+      });
+      return {
+        totalCategories,
+        totalDistinctItems,
+        requestedStr: formatUnitQuantities(reqByUnit),
+        dispatchedStr: formatUnitQuantities(dispByUnit),
+        pendingStr: formatUnitQuantities(pendByUnit)
+      };
+    }
+  }, [activeTab, selectedCategoryView, categorySummaryData, categoryDetailItems]);
 
   // Filter and group records
   // "Group duplicate items where appropriate, combining quantities only when the item and unit match."
@@ -254,6 +414,14 @@ export function ReportsView({ userRole }) {
         list = list.filter(r => (r.branchName || r.branch) === selectedBranch);
       }
 
+      // Department filter
+      if (selectedDepartment && selectedDepartment !== 'ALL') {
+        list = list.filter(r => {
+          const d = (r.department || r.category || '').trim();
+          return d.toLowerCase() === selectedDepartment.trim().toLowerCase();
+        });
+      }
+
       // Date filter
       if (!isAllDates && selectedDate) {
         list = list.filter(r => String(r.date || r.requestDate || '').slice(0, 10) === selectedDate);
@@ -307,6 +475,14 @@ export function ReportsView({ userRole }) {
         list = list.filter(d => d.branchName === selectedBranch);
       }
 
+      // Department filter
+      if (selectedDepartment && selectedDepartment !== 'ALL') {
+        list = list.filter(d => {
+          const dept = (d.department || d.category || '').trim();
+          return dept.toLowerCase() === selectedDepartment.trim().toLowerCase();
+        });
+      }
+
       // Date filter
       if (!isAllDates && selectedDate) {
         list = list.filter(d => String(d.dispatchDate || (d.dispatchDateTime ? d.dispatchDateTime.slice(0, 10) : '')).slice(0, 10) === selectedDate);
@@ -354,7 +530,22 @@ export function ReportsView({ userRole }) {
     }
 
     return [];
-  }, [activeTab, rawInventory, rawRequests, rawDispatches, isAllDates, selectedDate, selectedBranch]);
+  }, [activeTab, rawInventory, rawRequests, rawDispatches, isAllDates, selectedDate, selectedBranch, selectedDepartment]);
+
+  // Unified display rows based on activeTab
+  const displayRows = useMemo(() => {
+    if (activeTab === 'categories') {
+      return selectedCategoryView ? categoryDetailItems : categorySummaryData;
+    }
+    return records;
+  }, [activeTab, selectedCategoryView, categoryDetailItems, categorySummaryData, records]);
+
+  const hasNoData = useMemo(() => {
+    if (activeTab === 'categories') {
+      return selectedCategoryView ? categoryDetailItems.length === 0 : categorySummaryData.length === 0;
+    }
+    return records.length === 0;
+  }, [activeTab, selectedCategoryView, categoryDetailItems.length, categorySummaryData.length, records.length]);
 
   // Simple Total / Count calculation above the table
   const totals = useMemo(() => {
@@ -385,6 +576,10 @@ export function ReportsView({ userRole }) {
   // Scope label for exports and UI display
   const dateScopeLabel = isAllDates ? t('All Dates', 'அனைத்து தேதிகள்') : (formatDateLabel(selectedDate, language) || selectedDate);
   const branchScopeLabel = selectedBranch === 'ALL' ? t('All Branches', 'அனைத்து கிளைகள்') : selectedBranch;
+  const deptScopeLabel = selectedDepartment === 'ALL' ? t('All Departments', 'அனைத்து துறைகள்') : (translateCategory ? translateCategory(selectedDepartment) : selectedDepartment);
+
+  // Category scope label
+  const categoryScopeLabel = selectedCategoryFilter === 'ALL' ? t('All Categories', 'அனைத்து வகைகள்') : (translateCategory ? translateCategory(selectedCategoryFilter) : selectedCategoryFilter);
 
   // Handle Download PDF
   const handleDownloadPdf = async () => {
@@ -398,15 +593,34 @@ export function ReportsView({ userRole }) {
         await downloadSimpleBranchRequestPdf({
           items: records,
           branch: branchScopeLabel,
+          department: deptScopeLabel,
           dateLabel: dateScopeLabel
         });
       } else if (activeTab === 'dispatches') {
         await downloadSimpleDispatchPdf({
           items: records,
           branch: branchScopeLabel,
+          department: deptScopeLabel,
           dateLabel: dateScopeLabel
         });
-
+      } else if (activeTab === 'categories') {
+        if (selectedCategoryView) {
+          await downloadCategoryDetailPdf({
+            categoryName: selectedCategoryView,
+            items: categoryDetailItems,
+            branch: branchScopeLabel,
+            department: deptScopeLabel,
+            dateLabel: dateScopeLabel
+          });
+        } else {
+          await downloadCategorySummaryPdf({
+            summary: categorySummaryData,
+            branch: branchScopeLabel,
+            department: deptScopeLabel,
+            category: categoryScopeLabel,
+            dateLabel: dateScopeLabel
+          });
+        }
       }
     } catch (err) {
       console.error('PDF export failed:', err);
@@ -416,6 +630,22 @@ export function ReportsView({ userRole }) {
 
   // Handle Export CSV
   const handleExportCsv = () => {
+    if (activeTab === 'categories') {
+      if (selectedCategoryView) {
+        exportReportCsv({
+          reportType: 'category-details',
+          items: categoryDetailItems,
+          filename: `Annamithra_${selectedCategoryView.replace(/[^a-zA-Z0-9]/g, '_')}_item_details_${isAllDates ? 'all_dates' : selectedDate}.csv`
+        });
+      } else {
+        exportReportCsv({
+          reportType: 'category-summary',
+          items: categorySummaryData,
+          filename: `Annamithra_category_summary_${isAllDates ? 'all_dates' : selectedDate}.csv`
+        });
+      }
+      return;
+    }
     const filename = `Annamithra_${activeTab}_report_${isAllDates ? 'all_dates' : selectedDate}.csv`;
     exportReportCsv({
       reportType: activeTab,
@@ -516,7 +746,138 @@ export function ReportsView({ userRole }) {
           <span>🚚</span>
           <span>{t('Dispatch Report', 'விநியோக அறிக்கை')}</span>
         </button>
+
+        <button
+          type="button"
+          role="tab"
+          aria-selected={activeTab === 'categories'}
+          className={`btn ${activeTab === 'categories' ? 'primary' : 'secondary'}`}
+          onClick={() => {
+            setActiveTab('categories');
+            setSelectedCategoryView(null);
+          }}
+          style={{
+            minHeight: 40,
+            padding: '8px 18px',
+            borderRadius: 6,
+            fontWeight: activeTab === 'categories' ? 700 : 500,
+            fontSize: '13.5px',
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 6
+          }}
+        >
+          <span>🗂️</span>
+          <span>{t('Category-Wise Report', 'வகை வாரியான அறிக்கை')}</span>
+        </button>
       </div>
+
+      {/* TOP SUMMARY METRIC CARDS FOR CATEGORY-WISE REPORT */}
+      {activeTab === 'categories' && categoryOverallTotals && (
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))',
+            gap: 12,
+            marginBottom: 16
+          }}
+        >
+          {/* Card 1: Category Name or Total Categories */}
+          <div
+            className="card"
+            style={{
+              padding: '12px 14px',
+              borderRadius: 8,
+              background: 'var(--cream-surface)',
+              border: '1px solid var(--border-color)',
+              boxShadow: '0 1px 3px rgba(0,0,0,0.04)'
+            }}
+          >
+            <div style={{ fontSize: '11.5px', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase' }}>
+              {selectedCategoryView ? t('Selected Category', 'தேர்ந்தெடுக்கப்பட்ட வகை') : t('Total Categories', 'மொத்த வகைகள்')}
+            </div>
+            <div style={{ fontSize: '18px', fontWeight: 800, color: 'var(--primary-dark-green)', marginTop: 4 }}>
+              {selectedCategoryView ? (translateCategory ? translateCategory(selectedCategoryView) : selectedCategoryView) : categoryOverallTotals.totalCategories}
+            </div>
+          </div>
+
+          {/* Card 2: Total Items */}
+          <div
+            className="card"
+            style={{
+              padding: '12px 14px',
+              borderRadius: 8,
+              background: 'var(--cream-surface)',
+              border: '1px solid var(--border-color)',
+              boxShadow: '0 1px 3px rgba(0,0,0,0.04)'
+            }}
+          >
+            <div style={{ fontSize: '11.5px', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase' }}>
+              {t('Total Items', 'மொத்த பொருட்கள்')}
+            </div>
+            <div style={{ fontSize: '18px', fontWeight: 800, color: 'var(--dark-text)', marginTop: 4 }}>
+              {categoryOverallTotals.totalDistinctItems}
+            </div>
+          </div>
+
+          {/* Card 3: Total Requested */}
+          <div
+            className="card"
+            style={{
+              padding: '12px 14px',
+              borderRadius: 8,
+              background: 'var(--cream-surface)',
+              border: '1px solid var(--border-color)',
+              boxShadow: '0 1px 3px rgba(0,0,0,0.04)'
+            }}
+          >
+            <div style={{ fontSize: '11.5px', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase' }}>
+              {t('Total Requested', 'மொத்த கோரப்பட்ட அளவு')}
+            </div>
+            <div style={{ fontSize: '15px', fontWeight: 800, color: 'var(--primary-dark-green)', marginTop: 4, wordBreak: 'break-word' }}>
+              {categoryOverallTotals.requestedStr || '0'}
+            </div>
+          </div>
+
+          {/* Card 4: Total Dispatched */}
+          <div
+            className="card"
+            style={{
+              padding: '12px 14px',
+              borderRadius: 8,
+              background: 'var(--cream-surface)',
+              border: '1px solid var(--border-color)',
+              boxShadow: '0 1px 3px rgba(0,0,0,0.04)'
+            }}
+          >
+            <div style={{ fontSize: '11.5px', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase' }}>
+              {t('Total Dispatched', 'மொத்த விநியோகம்')}
+            </div>
+            <div style={{ fontSize: '15px', fontWeight: 800, color: 'var(--secondary-green)', marginTop: 4, wordBreak: 'break-word' }}>
+              {categoryOverallTotals.dispatchedStr || '0'}
+            </div>
+          </div>
+
+          {/* Card 5: Total Pending */}
+          <div
+            className="card"
+            style={{
+              padding: '12px 14px',
+              borderRadius: 8,
+              background: 'var(--cream-surface)',
+              border: '1px solid var(--border-color)',
+              boxShadow: '0 1px 3px rgba(0,0,0,0.04)'
+            }}
+          >
+            <div style={{ fontSize: '11.5px', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase' }}>
+              {t('Total Pending', 'மொத்த நிலுவை அளவு')}
+            </div>
+            <div style={{ fontSize: '15px', fontWeight: 800, color: '#C05621', marginTop: 4, wordBreak: 'break-word' }}>
+              {categoryOverallTotals.pendingStr || '0'}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* 2. ONLY TWO FILTERS: DATE AND BRANCH */}
       <div
@@ -598,6 +959,7 @@ export function ReportsView({ userRole }) {
               🌿 {t('Branch', 'கிளை')}:
             </span>
             <select
+              id="report-branch-filter-select"
               value={selectedBranch}
               onChange={(e) => setSelectedBranch(e.target.value)}
               style={{
@@ -631,6 +993,73 @@ export function ReportsView({ userRole }) {
               </span>
             )}
           </div>
+
+          {/* FILTER 3: DEPARTMENT FILTER (Branch Request Report, Dispatch Report & Category-Wise Report) */}
+          {(activeTab === 'requests' || activeTab === 'dispatches' || activeTab === 'categories') && (
+            <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 8, flex: '1 1 240px' }}>
+              <span style={{ fontWeight: 700, fontSize: '13px', color: 'var(--primary-dark-green)', whiteSpace: 'nowrap' }}>
+                🏢 {t('Department', 'துறை')}:
+              </span>
+              <select
+                id="report-department-filter-select"
+                value={selectedDepartment}
+                onChange={(e) => setSelectedDepartment(e.target.value)}
+                style={{
+                  minHeight: 34,
+                  padding: '5px 10px',
+                  fontSize: '13px',
+                  borderRadius: 4,
+                  border: '1px solid var(--border-color)',
+                  background: 'var(--white-surface)',
+                  minWidth: 150,
+                  flex: 1
+                }}
+              >
+                <option value="ALL">{t('All Departments', 'அனைத்து துறைகள்')}</option>
+                {departmentOptions.map(dept => (
+                  <option key={dept} value={dept}>
+                    {translateCategory ? translateCategory(dept) : dept}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          {/* FILTER 4: CATEGORY FILTER (Category-Wise Report only) */}
+          {activeTab === 'categories' && (
+            <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 8, flex: '1 1 240px' }}>
+              <span style={{ fontWeight: 700, fontSize: '13px', color: 'var(--primary-dark-green)', whiteSpace: 'nowrap' }}>
+                🗂️ {t('Category', 'வகை')}:
+              </span>
+              <select
+                id="report-category-filter-select"
+                value={selectedCategoryFilter}
+                onChange={(e) => {
+                  setSelectedCategoryFilter(e.target.value);
+                  if (selectedCategoryView && e.target.value !== 'ALL' && e.target.value !== selectedCategoryView) {
+                    setSelectedCategoryView(null);
+                  }
+                }}
+                style={{
+                  minHeight: 34,
+                  padding: '5px 10px',
+                  fontSize: '13px',
+                  borderRadius: 4,
+                  border: '1px solid var(--border-color)',
+                  background: 'var(--white-surface)',
+                  minWidth: 150,
+                  flex: 1
+                }}
+              >
+                <option value="ALL">{t('All Categories', 'அனைத்து வகைகள்')}</option>
+                {categoryFilterOptions.map(cat => (
+                  <option key={cat} value={cat}>
+                    {translateCategory ? translateCategory(cat) : cat}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
         </div>
       </div>
 
@@ -650,19 +1079,71 @@ export function ReportsView({ userRole }) {
           borderBottom: 'none'
         }}
       >
-        {/* Simple Total Count on the Left */}
+        {/* Subtitle / Counts on the Left */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-          <span style={{ fontWeight: 800, fontSize: '14px', color: 'var(--primary-dark-green)' }}>
-            {totals.countLabel}
-          </span>
-          <span style={{ color: 'var(--gold)', fontWeight: 700 }}>•</span>
-          <span style={{ fontWeight: 700, fontSize: '13.5px', color: 'var(--secondary-green)' }}>
-            {totals.metricLabel}
-          </span>
-          <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
-            ({t('Showing', 'காண்பிக்கப்படுகிறது')}: <b style={{ color: 'var(--dark-text)' }}>{dateScopeLabel}</b>
-            {activeTab !== 'inventory' && selectedBranch !== 'ALL' ? `, ${selectedBranch}` : ''})
-          </span>
+          {activeTab === 'categories' ? (
+            selectedCategoryView ? (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                <button
+                  type="button"
+                  className="btn secondary small"
+                  onClick={() => setSelectedCategoryView(null)}
+                  style={{
+                    padding: '4px 10px',
+                    fontSize: '12.5px',
+                    fontWeight: 700,
+                    borderRadius: 4,
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 4
+                  }}
+                >
+                  <span>←</span>
+                  <span>{t('Back to Category Summary', 'வகை சுருக்கத்திற்கு திரும்புக')}</span>
+                </button>
+                <span style={{ fontWeight: 800, fontSize: '15px', color: 'var(--primary-dark-green)' }}>
+                  📁 {translateCategory ? translateCategory(selectedCategoryView) : selectedCategoryView} – {t('Item Details', 'பொருள் விவரங்கள்')}
+                </span>
+                <span style={{ color: 'var(--gold)', fontWeight: 700 }}>•</span>
+                <span style={{ fontWeight: 700, fontSize: '13px', color: 'var(--secondary-green)' }}>
+                  {categoryDetailItems.length} {t('Records', 'பதிவுகள்')}
+                </span>
+                <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
+                  ({t('Showing', 'காண்பிக்கப்படுகிறது')}: <b style={{ color: 'var(--dark-text)' }}>{dateScopeLabel}</b>
+                  {selectedBranch !== 'ALL' ? `, ${selectedBranch}` : ''}
+                  {selectedDepartment !== 'ALL' ? `, ${selectedDepartment}` : ''})
+                </span>
+              </div>
+            ) : (
+              <>
+                <span style={{ fontWeight: 800, fontSize: '14px', color: 'var(--primary-dark-green)' }}>
+                  🗂️ {t('Category Summary', 'வகை சுருக்கம்')} ({categorySummaryData.length} {t('Categories', 'வகைகள்')})
+                </span>
+                <span style={{ color: 'var(--gold)', fontWeight: 700 }}>•</span>
+                <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
+                  ({t('Showing', 'காண்பிக்கப்படுகிறது')}: <b style={{ color: 'var(--dark-text)' }}>{dateScopeLabel}</b>
+                  {selectedBranch !== 'ALL' ? `, ${selectedBranch}` : ''}
+                  {selectedDepartment !== 'ALL' ? `, ${selectedDepartment}` : ''}
+                  {selectedCategoryFilter !== 'ALL' ? `, ${selectedCategoryFilter}` : ''})
+                </span>
+              </>
+            )
+          ) : (
+            <>
+              <span style={{ fontWeight: 800, fontSize: '14px', color: 'var(--primary-dark-green)' }}>
+                {totals.countLabel}
+              </span>
+              <span style={{ color: 'var(--gold)', fontWeight: 700 }}>•</span>
+              <span style={{ fontWeight: 700, fontSize: '13.5px', color: 'var(--secondary-green)' }}>
+                {totals.metricLabel}
+              </span>
+              <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
+                ({t('Showing', 'காண்பிக்கப்படுகிறது')}: <b style={{ color: 'var(--dark-text)' }}>{dateScopeLabel}</b>
+                {activeTab !== 'inventory' && selectedBranch !== 'ALL' ? `, ${selectedBranch}` : ''}
+                {(activeTab === 'requests' || activeTab === 'dispatches') && selectedDepartment !== 'ALL' ? `, ${selectedDepartment}` : ''})
+              </span>
+            </>
+          )}
         </div>
 
         {/* Action Buttons on the Right */}
@@ -691,7 +1172,7 @@ export function ReportsView({ userRole }) {
             type="button"
             className="btn secondary small"
             onClick={handleExportCsv}
-            disabled={loading || records.length === 0}
+            disabled={loading || hasNoData}
             style={{
               minHeight: 34,
               padding: '6px 14px',
@@ -711,7 +1192,7 @@ export function ReportsView({ userRole }) {
             type="button"
             className="btn primary small"
             onClick={handleDownloadPdf}
-            disabled={loading || records.length === 0}
+            disabled={loading || hasNoData}
             style={{
               minHeight: 34,
               padding: '6px 14px',
@@ -752,7 +1233,7 @@ export function ReportsView({ userRole }) {
             {language === 'ta' ? 'அறிக்கை பதிவுகள் ஏற்றப்படுகின்றன...' : 'Loading report records...'}
           </div>
         </div>
-      ) : records.length === 0 ? (
+      ) : hasNoData ? (
         /* SIMPLE "NO RECORDS FOUND" MESSAGE */
         <div
           style={{
@@ -800,6 +1281,33 @@ export function ReportsView({ userRole }) {
                 onClick={() => setSelectedBranch('ALL')}
               >
                 🌿 {t('All Branches', 'அனைத்து கிளைகள்')}
+              </button>
+            )}
+            {(activeTab === 'requests' || activeTab === 'dispatches' || activeTab === 'categories') && selectedDepartment !== 'ALL' && (
+              <button
+                type="button"
+                className="btn secondary small"
+                onClick={() => setSelectedDepartment('ALL')}
+              >
+                🏢 {t('All Departments', 'அனைத்து துறைகள்')}
+              </button>
+            )}
+            {activeTab === 'categories' && selectedCategoryFilter !== 'ALL' && (
+              <button
+                type="button"
+                className="btn secondary small"
+                onClick={() => setSelectedCategoryFilter('ALL')}
+              >
+                🗂️ {t('All Categories', 'அனைத்து வகைகள்')}
+              </button>
+            )}
+            {activeTab === 'categories' && selectedCategoryView && (
+              <button
+                type="button"
+                className="btn secondary small"
+                onClick={() => setSelectedCategoryView(null)}
+              >
+                ← {t('Back to Category Summary', 'வகை சுருக்கத்திற்கு திரும்புக')}
               </button>
             )}
           </div>
@@ -894,10 +1402,70 @@ export function ReportsView({ userRole }) {
                       </>
                     )}
 
+                    {/* Report 4A: Category Summary columns */}
+                    {activeTab === 'categories' && !selectedCategoryView && (
+                      <>
+                        <th style={{ textAlign: 'left', padding: '10px 14px' }}>
+                          {t('Category', 'வகை')}
+                        </th>
+                        <th style={{ width: 110, textAlign: 'center', padding: '10px 10px' }}>
+                          {t('Total Items', 'மொத்த பொருட்கள்')}
+                        </th>
+                        <th style={{ width: 200, textAlign: 'right', padding: '10px 16px' }}>
+                          {t('Branch Requested Quantity', 'கிளை கோரிய அளவு')}
+                        </th>
+                        <th style={{ width: 200, textAlign: 'right', padding: '10px 16px' }}>
+                          {t('Store Dispatched Quantity', 'கிடங்கு அனுப்பிய அளவு')}
+                        </th>
+                        <th style={{ width: 180, textAlign: 'right', padding: '10px 16px' }}>
+                          {t('Pending Quantity', 'நிலுவை அளவு')}
+                        </th>
+                        <th style={{ width: 100, textAlign: 'center', padding: '10px 12px' }}>
+                          {t('Action', 'செயல்')}
+                        </th>
+                      </>
+                    )}
+
+                    {/* Report 4B: Category Detail Item-level columns */}
+                    {activeTab === 'categories' && selectedCategoryView && (
+                      <>
+                        <th style={{ textAlign: 'left', padding: '10px 14px' }}>
+                          {t('Item Name', 'பொருள் பெயர்')}
+                        </th>
+                        <th style={{ width: 85, textAlign: 'center', padding: '10px 10px' }}>
+                          {t('Unit', 'அலகு')}
+                        </th>
+                        <th style={{ width: 150, textAlign: 'left', padding: '10px 14px' }}>
+                          {t('Branch Name', 'கிளை பெயர்')}
+                        </th>
+                        <th style={{ width: 130, textAlign: 'left', padding: '10px 14px' }}>
+                          {t('Department', 'துறை')}
+                        </th>
+                        <th style={{ width: 120, textAlign: 'right', padding: '10px 14px' }}>
+                          {t('Requested', 'கோரப்பட்டது')}
+                        </th>
+                        <th style={{ width: 120, textAlign: 'right', padding: '10px 14px' }}>
+                          {t('Dispatched', 'அனுப்பப்பட்டது')}
+                        </th>
+                        <th style={{ width: 110, textAlign: 'right', padding: '10px 14px' }}>
+                          {t('Pending', 'நிலுவை')}
+                        </th>
+                        <th style={{ width: 110, textAlign: 'center', padding: '10px 10px' }}>
+                          {t('Request Date', 'கோரிக்கை தேதி')}
+                        </th>
+                        <th style={{ width: 110, textAlign: 'center', padding: '10px 10px' }}>
+                          {t('Dispatch Date', 'அனுப்பப்பட்ட தேதி')}
+                        </th>
+                        <th style={{ width: 130, textAlign: 'center', padding: '10px 12px' }}>
+                          {t('Status', 'நிலை')}
+                        </th>
+                      </>
+                    )}
+
                   </tr>
                 </thead>
                 <tbody>
-                  {records.map((row, idx) => (
+                  {displayRows.map((row, idx) => (
                     <tr
                       key={row.id || idx}
                       style={{
@@ -1026,6 +1594,105 @@ export function ReportsView({ userRole }) {
                         </>
                       )}
 
+                      {/* 4A. Category Summary Row */}
+                      {activeTab === 'categories' && !selectedCategoryView && (
+                        <>
+                          <td style={{ padding: '10px 14px', fontWeight: 700, color: 'var(--primary-dark-green)', fontSize: '13.5px' }}>
+                            {translateCategory ? translateCategory(row.category) : row.category}
+                          </td>
+                          <td style={{ textAlign: 'center', padding: '10px 10px' }}>
+                            <span style={{ background: '#F0EAD6', padding: '3px 9px', borderRadius: 4, fontSize: '12.5px', fontWeight: 700, color: 'var(--dark-text)' }}>
+                              {row.totalItems}
+                            </span>
+                          </td>
+                          <td style={{ textAlign: 'right', padding: '10px 16px', fontWeight: 600, fontSize: '13px', color: 'var(--primary-dark-green)' }}>
+                            {formatUnitQuantities(row.requestedByUnit)}
+                          </td>
+                          <td style={{ textAlign: 'right', padding: '10px 16px', fontWeight: 600, fontSize: '13px', color: 'var(--secondary-green)' }}>
+                            {formatUnitQuantities(row.dispatchedByUnit)}
+                          </td>
+                          <td style={{ textAlign: 'right', padding: '10px 16px', fontWeight: 700, fontSize: '13px', color: '#C05621' }}>
+                            {formatUnitQuantities(row.pendingByUnit)}
+                          </td>
+                          <td style={{ textAlign: 'center', padding: '10px 12px' }}>
+                            <button
+                              type="button"
+                              className="btn primary small"
+                              onClick={() => setSelectedCategoryView(row.category)}
+                              style={{
+                                minHeight: 28,
+                                padding: '3px 12px',
+                                fontSize: '12px',
+                                borderRadius: 4,
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: 4
+                              }}
+                            >
+                              <span>👁️</span>
+                              <span>{t('View', 'பார்')}</span>
+                            </button>
+                          </td>
+                        </>
+                      )}
+
+                      {/* 4B. Category Detail Item Row */}
+                      {activeTab === 'categories' && selectedCategoryView && (
+                        <>
+                          <td style={{ padding: '10px 14px', fontWeight: 600, color: 'var(--primary-dark-green)' }}>
+                            {translateItem(row.itemName)}
+                          </td>
+                          <td style={{ textAlign: 'center', padding: '10px 10px' }}>
+                            <span style={{ background: '#F0EAD6', padding: '2px 8px', borderRadius: 4, fontSize: '12px', fontWeight: 600 }}>
+                              {translateUnit(row.unit)}
+                            </span>
+                          </td>
+                          <td style={{ padding: '10px 14px', fontWeight: 500 }}>
+                            {row.branchName}
+                          </td>
+                          <td style={{ padding: '10px 14px', color: 'var(--dark-text)', fontSize: '12.5px' }}>
+                            {row.department === 'Not specified' ? (
+                              <span style={{ color: 'var(--text-muted)', fontStyle: 'italic' }}>
+                                {t('Not specified', 'குறிப்பிடப்படவில்லை')}
+                              </span>
+                            ) : (
+                              <span style={{ background: '#F4EBD9', padding: '2px 8px', borderRadius: 4, fontSize: '12px', fontWeight: 600, color: 'var(--primary-dark-green)' }}>
+                                {translateCategory ? translateCategory(row.department) : row.department}
+                              </span>
+                            )}
+                          </td>
+                          <td style={{ textAlign: 'right', padding: '10px 14px', fontWeight: 700, fontSize: '13.5px', color: 'var(--primary-dark-green)' }}>
+                            {(Number(row.requestedQuantity) || 0).toLocaleString()}
+                          </td>
+                          <td style={{ textAlign: 'right', padding: '10px 14px', fontWeight: 700, fontSize: '13.5px', color: 'var(--secondary-green)' }}>
+                            {(Number(row.dispatchedQuantity) || 0).toLocaleString()}
+                          </td>
+                          <td style={{ textAlign: 'right', padding: '10px 14px', fontWeight: 700, fontSize: '13.5px', color: (Number(row.pendingQuantity) || 0) > 0 ? '#C05621' : 'var(--text-muted)' }}>
+                            {(Number(row.pendingQuantity) || 0).toLocaleString()}
+                          </td>
+                          <td style={{ textAlign: 'center', padding: '10px 10px', color: 'var(--dark-text)', fontSize: '12.5px' }}>
+                            {formatDisplayDateTime(row.requestDate, false)}
+                          </td>
+                          <td style={{ textAlign: 'center', padding: '10px 10px', color: 'var(--dark-text)', fontSize: '12.5px' }}>
+                            {row.dispatchDate ? formatDisplayDateTime(row.dispatchDate, false) : '-'}
+                          </td>
+                          <td style={{ textAlign: 'center', padding: '10px 12px' }}>
+                            <span
+                              style={{
+                                ...getStatusBadgeStyle(row.dispatchStatus || 'Pending'),
+                                padding: '3px 10px',
+                                borderRadius: 12,
+                                fontSize: '11.5px',
+                                fontWeight: 700,
+                                display: 'inline-block'
+                              }}
+                            >
+                              {translateStatus ? translateStatus(row.dispatchStatus || 'Pending') : (row.dispatchStatus || 'Pending')}
+                            </span>
+                          </td>
+                        </>
+                      )}
+
                     </tr>
                   ))}
                 </tbody>
@@ -1035,7 +1702,138 @@ export function ReportsView({ userRole }) {
 
           {/* 5. RESPONSIVE COMPACT RECORD CARDS (Shown on mobile devices) */}
           <div className="mobile-card-list-view" style={{ padding: '10px', gap: 10 }}>
-            {records.map((row, idx) => (
+            {displayRows.map((row, idx) => {
+              if (activeTab === 'categories' && !selectedCategoryView) {
+                return (
+                  <div
+                    key={row.category || idx}
+                    className="mobile-item-card"
+                    style={{
+                      background: 'var(--white-surface)',
+                      border: '1.5px solid var(--border-color)',
+                      borderRadius: 8,
+                      padding: '12px 14px'
+                    }}
+                  >
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <div style={{ fontSize: '15px', fontWeight: 800, color: 'var(--primary-dark-green)' }}>
+                        📁 {translateCategory ? translateCategory(row.category) : row.category}
+                      </div>
+                      <span style={{ background: '#F0EAD6', padding: '2px 8px', borderRadius: 10, fontSize: '11px', fontWeight: 700 }}>
+                        #{idx + 1}
+                      </span>
+                    </div>
+                    <div style={{ marginTop: 8, paddingTop: 8, borderTop: '1px dashed var(--border-color)', display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 6, fontSize: '12px' }}>
+                      <div>
+                        <span style={{ color: 'var(--text-muted)' }}>{t('Total Items', 'மொத்த பொருட்கள்')}:</span>{' '}
+                        <b>{row.totalItems}</b>
+                      </div>
+                      <div style={{ textAlign: 'right' }}>
+                        <span style={{ color: 'var(--text-muted)' }}>{t('Requested', 'கோரப்பட்டது')}:</span>{' '}
+                        <b style={{ color: 'var(--primary-dark-green)' }}>{formatUnitQuantities(row.requestedByUnit)}</b>
+                      </div>
+                      <div>
+                        <span style={{ color: 'var(--text-muted)' }}>{t('Dispatched', 'அனுப்பப்பட்டது')}:</span>{' '}
+                        <b style={{ color: 'var(--secondary-green)' }}>{formatUnitQuantities(row.dispatchedByUnit)}</b>
+                      </div>
+                      <div style={{ textAlign: 'right' }}>
+                        <span style={{ color: 'var(--text-muted)' }}>{t('Pending', 'நிலுவை')}:</span>{' '}
+                        <b style={{ color: '#C05621' }}>{formatUnitQuantities(row.pendingByUnit)}</b>
+                      </div>
+                    </div>
+                    <div style={{ marginTop: 10 }}>
+                      <button
+                        type="button"
+                        className="btn primary small"
+                        onClick={() => setSelectedCategoryView(row.category)}
+                        style={{ width: '100%', minHeight: 32, justifyContent: 'center', fontSize: '12px', display: 'flex', alignItems: 'center', gap: 6 }}
+                      >
+                        <span>👁️</span>
+                        <span>{t('View Items', 'பொருட்களைப் பார்')}</span>
+                      </button>
+                    </div>
+                  </div>
+                );
+              }
+
+              if (activeTab === 'categories' && selectedCategoryView) {
+                return (
+                  <div
+                    key={row.id || idx}
+                    className="mobile-item-card"
+                    style={{
+                      background: 'var(--white-surface)',
+                      border: '1.5px solid var(--border-color)',
+                      borderRadius: 8,
+                      padding: '12px 14px'
+                    }}
+                  >
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: '15px', fontWeight: 800, color: 'var(--primary-dark-green)' }}>
+                          {translateItem(row.itemName)}
+                        </div>
+                        {row.branchName && (
+                          <div style={{ fontSize: '12px', color: 'var(--text-muted)', fontWeight: 600, marginTop: 2 }}>
+                            🌿 {row.branchName}
+                          </div>
+                        )}
+                        <div style={{ fontSize: '11.5px', color: 'var(--text-muted)', marginTop: 2 }}>
+                          {t('Department', 'துறை')}:{' '}
+                          <b style={{ color: row.department === 'Not specified' ? 'var(--text-muted)' : 'var(--primary-dark-green)' }}>
+                            {row.department === 'Not specified'
+                              ? t('Not specified', 'குறிப்பிடப்படவில்லை')
+                              : (translateCategory ? translateCategory(row.department) : row.department)}
+                          </b>
+                        </div>
+                      </div>
+                      <span style={{ background: '#F0EAD6', padding: '2px 8px', borderRadius: 10, fontSize: '11px', fontWeight: 700 }}>
+                        #{idx + 1}
+                      </span>
+                    </div>
+
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 6, marginTop: 8, paddingTop: 8, borderTop: '1px dashed var(--border-color)', fontSize: '12px' }}>
+                      <div>
+                        <span style={{ color: 'var(--text-muted)', fontSize: '11px' }}>{t('Unit', 'அலகு')}:</span><br />
+                        <b>{translateUnit(row.unit)}</b>
+                      </div>
+                      <div style={{ textAlign: 'center' }}>
+                        <span style={{ color: 'var(--text-muted)', fontSize: '11px' }}>{t('Requested', 'கோரப்பட்டது')}:</span><br />
+                        <b style={{ color: 'var(--primary-dark-green)' }}>{(Number(row.requestedQuantity) || 0).toLocaleString()}</b>
+                      </div>
+                      <div style={{ textAlign: 'right' }}>
+                        <span style={{ color: 'var(--text-muted)', fontSize: '11px' }}>{t('Dispatched', 'அனுப்பப்பட்டது')}:</span><br />
+                        <b style={{ color: 'var(--secondary-green)' }}>{(Number(row.dispatchedQuantity) || 0).toLocaleString()}</b>
+                      </div>
+                    </div>
+
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 8, paddingTop: 6, borderTop: '1px dotted var(--border-color)', fontSize: '11.5px' }}>
+                      <div>
+                        <span style={{ color: 'var(--text-muted)' }}>{t('Pending', 'நிலுவை')}:</span>{' '}
+                        <b style={{ color: (Number(row.pendingQuantity) || 0) > 0 ? '#C05621' : 'var(--text-muted)' }}>
+                          {(Number(row.pendingQuantity) || 0).toLocaleString()}
+                        </b>
+                      </div>
+                      <div style={{ color: 'var(--text-muted)' }}>
+                        {formatDisplayDateTime(row.requestDate, false)}
+                      </div>
+                      <span
+                        style={{
+                          ...getStatusBadgeStyle(row.dispatchStatus || 'Pending'),
+                          padding: '2px 8px',
+                          borderRadius: 10,
+                          fontSize: '11px',
+                          fontWeight: 700
+                        }}
+                      >
+                        {translateStatus ? translateStatus(row.dispatchStatus || 'Pending') : (row.dispatchStatus || 'Pending')}
+                      </span>
+                    </div>
+                  </div>
+                );
+              }
+
+              return (
               <div
                 key={row.id || idx}
                 className="mobile-item-card"
@@ -1158,7 +1956,8 @@ export function ReportsView({ userRole }) {
                   </div>
                 </div>
               </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       )}

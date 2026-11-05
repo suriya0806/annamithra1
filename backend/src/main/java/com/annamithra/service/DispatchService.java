@@ -11,7 +11,9 @@ import com.annamithra.repository.DispatchRepository;
 import com.annamithra.repository.DispatchReturnRepository;
 import com.annamithra.repository.InventoryTransactionRepository;
 import com.annamithra.repository.ItemRepository;
+import com.annamithra.repository.DepartmentRepository;
 import org.springframework.http.HttpStatus;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
@@ -28,15 +30,24 @@ public class DispatchService {
     private final ItemRepository itemRepo;
     private final InventoryTransactionRepository transactionRepo;
     private final DispatchReturnRepository returnRepo;
+    private final DepartmentRepository departmentRepo;
 
+    @Autowired
     public DispatchService(DispatchRepository dispatchRepo, BranchRequestRepository requestRepo,
                            ItemRepository itemRepo, InventoryTransactionRepository transactionRepo,
-                           DispatchReturnRepository returnRepo) {
+                           DispatchReturnRepository returnRepo, DepartmentRepository departmentRepo) {
         this.dispatchRepo = dispatchRepo;
         this.requestRepo = requestRepo;
         this.itemRepo = itemRepo;
         this.transactionRepo = transactionRepo;
         this.returnRepo = returnRepo;
+        this.departmentRepo = departmentRepo;
+    }
+
+    public DispatchService(DispatchRepository dispatchRepo, BranchRequestRepository requestRepo,
+                           ItemRepository itemRepo, InventoryTransactionRepository transactionRepo,
+                           DispatchReturnRepository returnRepo) {
+        this(dispatchRepo, requestRepo, itemRepo, transactionRepo, returnRepo, null);
     }
 
     private final java.util.concurrent.ConcurrentHashMap<String, Long> recentDispatchSubmissions = new java.util.concurrent.ConcurrentHashMap<>();
@@ -197,10 +208,26 @@ public class DispatchService {
             if (line.requestId != null && requestMap.containsKey(line.requestId)) {
                 BranchRequest br = requestMap.get(line.requestId);
                 dispatch.department = br.getDepartment() != null ? br.getDepartment() : "General";
+                dispatch.departmentId = br.departmentId;
+                dispatch.itemId = br.itemId != null ? br.itemId : item.id;
             } else if (line.department != null && !line.department.isBlank()) {
                 dispatch.department = line.department.trim();
+                dispatch.departmentId = line.departmentId;
+                dispatch.itemId = line.itemId != null ? line.itemId : item.id;
             } else {
-                dispatch.department = (item.category != null && !item.category.isBlank()) ? item.category.trim() : "General";
+                dispatch.department = (line.getEffectiveDepartment() != null) ? line.getEffectiveDepartment() : "General";
+                dispatch.departmentId = line.departmentId;
+                dispatch.itemId = line.itemId != null ? line.itemId : item.id;
+            }
+
+            if (dispatch.departmentId == null && dispatch.department != null && !dispatch.department.isBlank() && departmentRepo != null) {
+                if (orgId != null) {
+                    departmentRepo.findByOrganisationIdAndNameIgnoreCase(orgId, dispatch.department.trim())
+                        .ifPresent(d -> dispatch.departmentId = d.id);
+                } else {
+                    departmentRepo.findByNameIgnoreCase(dispatch.department.trim())
+                        .ifPresent(d -> dispatch.departmentId = d.id);
+                }
             }
             dispatch.unit = (line.unit != null && !line.unit.isBlank()) ? line.unit.trim().toUpperCase() : item.unit;
             dispatch.quantity = line.dispatchQty;
