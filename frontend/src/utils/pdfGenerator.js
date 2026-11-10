@@ -1753,13 +1753,39 @@ export async function ensureTamilFontLoaded() {
 }
 
 /**
+ * Escapes HTML special characters to prevent broken markup when interpolating user/API strings.
+ */
+function escapeHtml(val) {
+  if (val === null || val === undefined) return '';
+  return String(val)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+/**
+ * Sums item quantities grouped cleanly by unit without hardcoding or mixing units.
+ */
+function accumulateUnitTotals(items, getVal) {
+  const unitTotals = {};
+  (Array.isArray(items) ? items : []).forEach(it => {
+    if (!it) return;
+    const key = cleanUnitName(it.unit || '');
+    const val = Number(getVal(it)) || 0;
+    unitTotals[key] = (unitTotals[key] || 0) + val;
+  });
+  return unitTotals;
+}
+
+/**
  * Helper to construct an offscreen HTML page container with standard Annamithra branding.
  */
 function createReportPageEl({ title, subtitle, dateLabel, pageIndex, totalPages, isLandscape = false }) {
   const pageEl = document.createElement('div');
   pageEl.style.width = isLandscape ? '1122px' : '794px';
   pageEl.style.minHeight = isLandscape ? '794px' : '1122px';
-  pageEl.style.height = isLandscape ? '794px' : '1122px';
   pageEl.style.padding = isLandscape ? '28px 36px 24px 36px' : '32px 36px 28px 36px';
   pageEl.style.boxSizing = 'border-box';
   pageEl.style.background = '#ffffff';
@@ -1781,11 +1807,11 @@ function createReportPageEl({ title, subtitle, dateLabel, pageIndex, totalPages,
       <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 4px;">
         <div style="display: flex; align-items: center; gap: 10px;">
           <h1 style="margin: 0; font-size: 21px; font-weight: 800; color: #003B2B; letter-spacing: 0.3px;">
-            Annamithra — ${title}
+            Annamithra — ${escapeHtml(title)}
           </h1>
         </div>
         <div style="text-align: right; font-size: 11.5px; color: #4A6B5F; font-weight: 600;">
-          Generated: ${genDateStr}
+          Generated: ${escapeHtml(genDateStr)}
         </div>
       </div>
 
@@ -1795,10 +1821,10 @@ function createReportPageEl({ title, subtitle, dateLabel, pageIndex, totalPages,
       <!-- Scope Card -->
       <div style="background: #FBF7EC; border: 1px solid #E5DDC9; border-radius: 6px; padding: 10px 16px; margin-bottom: 16px;">
         <div style="font-size: 13px; font-weight: 700; color: #003B2B; margin-bottom: 3px;">
-          ${subtitle}
+          ${escapeHtml(subtitle)}
         </div>
         <div style="font-size: 11.5px; color: #5A6962; font-weight: 500;">
-          Date Scope: ${dateLabel || 'All Dates'}
+          Date Scope: ${escapeHtml(dateLabel || 'Today')}
         </div>
       </div>
     </div>
@@ -1826,6 +1852,7 @@ async function renderHtmlPagesToPdf({ pages, filename, orientation = 'portrait' 
   await ensureTamilFontLoaded();
 
   const isLandscape = orientation === 'landscape';
+  const safePages = Array.isArray(pages) ? pages : [];
   const pdf = new jsPDF({
     unit: 'pt',
     format: 'a4',
@@ -1834,19 +1861,20 @@ async function renderHtmlPagesToPdf({ pages, filename, orientation = 'portrait' 
 
   const pdfWidth = pdf.internal.pageSize.getWidth();
   const pdfHeight = pdf.internal.pageSize.getHeight();
+  const pagePxWidth = isLandscape ? 1122 : 794;
 
   const container = document.createElement('div');
   container.style.position = 'fixed';
   container.style.top = '-99999px';
   container.style.left = '-99999px';
-  container.style.width = isLandscape ? '1122px' : '794px';
+  container.style.width = `${pagePxWidth}px`;
   container.style.background = '#ffffff';
   container.style.zIndex = '-9999';
   document.body.appendChild(container);
 
   try {
-    for (let pageIdx = 0; pageIdx < pages.length; pageIdx++) {
-      const pageEl = pages[pageIdx];
+    for (let pageIdx = 0; pageIdx < safePages.length; pageIdx++) {
+      const pageEl = safePages[pageIdx];
       container.innerHTML = '';
       container.appendChild(pageEl);
 
@@ -1854,17 +1882,29 @@ async function renderHtmlPagesToPdf({ pages, filename, orientation = 'portrait' 
         scale: 2,
         useCORS: true,
         logging: false,
-        backgroundColor: '#ffffff'
+        backgroundColor: '#ffffff',
+        scrollX: 0,
+        scrollY: 0
       });
 
       const imgData = canvas.toDataURL('image/png');
       if (pageIdx > 0) {
         pdf.addPage('a4', isLandscape ? 'landscape' : 'portrait');
       }
-      pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight);
+
+      const imgAspect = canvas.width / Math.max(1, canvas.height);
+      const pageAspect = pdfWidth / pdfHeight;
+      let renderW = pdfWidth;
+      let renderH = pdfHeight;
+      if (imgAspect < pageAspect - 0.01) {
+        renderH = pdfHeight;
+        renderW = pdfHeight * imgAspect;
+      }
+      const offsetX = Math.max(0, (pdfWidth - renderW) / 2);
+      pdf.addImage(imgData, 'PNG', offsetX, 0, renderW, renderH);
     }
 
-    pdf.save(filename);
+    pdf.save(filename || 'Annamithra_Report.pdf');
     return true;
   } finally {
     if (container.parentNode) {
@@ -1875,25 +1915,22 @@ async function renderHtmlPagesToPdf({ pages, filename, orientation = 'portrait' 
 
 /**
  * 1. Simple Inventory Report PDF
- * Columns: Item Name, Unit, Current Stock, Last Updated Date
+ * Columns: Item Name, Available Stock, Last Updated Date
  */
 export async function downloadSimpleInventoryPdf({ items = [], dateLabel = 'Today', filename } = {}) {
+  const safeItems = Array.isArray(items) ? items : [];
   const ITEMS_PER_PAGE = 14;
-  const totalPages = Math.max(1, Math.ceil(items.length / ITEMS_PER_PAGE));
-  const invStockUnitTotals = {};
-  items.forEach(it => {
-    const u = it.unit || 'KG';
-    invStockUnitTotals[u] = (invStockUnitTotals[u] || 0) + (Number(it.currentStock) || 0);
-  });
+  const totalPages = Math.max(1, Math.ceil(safeItems.length / ITEMS_PER_PAGE));
+  const invStockUnitTotals = accumulateUnitTotals(safeItems, it => it.currentStock);
   const summaryStockStr = formatUnitSummary(invStockUnitTotals, false);
-  const subtitle = `Total Items: ${items.length}   |   Total Central Stock: ${summaryStockStr}`;
+  const subtitle = `Total Items: ${safeItems.length}   |   Total Central Stock: ${summaryStockStr}`;
 
   const pages = [];
 
   for (let pageIdx = 0; pageIdx < totalPages; pageIdx++) {
     const startIdx = pageIdx * ITEMS_PER_PAGE;
-    const endIdx = Math.min(startIdx + ITEMS_PER_PAGE, items.length);
-    const pageRows = items.slice(startIdx, endIdx);
+    const endIdx = Math.min(startIdx + ITEMS_PER_PAGE, safeItems.length);
+    const pageRows = safeItems.slice(startIdx, endIdx);
     const isLastPage = pageIdx === totalPages - 1;
 
     const { pageEl, headerHtml, footerHtml } = createReportPageEl({
@@ -1906,7 +1943,7 @@ export async function downloadSimpleInventoryPdf({ items = [], dateLabel = 'Toda
     });
 
     let tableRowsHtml = '';
-    if (items.length === 0) {
+    if (safeItems.length === 0) {
       tableRowsHtml = `
         <tr>
           <td colspan="4" style="padding: 24px 14px; text-align: center; color: #5A6962; font-style: italic; border: 1px solid #E5DDC9; font-size: 14px;">
@@ -1918,10 +1955,10 @@ export async function downloadSimpleInventoryPdf({ items = [], dateLabel = 'Toda
       pageRows.forEach((it, i) => {
         const rowIdx = startIdx + i + 1;
         const bg = (rowIdx % 2 === 0) ? '#FCFAF3' : '#ffffff';
-        const itemDisplay = String(it.itemName || it.name || '—');
-        const unitDisplay = String(it.unit || '—');
+        const itemDisplay = escapeHtml(it.itemName || it.name || '—');
+        const unitDisplay = cleanUnitName(it.unit || '');
         const stockVal = Number(it.currentStock) || 0;
-        const dateDisplay = String(it.formattedLastUpdated || it.lastUpdated || '—');
+        const dateDisplay = escapeHtml(it.formattedLastUpdated || it.lastUpdated || '—');
 
         tableRowsHtml += `
           <tr style="background: ${bg}; border-bottom: 1px solid #E5DDC9;">
@@ -1932,7 +1969,7 @@ export async function downloadSimpleInventoryPdf({ items = [], dateLabel = 'Toda
               ${itemDisplay}
             </td>
             <td style="padding: 9px 14px; text-align: right; border: 1px solid #E5DDC9; font-weight: 700; color: #003B2B; font-size: 15px; width: 160px;">
-              ${formatQuantityWithUnit(stockVal, unitDisplay)}
+              ${escapeHtml(formatQuantityWithUnit(stockVal, unitDisplay))}
             </td>
             <td style="padding: 9px 12px; text-align: center; border: 1px solid #E5DDC9; font-size: 13.5px; font-weight: 500; color: #5A6962; width: 145px;">
               ${dateDisplay}
@@ -1942,14 +1979,14 @@ export async function downloadSimpleInventoryPdf({ items = [], dateLabel = 'Toda
       });
     }
 
-    const summaryFooterHtml = isLastPage && items.length > 0 ? `
+    const summaryFooterHtml = isLastPage && safeItems.length > 0 ? `
       <tfoot>
         <tr style="background: #F5EFE0; border: 1.5px solid #D4A63B; font-weight: 700; color: #003B2B;">
           <td colspan="2" style="padding: 10px 14px; border: 1px solid #E5DDC9; font-size: 16px; font-weight: 700;">
-            Total Items: ${items.length}
+            Total Items: ${safeItems.length}
           </td>
-          <td style="padding: 10px 14px; text-align: right; border: 1px solid #E5DDC9; font-size: 16px; font-weight: 800; color: #003B2B;">
-            ${summaryStockStr}
+          <td style="padding: 10px 14px; text-align: right; border: 1px solid #E5DDC9; font-size: 15.5px; font-weight: 800; color: #003B2B;">
+            ${escapeHtml(summaryStockStr)}
           </td>
           <td style="padding: 10px 12px; text-align: center; border: 1px solid #E5DDC9; font-size: 14px; font-weight: 600; color: #5A6962;">
             Central Stock Total
@@ -1989,26 +2026,23 @@ export async function downloadSimpleInventoryPdf({ items = [], dateLabel = 'Toda
 
 /**
  * 2. Simple Branch Request Report PDF
- * Columns: Branch Name, Department, Item Name, Unit, Requested Quantity, Request Date, Status
+ * Columns: #, Branch Name, Department, Item Name, Requested Quantity, Request Date, Status
  */
 export async function downloadSimpleBranchRequestPdf({ items = [], branch = 'All Branches', department = 'All Departments', dateLabel = 'Today', filename } = {}) {
+  const safeItems = Array.isArray(items) ? items : [];
   const ITEMS_PER_PAGE = 14;
-  const totalPages = Math.max(1, Math.ceil(items.length / ITEMS_PER_PAGE));
-  const branchReqUnitTotals = {};
-  items.forEach(it => {
-    const u = it.unit || 'KG';
-    branchReqUnitTotals[u] = (branchReqUnitTotals[u] || 0) + (Number(it.requestedQuantity) || 0);
-  });
+  const totalPages = Math.max(1, Math.ceil(safeItems.length / ITEMS_PER_PAGE));
+  const branchReqUnitTotals = accumulateUnitTotals(safeItems, it => it.requestedQuantity ?? it.requested);
   const summaryBranchReqStr = formatUnitSummary(branchReqUnitTotals, false);
   const deptPart = department && department !== 'All Departments' ? `   |   Dept: ${department}` : '';
-  const subtitle = `Branch: ${branch || 'All Branches'}${deptPart}   |   Total Requests: ${items.length}   |   Total Requested: ${summaryBranchReqStr}`;
+  const subtitle = `Branch: ${branch || 'All Branches'}${deptPart}   |   Total Requests: ${safeItems.length}   |   Total Requested: ${summaryBranchReqStr}`;
 
   const pages = [];
 
   for (let pageIdx = 0; pageIdx < totalPages; pageIdx++) {
     const startIdx = pageIdx * ITEMS_PER_PAGE;
-    const endIdx = Math.min(startIdx + ITEMS_PER_PAGE, items.length);
-    const pageRows = items.slice(startIdx, endIdx);
+    const endIdx = Math.min(startIdx + ITEMS_PER_PAGE, safeItems.length);
+    const pageRows = safeItems.slice(startIdx, endIdx);
     const isLastPage = pageIdx === totalPages - 1;
 
     const { pageEl, headerHtml, footerHtml } = createReportPageEl({
@@ -2021,7 +2055,7 @@ export async function downloadSimpleBranchRequestPdf({ items = [], branch = 'All
     });
 
     let tableRowsHtml = '';
-    if (items.length === 0) {
+    if (safeItems.length === 0) {
       tableRowsHtml = `
         <tr>
           <td colspan="7" style="padding: 24px 14px; text-align: center; color: #5A6962; font-style: italic; border: 1px solid #E5DDC9; font-size: 14px;">
@@ -2033,36 +2067,36 @@ export async function downloadSimpleBranchRequestPdf({ items = [], branch = 'All
       pageRows.forEach((it, i) => {
         const rowIdx = startIdx + i + 1;
         const bg = (rowIdx % 2 === 0) ? '#FCFAF3' : '#ffffff';
-        const brName = String(it.branchName || it.branch || '—');
-        const deptName = String(it.department || it.category || 'Not specified');
-        const itName = String(it.itemName || it.item || '—');
-        const unitName = String(it.unit || '—');
-        const reqVal = Number(it.requestedQuantity) || 0;
-        const dateDisplay = String(it.formattedDate || it.date || '—');
-        const st = String(it.meaningfulStatus || it.status || '—');
+        const brName = escapeHtml(it.branchName || it.branch || '—');
+        const deptName = escapeHtml(it.department || it.departmentName || it.category || 'Not specified');
+        const itName = escapeHtml(it.itemName || it.item || '—');
+        const unitName = cleanUnitName(it.unit || '');
+        const reqVal = Number(it.requestedQuantity ?? it.requested) || 0;
+        const dateDisplay = escapeHtml(it.formattedDate || it.date || it.requestDate || '—');
+        const st = escapeHtml(it.meaningfulStatus || it.status || '—');
 
         tableRowsHtml += `
           <tr style="background: ${bg}; border-bottom: 1px solid #E5DDC9;">
             <td style="padding: 9px 6px; text-align: center; border: 1px solid #E5DDC9; font-size: 13.5px; font-weight: 600; color: #5A6962; width: 34px;">
               ${rowIdx}
             </td>
-            <td style="padding: 9px 8px; border: 1px solid #E5DDC9; font-weight: 700; color: #17352B; font-size: 15px; width: 115px; word-break: break-word;">
+            <td style="padding: 9px 8px; border: 1px solid #E5DDC9; font-weight: 700; color: #17352B; font-size: 14.5px; width: 115px; word-break: break-word;">
               ${brName}
             </td>
-            <td style="padding: 9px 8px; border: 1px solid #E5DDC9; font-size: 14px; font-weight: 500; color: #5A6962; width: 100px; word-break: break-word;">
+            <td style="padding: 9px 8px; border: 1px solid #E5DDC9; font-size: 13.5px; font-weight: 500; color: #5A6962; width: 100px; word-break: break-word;">
               ${deptName}
             </td>
             <td style="padding: 9px 10px; border: 1px solid #E5DDC9; font-weight: 600; color: #17352B; font-size: 14.5px; word-break: break-word;">
               ${itName}
             </td>
-            <td style="padding: 9px 10px; text-align: right; border: 1px solid #E5DDC9; font-weight: 700; color: #003B2B; font-size: 15px; width: 120px;">
-              ${formatQuantityWithUnit(reqVal, unitName)}
+            <td style="padding: 9px 10px; text-align: right; border: 1px solid #E5DDC9; font-weight: 700; color: #003B2B; font-size: 14.5px; width: 120px;">
+              ${escapeHtml(formatQuantityWithUnit(reqVal, unitName))}
             </td>
-            <td style="padding: 9px 8px; text-align: center; border: 1px solid #E5DDC9; font-size: 13.5px; font-weight: 500; color: #5A6962; width: 80px;">
+            <td style="padding: 9px 8px; text-align: center; border: 1px solid #E5DDC9; font-size: 13px; font-weight: 500; color: #5A6962; width: 85px;">
               ${dateDisplay}
             </td>
-            <td style="padding: 9px 8px; text-align: center; border: 1px solid #E5DDC9; width: 85px;">
-              <span style="background: #F5EFE0; border: 1px solid #E5DDC9; padding: 3px 6px; border-radius: 4px; font-weight: 700; font-size: 12.5px; color: #17352B; display: inline-block;">
+            <td style="padding: 9px 8px; text-align: center; border: 1px solid #E5DDC9; width: 90px;">
+              <span style="background: #F5EFE0; border: 1px solid #E5DDC9; padding: 3px 6px; border-radius: 4px; font-weight: 700; font-size: 12px; color: #17352B; display: inline-block;">
                 ${st}
               </span>
             </td>
@@ -2071,16 +2105,16 @@ export async function downloadSimpleBranchRequestPdf({ items = [], branch = 'All
       });
     }
 
-    const summaryFooterHtml = isLastPage && items.length > 0 ? `
+    const summaryFooterHtml = isLastPage && safeItems.length > 0 ? `
       <tfoot>
         <tr style="background: #F5EFE0; border: 1.5px solid #D4A63B; font-weight: 700; color: #003B2B;">
-          <td colspan="5" style="padding: 10px 12px; border: 1px solid #E5DDC9; font-size: 16px; font-weight: 700;">
-            Total Requests: ${items.length}
+          <td colspan="4" style="padding: 10px 12px; border: 1px solid #E5DDC9; font-size: 15.5px; font-weight: 700;">
+            Total Requests: ${safeItems.length}
           </td>
-          <td style="padding: 10px 10px; text-align: right; border: 1px solid #E5DDC9; font-size: 16.5px; font-weight: 800; color: #003B2B;">
-            ${totalQty.toLocaleString()}
+          <td style="padding: 10px 10px; text-align: right; border: 1px solid #E5DDC9; font-size: 15px; font-weight: 800; color: #003B2B;">
+            ${escapeHtml(summaryBranchReqStr)}
           </td>
-          <td colspan="2" style="padding: 10px 10px; text-align: center; border: 1px solid #E5DDC9; font-size: 14px; font-weight: 600; color: #5A6962;">
+          <td colspan="2" style="padding: 10px 10px; text-align: center; border: 1px solid #E5DDC9; font-size: 13.5px; font-weight: 600; color: #5A6962;">
             Grand Requested Total
           </td>
         </tr>
@@ -2093,14 +2127,13 @@ export async function downloadSimpleBranchRequestPdf({ items = [], branch = 'All
         <table style="width: 100%; border-collapse: collapse; margin-bottom: auto;">
           <thead>
             <tr style="background: #F5EFE0; border: 1px solid #E5DDC9;">
-              <th style="padding: 10px 6px; text-align: center; font-size: 14.5px; font-weight: 700; color: #003B2B; border: 1px solid #E5DDC9; width: 34px;">#</th>
-              <th style="padding: 10px 8px; text-align: left; font-size: 15px; font-weight: 700; color: #003B2B; border: 1px solid #E5DDC9; width: 115px;">Branch Name</th>
-              <th style="padding: 10px 8px; text-align: left; font-size: 15px; font-weight: 700; color: #003B2B; border: 1px solid #E5DDC9; width: 100px;">Department</th>
-              <th style="padding: 10px 10px; text-align: left; font-size: 15px; font-weight: 700; color: #003B2B; border: 1px solid #E5DDC9;">Item Name</th>
-              <th style="padding: 10px 6px; text-align: center; font-size: 14.5px; font-weight: 700; color: #003B2B; border: 1px solid #E5DDC9; width: 55px;">Unit</th>
-              <th style="padding: 10px 10px; text-align: right; font-size: 15px; font-weight: 700; color: #003B2B; border: 1px solid #E5DDC9; width: 85px;">Requested</th>
-              <th style="padding: 10px 8px; text-align: center; font-size: 14.5px; font-weight: 700; color: #003B2B; border: 1px solid #E5DDC9; width: 80px;">Date</th>
-              <th style="padding: 10px 8px; text-align: center; font-size: 14.5px; font-weight: 700; color: #003B2B; border: 1px solid #E5DDC9; width: 85px;">Status</th>
+              <th style="padding: 10px 6px; text-align: center; font-size: 14px; font-weight: 700; color: #003B2B; border: 1px solid #E5DDC9; width: 34px;">#</th>
+              <th style="padding: 10px 8px; text-align: left; font-size: 14.5px; font-weight: 700; color: #003B2B; border: 1px solid #E5DDC9; width: 115px;">Branch Name</th>
+              <th style="padding: 10px 8px; text-align: left; font-size: 14.5px; font-weight: 700; color: #003B2B; border: 1px solid #E5DDC9; width: 100px;">Department</th>
+              <th style="padding: 10px 10px; text-align: left; font-size: 14.5px; font-weight: 700; color: #003B2B; border: 1px solid #E5DDC9;">Item Name</th>
+              <th style="padding: 10px 10px; text-align: right; font-size: 14.5px; font-weight: 700; color: #003B2B; border: 1px solid #E5DDC9; width: 120px;">Requested Quantity</th>
+              <th style="padding: 10px 8px; text-align: center; font-size: 14px; font-weight: 700; color: #003B2B; border: 1px solid #E5DDC9; width: 85px;">Date</th>
+              <th style="padding: 10px 8px; text-align: center; font-size: 14px; font-weight: 700; color: #003B2B; border: 1px solid #E5DDC9; width: 90px;">Status</th>
             </tr>
           </thead>
           <tbody>
@@ -2122,26 +2155,23 @@ export async function downloadSimpleBranchRequestPdf({ items = [], branch = 'All
 
 /**
  * 3. Simple Dispatch Report PDF
- * Columns: Branch Name, Department, Item Name, Unit, Dispatched Quantity, Dispatch Date, Acknowledgement Status
+ * Columns: #, Branch Name, Department, Item Name, Dispatched Quantity, Dispatch Date, Acknowledgement Status
  */
 export async function downloadSimpleDispatchPdf({ items = [], branch = 'All Branches', department = 'All Departments', dateLabel = 'Today', filename } = {}) {
+  const safeItems = Array.isArray(items) ? items : [];
   const ITEMS_PER_PAGE = 14;
-  const totalPages = Math.max(1, Math.ceil(items.length / ITEMS_PER_PAGE));
-  const branchDispUnitTotals = {};
-  items.forEach(it => {
-    const u = it.unit || 'KG';
-    branchDispUnitTotals[u] = (branchDispUnitTotals[u] || 0) + (Number(it.dispatchedQuantity) || 0);
-  });
+  const totalPages = Math.max(1, Math.ceil(safeItems.length / ITEMS_PER_PAGE));
+  const branchDispUnitTotals = accumulateUnitTotals(safeItems, it => it.dispatchedQuantity ?? it.quantity);
   const summaryBranchDispStr = formatUnitSummary(branchDispUnitTotals, false);
   const deptPart = department && department !== 'All Departments' ? `   |   Dept: ${department}` : '';
-  const subtitle = `Branch: ${branch || 'All Branches'}${deptPart}   |   Total Dispatches: ${items.length}   |   Total Dispatched: ${summaryBranchDispStr}`;
+  const subtitle = `Branch: ${branch || 'All Branches'}${deptPart}   |   Total Dispatches: ${safeItems.length}   |   Total Dispatched: ${summaryBranchDispStr}`;
 
   const pages = [];
 
   for (let pageIdx = 0; pageIdx < totalPages; pageIdx++) {
     const startIdx = pageIdx * ITEMS_PER_PAGE;
-    const endIdx = Math.min(startIdx + ITEMS_PER_PAGE, items.length);
-    const pageRows = items.slice(startIdx, endIdx);
+    const endIdx = Math.min(startIdx + ITEMS_PER_PAGE, safeItems.length);
+    const pageRows = safeItems.slice(startIdx, endIdx);
     const isLastPage = pageIdx === totalPages - 1;
 
     const { pageEl, headerHtml, footerHtml } = createReportPageEl({
@@ -2154,7 +2184,7 @@ export async function downloadSimpleDispatchPdf({ items = [], branch = 'All Bran
     });
 
     let tableRowsHtml = '';
-    if (items.length === 0) {
+    if (safeItems.length === 0) {
       tableRowsHtml = `
         <tr>
           <td colspan="7" style="padding: 24px 14px; text-align: center; color: #5A6962; font-style: italic; border: 1px solid #E5DDC9; font-size: 14px;">
@@ -2166,36 +2196,36 @@ export async function downloadSimpleDispatchPdf({ items = [], branch = 'All Bran
       pageRows.forEach((it, i) => {
         const rowIdx = startIdx + i + 1;
         const bg = (rowIdx % 2 === 0) ? '#FCFAF3' : '#ffffff';
-        const brName = String(it.branchName || '—');
-        const deptName = String(it.department || it.category || 'Not specified');
-        const itName = String(it.itemName || '—');
-        const unitName = String(it.unit || '—');
-        const dispVal = Number(it.dispatchedQuantity) || 0;
-        const dateDisplay = String(it.formattedDate || it.dispatchDate || '—');
-        const ackSt = String(it.meaningfulStatus || it.acknowledgementStatus || it.status || '—');
+        const brName = escapeHtml(it.branchName || it.branch || '—');
+        const deptName = escapeHtml(it.department || it.departmentName || it.category || 'Not specified');
+        const itName = escapeHtml(it.itemName || it.item || '—');
+        const unitName = cleanUnitName(it.unit || '');
+        const dispVal = Number(it.dispatchedQuantity ?? it.quantity) || 0;
+        const dateDisplay = escapeHtml(it.formattedDate || it.dispatchDate || '—');
+        const ackSt = escapeHtml(it.meaningfulStatus || it.acknowledgementStatus || it.status || '—');
 
         tableRowsHtml += `
           <tr style="background: ${bg}; border-bottom: 1px solid #E5DDC9;">
             <td style="padding: 9px 6px; text-align: center; border: 1px solid #E5DDC9; font-size: 13.5px; font-weight: 600; color: #5A6962; width: 34px;">
               ${rowIdx}
             </td>
-            <td style="padding: 9px 8px; border: 1px solid #E5DDC9; font-weight: 700; color: #17352B; font-size: 15px; width: 115px; word-break: break-word;">
+            <td style="padding: 9px 8px; border: 1px solid #E5DDC9; font-weight: 700; color: #17352B; font-size: 14.5px; width: 115px; word-break: break-word;">
               ${brName}
             </td>
-            <td style="padding: 9px 8px; border: 1px solid #E5DDC9; font-size: 14px; font-weight: 500; color: #5A6962; width: 100px; word-break: break-word;">
+            <td style="padding: 9px 8px; border: 1px solid #E5DDC9; font-size: 13.5px; font-weight: 500; color: #5A6962; width: 100px; word-break: break-word;">
               ${deptName}
             </td>
             <td style="padding: 9px 10px; border: 1px solid #E5DDC9; font-weight: 600; color: #17352B; font-size: 14.5px; word-break: break-word;">
               ${itName}
             </td>
-            <td style="padding: 9px 10px; text-align: right; border: 1px solid #E5DDC9; font-weight: 700; color: #003B2B; font-size: 15px; width: 120px;">
-              ${formatQuantityWithUnit(dispVal, unitName)}
+            <td style="padding: 9px 10px; text-align: right; border: 1px solid #E5DDC9; font-weight: 700; color: #003B2B; font-size: 14.5px; width: 120px;">
+              ${escapeHtml(formatQuantityWithUnit(dispVal, unitName))}
             </td>
-            <td style="padding: 9px 8px; text-align: center; border: 1px solid #E5DDC9; font-size: 13.5px; font-weight: 500; color: #5A6962; width: 80px;">
+            <td style="padding: 9px 8px; text-align: center; border: 1px solid #E5DDC9; font-size: 13px; font-weight: 500; color: #5A6962; width: 85px;">
               ${dateDisplay}
             </td>
-            <td style="padding: 9px 8px; text-align: center; border: 1px solid #E5DDC9; width: 85px;">
-              <span style="background: #F5EFE0; border: 1px solid #E5DDC9; padding: 3px 6px; border-radius: 4px; font-weight: 700; font-size: 12.5px; color: #17352B; display: inline-block;">
+            <td style="padding: 9px 8px; text-align: center; border: 1px solid #E5DDC9; width: 90px;">
+              <span style="background: #F5EFE0; border: 1px solid #E5DDC9; padding: 3px 6px; border-radius: 4px; font-weight: 700; font-size: 12px; color: #17352B; display: inline-block;">
                 ${ackSt}
               </span>
             </td>
@@ -2204,16 +2234,16 @@ export async function downloadSimpleDispatchPdf({ items = [], branch = 'All Bran
       });
     }
 
-    const summaryFooterHtml = isLastPage && items.length > 0 ? `
+    const summaryFooterHtml = isLastPage && safeItems.length > 0 ? `
       <tfoot>
         <tr style="background: #F5EFE0; border: 1.5px solid #D4A63B; font-weight: 700; color: #003B2B;">
-          <td colspan="5" style="padding: 10px 12px; border: 1px solid #E5DDC9; font-size: 16px; font-weight: 700;">
-            Total Dispatches: ${items.length}
+          <td colspan="4" style="padding: 10px 12px; border: 1px solid #E5DDC9; font-size: 15.5px; font-weight: 700;">
+            Total Dispatches: ${safeItems.length}
           </td>
-          <td style="padding: 10px 10px; text-align: right; border: 1px solid #E5DDC9; font-size: 16.5px; font-weight: 800; color: #003B2B;">
-            ${totalQty.toLocaleString()}
+          <td style="padding: 10px 10px; text-align: right; border: 1px solid #E5DDC9; font-size: 15px; font-weight: 800; color: #003B2B;">
+            ${escapeHtml(summaryBranchDispStr)}
           </td>
-          <td colspan="2" style="padding: 10px 10px; text-align: center; border: 1px solid #E5DDC9; font-size: 14px; font-weight: 600; color: #5A6962;">
+          <td colspan="2" style="padding: 10px 10px; text-align: center; border: 1px solid #E5DDC9; font-size: 13.5px; font-weight: 600; color: #5A6962;">
             Grand Dispatched Total
           </td>
         </tr>
@@ -2226,14 +2256,13 @@ export async function downloadSimpleDispatchPdf({ items = [], branch = 'All Bran
         <table style="width: 100%; border-collapse: collapse; margin-bottom: auto;">
           <thead>
             <tr style="background: #F5EFE0; border: 1px solid #E5DDC9;">
-              <th style="padding: 10px 6px; text-align: center; font-size: 14.5px; font-weight: 700; color: #003B2B; border: 1px solid #E5DDC9; width: 34px;">#</th>
-              <th style="padding: 10px 8px; text-align: left; font-size: 15px; font-weight: 700; color: #003B2B; border: 1px solid #E5DDC9; width: 115px;">Branch Name</th>
-              <th style="padding: 10px 8px; text-align: left; font-size: 15px; font-weight: 700; color: #003B2B; border: 1px solid #E5DDC9; width: 100px;">Department</th>
-              <th style="padding: 10px 10px; text-align: left; font-size: 15px; font-weight: 700; color: #003B2B; border: 1px solid #E5DDC9;">Item Name</th>
-              <th style="padding: 10px 6px; text-align: center; font-size: 14.5px; font-weight: 700; color: #003B2B; border: 1px solid #E5DDC9; width: 55px;">Unit</th>
-              <th style="padding: 10px 10px; text-align: right; font-size: 15px; font-weight: 700; color: #003B2B; border: 1px solid #E5DDC9; width: 85px;">Dispatched</th>
-              <th style="padding: 10px 8px; text-align: center; font-size: 14.5px; font-weight: 700; color: #003B2B; border: 1px solid #E5DDC9; width: 80px;">Date</th>
-              <th style="padding: 10px 8px; text-align: center; font-size: 14.5px; font-weight: 700; color: #003B2B; border: 1px solid #E5DDC9; width: 85px;">Status</th>
+              <th style="padding: 10px 6px; text-align: center; font-size: 14px; font-weight: 700; color: #003B2B; border: 1px solid #E5DDC9; width: 34px;">#</th>
+              <th style="padding: 10px 8px; text-align: left; font-size: 14.5px; font-weight: 700; color: #003B2B; border: 1px solid #E5DDC9; width: 115px;">Branch Name</th>
+              <th style="padding: 10px 8px; text-align: left; font-size: 14.5px; font-weight: 700; color: #003B2B; border: 1px solid #E5DDC9; width: 100px;">Department</th>
+              <th style="padding: 10px 10px; text-align: left; font-size: 14.5px; font-weight: 700; color: #003B2B; border: 1px solid #E5DDC9;">Item Name</th>
+              <th style="padding: 10px 10px; text-align: right; font-size: 14.5px; font-weight: 700; color: #003B2B; border: 1px solid #E5DDC9; width: 120px;">Dispatched Quantity</th>
+              <th style="padding: 10px 8px; text-align: center; font-size: 14px; font-weight: 700; color: #003B2B; border: 1px solid #E5DDC9; width: 85px;">Date</th>
+              <th style="padding: 10px 8px; text-align: center; font-size: 14px; font-weight: 700; color: #003B2B; border: 1px solid #E5DDC9; width: 90px;">Status</th>
             </tr>
           </thead>
           <tbody>
@@ -2255,7 +2284,7 @@ export async function downloadSimpleDispatchPdf({ items = [], branch = 'All Bran
 
 /**
  * 4. Category-Wise Summary Report PDF
- * Columns: Category, Total Items, Branch Requested Quantity, Store Dispatched Quantity, Pending Quantity
+ * Columns: Category, Total Items, Requested Quantity, Dispatched Quantity, Pending Quantity
  * Accurately renders English, Tamil, and Bilingual Unicode Categories.
  */
 export async function downloadCategorySummaryPdf({
@@ -2266,24 +2295,19 @@ export async function downloadCategorySummaryPdf({
   dateLabel = 'Today',
   filename
 } = {}) {
+  const safeSummary = Array.isArray(summary) ? summary : [];
   const ITEMS_PER_PAGE = 14;
-  const totalPages = Math.max(1, Math.ceil(summary.length / ITEMS_PER_PAGE));
-  const formatUnitMap = (map) => {
-    if (!map || Object.keys(map).length === 0) return '0';
-    return Object.entries(map)
-      .map(([u, val]) => `${Number(val || 0).toLocaleString()} ${u}`)
-      .join(', ');
-  };
+  const totalPages = Math.max(1, Math.ceil(safeSummary.length / ITEMS_PER_PAGE));
 
-  const subtitle = `Branch: ${branch}   |   Dept: ${department}   |   Categories: ${summary.length}`;
+  const subtitle = `Branch: ${branch}   |   Dept: ${department}   |   Categories: ${safeSummary.length}`;
   const pages = [];
 
-  const totalDistinctItems = summary.reduce((sum, r) => sum + (Number(r.totalItems) || 0), 0);
+  const totalDistinctItems = safeSummary.reduce((sum, r) => sum + (Number(r.totalItems) || 0), 0);
 
   for (let pageIdx = 0; pageIdx < totalPages; pageIdx++) {
     const startIdx = pageIdx * ITEMS_PER_PAGE;
-    const endIdx = Math.min(startIdx + ITEMS_PER_PAGE, summary.length);
-    const pageRows = summary.slice(startIdx, endIdx);
+    const endIdx = Math.min(startIdx + ITEMS_PER_PAGE, safeSummary.length);
+    const pageRows = safeSummary.slice(startIdx, endIdx);
     const isLastPage = pageIdx === totalPages - 1;
 
     const { pageEl, headerHtml, footerHtml } = createReportPageEl({
@@ -2296,7 +2320,7 @@ export async function downloadCategorySummaryPdf({
     });
 
     let tableRowsHtml = '';
-    if (summary.length === 0) {
+    if (safeSummary.length === 0) {
       tableRowsHtml = `
         <tr>
           <td colspan="6" style="padding: 24px 14px; text-align: center; color: #5A6962; font-style: italic; border: 1px solid #E5DDC9; font-size: 14px;">
@@ -2308,10 +2332,10 @@ export async function downloadCategorySummaryPdf({
       pageRows.forEach((row, i) => {
         const rowIdx = startIdx + i + 1;
         const bg = (rowIdx % 2 === 0) ? '#FCFAF3' : '#ffffff';
-        const cName = String(row.category || 'Uncategorised');
-        const reqStr = formatUnitMap(row.requestedByUnit);
-        const dispStr = formatUnitMap(row.dispatchedByUnit);
-        const pendStr = formatUnitMap(row.pendingByUnit);
+        const cName = escapeHtml(row.category || 'Uncategorised');
+        const reqStr = escapeHtml(formatUnitSummary(row.requestedByUnit, false, '0'));
+        const dispStr = escapeHtml(formatUnitSummary(row.dispatchedByUnit, false, '0'));
+        const pendStr = escapeHtml(formatUnitSummary(row.pendingByUnit, false, '0'));
 
         tableRowsHtml += `
           <tr style="background: ${bg}; border-bottom: 1px solid #E5DDC9;">
@@ -2324,13 +2348,13 @@ export async function downloadCategorySummaryPdf({
             <td style="padding: 9px 10px; text-align: center; border: 1px solid #E5DDC9; font-size: 14.5px; font-weight: 600; color: #17352B; width: 95px;">
               ${row.totalItems || 0}
             </td>
-            <td style="padding: 9px 12px; text-align: right; border: 1px solid #E5DDC9; font-weight: 600; color: #17352B; font-size: 15px; width: 125px;">
+            <td style="padding: 9px 12px; text-align: right; border: 1px solid #E5DDC9; font-weight: 600; color: #17352B; font-size: 14.5px; width: 125px;">
               ${reqStr}
             </td>
-            <td style="padding: 9px 12px; text-align: right; border: 1px solid #E5DDC9; font-weight: 600; color: #07543D; font-size: 15px; width: 125px;">
+            <td style="padding: 9px 12px; text-align: right; border: 1px solid #E5DDC9; font-weight: 600; color: #07543D; font-size: 14.5px; width: 125px;">
               ${dispStr}
             </td>
-            <td style="padding: 9px 12px; text-align: right; border: 1px solid #E5DDC9; font-weight: 700; color: #003B2B; font-size: 15px; width: 125px;">
+            <td style="padding: 9px 12px; text-align: right; border: 1px solid #E5DDC9; font-weight: 700; color: #003B2B; font-size: 14.5px; width: 125px;">
               ${pendStr}
             </td>
           </tr>
@@ -2338,11 +2362,11 @@ export async function downloadCategorySummaryPdf({
       });
     }
 
-    const summaryFooterHtml = isLastPage && summary.length > 0 ? `
+    const summaryFooterHtml = isLastPage && safeSummary.length > 0 ? `
       <tfoot>
         <tr style="background: #F5EFE0; border: 1.5px solid #D4A63B; font-weight: 700; color: #003B2B;">
           <td colspan="2" style="padding: 10px 14px; border: 1px solid #E5DDC9; font-size: 16px; font-weight: 700;">
-            Total Categories: ${summary.length}
+            Total Categories: ${safeSummary.length}
           </td>
           <td style="padding: 10px 10px; text-align: center; border: 1px solid #E5DDC9; font-size: 16.5px; font-weight: 800; color: #003B2B;">
             ${totalDistinctItems}
@@ -2363,9 +2387,9 @@ export async function downloadCategorySummaryPdf({
               <th style="padding: 11px 10px; text-align: center; font-size: 15px; font-weight: 700; color: #003B2B; border: 1px solid #E5DDC9; width: 38px;">#</th>
               <th style="padding: 11px 12px; text-align: left; font-size: 15.5px; font-weight: 700; color: #003B2B; border: 1px solid #E5DDC9;">Category</th>
               <th style="padding: 11px 10px; text-align: center; font-size: 15px; font-weight: 700; color: #003B2B; border: 1px solid #E5DDC9; width: 95px;">Distinct Items</th>
-              <th style="padding: 11px 12px; text-align: right; font-size: 15px; font-weight: 700; color: #003B2B; border: 1px solid #E5DDC9; width: 125px;">Requested Qty</th>
-              <th style="padding: 11px 12px; text-align: right; font-size: 15px; font-weight: 700; color: #003B2B; border: 1px solid #E5DDC9; width: 125px;">Dispatched Qty</th>
-              <th style="padding: 11px 12px; text-align: right; font-size: 15px; font-weight: 700; color: #003B2B; border: 1px solid #E5DDC9; width: 125px;">Pending Qty</th>
+              <th style="padding: 11px 12px; text-align: right; font-size: 14.5px; font-weight: 700; color: #003B2B; border: 1px solid #E5DDC9; width: 125px;">Requested Quantity</th>
+              <th style="padding: 11px 12px; text-align: right; font-size: 14.5px; font-weight: 700; color: #003B2B; border: 1px solid #E5DDC9; width: 125px;">Dispatched Quantity</th>
+              <th style="padding: 11px 12px; text-align: right; font-size: 14.5px; font-weight: 700; color: #003B2B; border: 1px solid #E5DDC9; width: 125px;">Pending Quantity</th>
             </tr>
           </thead>
           <tbody>
@@ -2397,28 +2421,23 @@ export async function downloadCategoryDetailPdf({
   dateLabel = 'Today',
   filename
 } = {}) {
+  const safeItems = Array.isArray(items) ? items : [];
   const ITEMS_PER_PAGE = 10;
-  const totalPages = Math.max(1, Math.ceil(items.length / ITEMS_PER_PAGE));
-  const catDetailReqUnitTotals = {};
-  const catDetailDispUnitTotals = {};
-  const catDetailPendUnitTotals = {};
-  items.forEach(it => {
-    const u = it.unit || 'KG';
-    catDetailReqUnitTotals[u] = (catDetailReqUnitTotals[u] || 0) + (Number(it.requestedQuantity) || 0);
-    catDetailDispUnitTotals[u] = (catDetailDispUnitTotals[u] || 0) + (Number(it.dispatchedQuantity) || 0);
-    catDetailPendUnitTotals[u] = (catDetailPendUnitTotals[u] || 0) + (Number(it.pendingQuantity) || 0);
-  });
+  const totalPages = Math.max(1, Math.ceil(safeItems.length / ITEMS_PER_PAGE));
+  const catDetailReqUnitTotals = accumulateUnitTotals(safeItems, it => it.requestedQuantity);
+  const catDetailDispUnitTotals = accumulateUnitTotals(safeItems, it => it.dispatchedQuantity);
+  const catDetailPendUnitTotals = accumulateUnitTotals(safeItems, it => it.pendingQuantity);
   const summaryCatReqStr = formatUnitSummary(catDetailReqUnitTotals, false);
   const summaryCatDispStr = formatUnitSummary(catDetailDispUnitTotals, false);
   const summaryCatPendStr = formatUnitSummary(catDetailPendUnitTotals, false);
 
-  const subtitle = `Category: ${categoryName}   |   Branch: ${branch}   |   Dept: ${department}   |   Items: ${items.length}`;
+  const subtitle = `Category: ${categoryName}   |   Branch: ${branch}   |   Dept: ${department}   |   Items: ${safeItems.length}`;
   const pages = [];
 
   for (let pageIdx = 0; pageIdx < totalPages; pageIdx++) {
     const startIdx = pageIdx * ITEMS_PER_PAGE;
-    const endIdx = Math.min(startIdx + ITEMS_PER_PAGE, items.length);
-    const pageRows = items.slice(startIdx, endIdx);
+    const endIdx = Math.min(startIdx + ITEMS_PER_PAGE, safeItems.length);
+    const pageRows = safeItems.slice(startIdx, endIdx);
     const isLastPage = pageIdx === totalPages - 1;
 
     const { pageEl, headerHtml, footerHtml } = createReportPageEl({
@@ -2431,7 +2450,7 @@ export async function downloadCategoryDetailPdf({
     });
 
     let tableRowsHtml = '';
-    if (items.length === 0) {
+    if (safeItems.length === 0) {
       tableRowsHtml = `
         <tr>
           <td colspan="10" style="padding: 24px 14px; text-align: center; color: #5A6962; font-style: italic; border: 1px solid #E5DDC9; font-size: 14px;">
@@ -2443,16 +2462,12 @@ export async function downloadCategoryDetailPdf({
       pageRows.forEach((it, i) => {
         const rowIdx = startIdx + i + 1;
         const bg = (rowIdx % 2 === 0) ? '#FCFAF3' : '#ffffff';
-        const iName = String(it.itemName || '—');
-        const uName = String(it.unit || '—');
-        const bName = String(it.branchName || '—');
-        const dName = String(it.department || 'Not specified');
-        const reqQty = Number(it.requestedQuantity || 0).toLocaleString();
-        const dispQty = Number(it.dispatchedQuantity || 0).toLocaleString();
-        const pendQty = Number(it.pendingQuantity || 0).toLocaleString();
-        const rDateStr = String(it.requestDate || '—');
-        const dDateStr = String(it.dispatchDate || '—');
-        const st = String(it.dispatchStatus || it.status || 'Pending');
+        const iName = escapeHtml(it.itemName || '—');
+        const bName = escapeHtml(it.branchName || '—');
+        const dName = escapeHtml(it.department || it.departmentName || 'Not specified');
+        const rDateStr = escapeHtml(it.requestDate || '—');
+        const dDateStr = escapeHtml(it.dispatchDate || '—');
+        const st = escapeHtml(it.dispatchStatus || it.status || 'Pending');
 
         tableRowsHtml += `
           <tr style="background: ${bg}; border-bottom: 1px solid #E5DDC9;">
@@ -2469,13 +2484,13 @@ export async function downloadCategoryDetailPdf({
               ${dName}
             </td>
             <td style="padding: 8px 8px; text-align: right; border: 1px solid #E5DDC9; font-weight: 700; color: #003B2B; font-size: 15px; width: 100px;">
-              ${formatQuantityWithUnit(it.requestedQuantity, it.unit)}
+              ${escapeHtml(formatQuantityWithUnit(it.requestedQuantity, it.unit))}
             </td>
             <td style="padding: 8px 8px; text-align: right; border: 1px solid #E5DDC9; font-weight: 700; color: #07543D; font-size: 15px; width: 100px;">
-              ${formatQuantityWithUnit(it.dispatchedQuantity, it.unit)}
+              ${escapeHtml(formatQuantityWithUnit(it.dispatchedQuantity, it.unit))}
             </td>
             <td style="padding: 8px 8px; text-align: right; border: 1px solid #E5DDC9; font-weight: 700; color: #003B2B; font-size: 15px; width: 100px;">
-              ${formatQuantityWithUnit(it.pendingQuantity, it.unit)}
+              ${escapeHtml(formatQuantityWithUnit(it.pendingQuantity, it.unit))}
             </td>
             <td style="padding: 8px 6px; text-align: center; border: 1px solid #E5DDC9; font-size: 13.5px; font-weight: 500; color: #5A6962; width: 85px;">
               ${rDateStr}
@@ -2493,20 +2508,20 @@ export async function downloadCategoryDetailPdf({
       });
     }
 
-    const summaryFooterHtml = isLastPage && items.length > 0 ? `
+    const summaryFooterHtml = isLastPage && safeItems.length > 0 ? `
       <tfoot>
         <tr style="background: #F5EFE0; border: 1.5px solid #D4A63B; font-weight: 700; color: #003B2B;">
           <td colspan="4" style="padding: 9px 10px; border: 1px solid #E5DDC9; font-size: 15.5px; font-weight: 700;">
-            Total Items: ${items.length}
+            Total Items: ${safeItems.length}
           </td>
           <td style="padding: 9px 8px; text-align: right; border: 1px solid #E5DDC9; font-size: 15px; font-weight: 800; color: #003B2B;">
-            ${summaryCatReqStr}
+            ${escapeHtml(summaryCatReqStr)}
           </td>
           <td style="padding: 9px 8px; text-align: right; border: 1px solid #E5DDC9; font-size: 15px; font-weight: 800; color: #07543D;">
-            ${summaryCatDispStr}
+            ${escapeHtml(summaryCatDispStr)}
           </td>
           <td style="padding: 9px 8px; text-align: right; border: 1px solid #E5DDC9; font-size: 15px; font-weight: 800; color: #003B2B;">
-            ${summaryCatPendStr}
+            ${escapeHtml(summaryCatPendStr)}
           </td>
           <td colspan="3" style="padding: 9px 8px; text-align: center; border: 1px solid #E5DDC9; font-size: 13.5px; font-weight: 600; color: #5A6962;">
             Grand Totals

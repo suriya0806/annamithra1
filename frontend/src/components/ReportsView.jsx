@@ -178,6 +178,7 @@ export function ReportsView({ userRole }) {
   const [rawDispatches, setRawDispatches] = useState([]);
   const [rawCategoryReport, setRawCategoryReport] = useState({ summary: [], items: [] });
   const [loading, setLoading] = useState(false);
+  const [downloadingPdf, setDownloadingPdf] = useState(false);
   const [error, setError] = useState(null);
 
   // Helper to format date as DD/MM/YYYY
@@ -645,7 +646,9 @@ export function ReportsView({ userRole }) {
 
   // Handle Download PDF
   const handleDownloadPdf = async () => {
+    if (downloadingPdf) return;
     try {
+      setDownloadingPdf(true);
       if (activeTab === 'inventory') {
         await downloadSimpleInventoryPdf({
           items: records,
@@ -670,13 +673,14 @@ export function ReportsView({ userRole }) {
         });
       } else if (activeTab === 'categories') {
         if (selectedCategoryView) {
+          const safeCat = (selectedCategoryView || 'Category').replace(/[^a-zA-Z0-9]+/g, '_').replace(/^_|_$/g, '') || 'Category';
           await downloadCategoryDetailPdf({
             categoryName: selectedCategoryView,
             items: categoryDetailItems,
             branch: branchScopeLabel,
             department: deptScopeLabel,
             dateLabel: dateScopeLabel,
-            filename: `Annamithra_${selectedCategoryView.replace(/[^a-zA-Z0-9]/g, '_')}_Item_Details_${dateFileSuffix}.pdf`
+            filename: `Annamithra_${safeCat}_Item_Details_${dateFileSuffix}.pdf`
           });
         } else {
           await downloadCategorySummaryPdf({
@@ -692,6 +696,8 @@ export function ReportsView({ userRole }) {
     } catch (err) {
       console.error('PDF export failed:', err);
       alert('Failed to generate PDF. Please try again.');
+    } finally {
+      setDownloadingPdf(false);
     }
   };
 
@@ -1355,7 +1361,7 @@ export function ReportsView({ userRole }) {
             type="button"
             className="btn primary small"
             onClick={handleDownloadPdf}
-            disabled={loading || hasNoData}
+            disabled={loading || hasNoData || downloadingPdf}
             style={{
               minHeight: 34,
               padding: '6px 14px',
@@ -1367,7 +1373,7 @@ export function ReportsView({ userRole }) {
             }}
           >
             <span>📄</span>
-            <span>{t('Download PDF', 'PDF பதிவிறக்கு')}</span>
+            <span>{downloadingPdf ? t('Generating...', 'தயாரிக்கிறது...') : t('Download PDF', 'PDF பதிவிறக்கு')}</span>
           </button>
         </div>
       </div>
