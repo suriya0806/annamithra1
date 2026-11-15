@@ -124,12 +124,16 @@ export function LanguageProvider({ children }) {
    */
   const translateStatus = (status) => {
     if (!status) return '';
-    if (language === 'en') return status;
+    const upper = String(status).toUpperCase().trim();
+    if (language === 'en') {
+      if (upper === 'DISPATCHED') return 'Delivered';
+      if (upper === 'PARTIALLY_DISPATCHED') return 'Partially Delivered';
+      return status;
+    }
 
     if (statusTranslations[status]) {
       return statusTranslations[status];
     }
-    const upper = String(status).toUpperCase().trim();
     if (statusTranslations[upper]) {
       return statusTranslations[upper];
     }
@@ -151,8 +155,10 @@ export function LanguageProvider({ children }) {
    */
   const translateCategory = (category) => {
     if (!category) return '';
-    if (language === 'en') return category;
-    return categoryTranslations[category] || category;
+    const trimmed = String(category).trim();
+    if (!trimmed || trimmed === 'null' || trimmed === 'undefined') return '';
+    if (language === 'en') return trimmed;
+    return categoryTranslations[trimmed] || trimmed;
   };
 
   return (

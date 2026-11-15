@@ -163,7 +163,7 @@ function AppContent() {
           <AdminPortal activeTab={activeTab} />
         )}
         {auth.user.role === 'Store Manager' && (
-          <StorePortal activeTab={activeTab} />
+          <StorePortal activeTab={activeTab} onSelectTab={setActiveTab} />
         )}
         {auth.user.role === 'Branch Manager' && (
           <BranchPortal user={auth.user} activeTab={activeTab} onSelectTab={setActiveTab} />
@@ -173,11 +173,56 @@ function AppContent() {
   );
 }
 
+class ErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+
+  static getDerivedStateFromError(error) {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error, errorInfo) {
+    console.error('App render error caught by ErrorBoundary:', error, errorInfo);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div style={{ padding: 32, maxWidth: 640, margin: '60px auto', background: '#fff', borderRadius: 8, boxShadow: '0 4px 20px rgba(0,0,0,0.1)', border: '1px solid #e5e7eb', textAlign: 'center', fontFamily: 'sans-serif' }}>
+          <h2 style={{ color: '#b91c1c', marginBottom: 12 }}>⚠️ Something went wrong</h2>
+          <p style={{ color: '#4b5563', fontSize: 14, marginBottom: 16 }}>
+            {this.state.error?.message || 'An unexpected rendering error occurred.'}
+          </p>
+          <div style={{ display: 'flex', gap: 10, justifyContent: 'center' }}>
+            <button
+              onClick={() => window.location.reload()}
+              style={{ padding: '8px 18px', background: '#2e7d32', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', fontWeight: 600 }}
+            >
+              Reload Page
+            </button>
+            <button
+              onClick={() => { localStorage.clear(); window.location.reload(); }}
+              style={{ padding: '8px 18px', background: '#f3f4f6', color: '#374151', border: '1px solid #d1d5db', borderRadius: 6, cursor: 'pointer', fontWeight: 600 }}
+            >
+              Reset Session & Reload
+            </button>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 function App() {
   return (
-    <LanguageProvider>
-      <AppContent />
-    </LanguageProvider>
+    <ErrorBoundary>
+      <LanguageProvider>
+        <AppContent />
+      </LanguageProvider>
+    </ErrorBoundary>
   );
 }
 

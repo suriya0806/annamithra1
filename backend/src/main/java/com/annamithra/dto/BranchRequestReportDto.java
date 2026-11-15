@@ -57,7 +57,7 @@ public class BranchRequestReportDto {
         this.departmentId = departmentId;
         this.department = (department != null && !department.isBlank())
                 ? department.trim()
-                : ((category != null && !category.isBlank()) ? category.trim() : "Not specified");
+                : ((category != null && !category.isBlank()) ? category.trim() : "Unassigned");
         this.requestedQuantity = requestedQuantity;
         this.dispatchedQuantity = dispatchedQuantity;
         this.acknowledgedReceivedQuantity = acknowledgedReceivedQuantity;

@@ -283,6 +283,37 @@ export const api = {
     method: 'POST',
     body: JSON.stringify(entryData)
   }),
+
+  // Vendors & Vendor-Based Inventory Entries
+  getVendors: (search = '') => {
+    const qs = search ? `?search=${encodeURIComponent(search)}` : '';
+    return request(`/api/vendors${qs}`);
+  },
+  createVendor: (vendorData) => request('/api/vendors', {
+    method: 'POST',
+    body: JSON.stringify(vendorData)
+  }),
+  saveVendorEntry: (entryData) => request('/api/vendor-entries', {
+    method: 'POST',
+    body: JSON.stringify(entryData)
+  }),
+  getVendorEntries: (fromDate, toDate, search) => {
+    const params = new URLSearchParams();
+    if (fromDate) params.append('fromDate', fromDate);
+    if (toDate) params.append('toDate', toDate);
+    if (search) params.append('search', search);
+    const qs = params.toString();
+    return request(`/api/vendor-entries${qs ? `?${qs}` : ''}`);
+  },
+  getVendorEntryReport: (fromDate, toDate, search) => {
+    const params = new URLSearchParams();
+    if (fromDate) params.append('fromDate', fromDate);
+    if (toDate) params.append('toDate', toDate);
+    if (search) params.append('search', search);
+    const qs = params.toString();
+    return request(`/api/vendor-entries/report${qs ? `?${qs}` : ''}`);
+  },
+  getVendorEntryDetails: (id) => request(`/api/vendor-entries/${id}`),
   getCentralInventory: () => request('/api/inventory'),
   getCentralInventoryTransactions: (date, item, fromDate, toDate, category) => {
     const params = new URLSearchParams();
@@ -568,7 +599,7 @@ export const api = {
     const qs = params.toString();
     return request(`/api/reports/inventory-entries${qs ? `?${qs}` : ''}`);
   },
-  getBranchRequestReport: ({ fromDate, toDate, branch, search, status, category, department } = {}) => {
+  getBranchRequestReport: ({ fromDate, toDate, branch, search, status, category, department, view, departmentBreakdown } = {}) => {
     const params = new URLSearchParams();
     if (fromDate) params.append('fromDate', fromDate);
     if (toDate) params.append('toDate', toDate);
@@ -577,8 +608,22 @@ export const api = {
     if (status && status !== 'ALL') params.append('status', status);
     if (category && category !== 'ALL') params.append('category', category);
     if (department && department !== 'ALL') params.append('department', department);
+    if (view) params.append('view', view);
+    if (departmentBreakdown !== undefined && departmentBreakdown !== null) params.append('departmentBreakdown', departmentBreakdown);
     const qs = params.toString();
     return request(`/api/reports/branch-requests${qs ? `?${qs}` : ''}`);
+  },
+  getConsolidatedBranchRequestReport: ({ fromDate, toDate, branch, department, search, status, departmentBreakdown } = {}) => {
+    const params = new URLSearchParams();
+    if (fromDate) params.append('fromDate', fromDate);
+    if (toDate) params.append('toDate', toDate);
+    if (branch && branch !== 'ALL') params.append('branch', branch);
+    if (department && department !== 'ALL') params.append('department', department);
+    if (search) params.append('search', search);
+    if (status && status !== 'ALL') params.append('status', status);
+    if (departmentBreakdown !== undefined) params.append('departmentBreakdown', departmentBreakdown);
+    const qs = params.toString();
+    return request(`/api/reports/branch-requests/consolidated${qs ? `?${qs}` : ''}`);
   },
   getBranchDispatchReport: ({ date, fromDate, toDate, branch, search, status, category, department } = {}) => {
     const params = new URLSearchParams();
@@ -592,6 +637,25 @@ export const api = {
     if (department && department !== 'ALL') params.append('department', department);
     const qs = params.toString();
     return request(`/api/reports/dispatches${qs ? `?${qs}` : ''}`);
+  },
+  getConsolidatedDispatchReport: ({ fromDate, toDate, branch, department, search, status } = {}) => {
+    const params = new URLSearchParams();
+    if (fromDate) params.append('fromDate', fromDate);
+    if (toDate) params.append('toDate', toDate);
+    if (branch && branch !== 'ALL') params.append('branch', branch);
+    if (department && department !== 'ALL') params.append('department', department);
+    if (search) params.append('search', search);
+    if (status && status !== 'ALL') params.append('status', status);
+    const qs = params.toString();
+    return request(`/api/reports/dispatches/consolidated${qs ? `?${qs}` : ''}`);
+  },
+  getConsolidatedCentralInventoryReport: ({ fromDate, toDate, search } = {}) => {
+    const params = new URLSearchParams();
+    if (fromDate) params.append('fromDate', fromDate);
+    if (toDate) params.append('toDate', toDate);
+    if (search) params.append('search', search);
+    const qs = params.toString();
+    return request(`/api/reports/central-inventory/consolidated${qs ? `?${qs}` : ''}`);
   },
   getCategoryWiseReport: ({ date, fromDate, toDate, branch, department, category, search } = {}) => {
     const params = new URLSearchParams();

@@ -41,3 +41,8 @@ scratch/
 **/.settings/
 .project
 .classpath
+
+# Local Database files
+local-db/
+**/local-db/
+*.db

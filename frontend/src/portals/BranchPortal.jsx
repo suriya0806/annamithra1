@@ -4,7 +4,12 @@ import { Alert } from '../components/Alert';
 import DateFilterBar, { DateSectionHeader, EmptyDateMessage } from '../components/DateFilterBar';
 import { useAddItemShortcut } from '../utils/useAddItemShortcut';
 import { useLanguage } from '../i18n/LanguageContext';
-import { downloadBranchOrderListPdf, downloadBranchRecentRequestsPdf } from '../utils/pdfGenerator';
+import {
+  downloadBranchOrderListPdf,
+  printBranchOrderListDirect,
+  downloadBranchRecentRequestsPdf,
+  printBranchRecentRequestsDirect
+} from '../utils/pdfGenerator';
 import {
   getTodayDateString,
   toLocalDateString,
@@ -127,6 +132,9 @@ export function BranchPortal({ user, activeTab, onSelectTab }) {
   const [downloadingOrderPdf, setDownloadingOrderPdf] = useState(false);
   const [downloadingRecentPdf, setDownloadingRecentPdf] = useState(false);
   const [downloadingDraftPdfId, setDownloadingDraftPdfId] = useState(null);
+  const [directPrintingOrder, setDirectPrintingOrder] = useState(false);
+  const [directPrintingRecent, setDirectPrintingRecent] = useState(false);
+  const [directPrintingDraftId, setDirectPrintingDraftId] = useState(null);
 
   // Review / Edit Draft Modal state
   const [viewingDraft, setViewingDraft] = useState(null);
@@ -247,6 +255,36 @@ export function BranchPortal({ user, activeTab, onSelectTab }) {
     }
   };
 
+  // Direct Print Order List (Section A ONLY)
+  const handleDirectPrintOrderList = async () => {
+    if (orderItemsList.length === 0) {
+      showAlert('error', language === 'ta'
+        ? 'அச்சிட ஆர்டர் பட்டியலில் பொருட்கள் எதுவும் இல்லை.'
+        : 'No items in order list to print.');
+      return;
+    }
+
+    try {
+      setDirectPrintingOrder(true);
+      const todayStr = getTodayDateString();
+
+      await printBranchOrderListDirect({
+        organisationName: user?.organisationName || 'Saravana Bhavan',
+        branchName: user?.branchName || 'Branch 1',
+        branchManager: user?.fullName ? `${user.fullName} (${user.username})` : (user?.username || 'Branch Manager'),
+        date: todayStr,
+        items: orderItemsList,
+        isDraft: false,
+        language
+      });
+    } catch (err) {
+      console.error('Error directly printing Order list', err);
+      showAlert('error', err.message || (language === 'ta' ? 'அச்சிடுவதில் பிழை' : 'Failed to print Order list'));
+    } finally {
+      setDirectPrintingOrder(false);
+    }
+  };
+
   // Download Recent Requests PDF (Section B ONLY)
   const handleDownloadRecentRequestsPdf = async () => {
     try {
@@ -323,6 +361,74 @@ export function BranchPortal({ user, activeTab, onSelectTab }) {
     }
   };
 
+  // Direct Print Recent Requests (Section B ONLY)
+  const handleDirectPrintRecentRequests = async () => {
+    try {
+      setDirectPrintingRecent(true);
+
+      let branchRequests = [];
+      try {
+        const fetched = await api.getMyBranchRequests(null, requestFromDate, requestToDate);
+        if (Array.isArray(fetched)) {
+          branchRequests = fetched;
+        }
+      } catch (err) {
+        console.warn('Could not re-fetch branch requests for Print, using state', err);
+        branchRequests = myRequests;
+      }
+
+      const bName = (user?.branchName || '').trim().toLowerCase();
+      const bId = user?.branchId;
+
+      const filteredRecent = (branchRequests || []).filter(r => {
+        const reqBranch = (r.branch || '').trim().toLowerCase();
+        if (bName && reqBranch && reqBranch !== bName) {
+          if (!bId || !r.branchId || r.branchId !== bId) return false;
+        }
+
+        const d = toLocalDateString(r.requestDate || r.createdAt);
+        if (!d) return false;
+        if (requestFromDate && d < requestFromDate) return false;
+        if (requestToDate && d > requestToDate) return false;
+        return true;
+      }).sort((a, b) => {
+        const tA = new Date(a.createdAt || a.requestDate || 0).getTime();
+        const tB = new Date(b.createdAt || b.requestDate || 0).getTime();
+        return tB - tA;
+      });
+
+      if (filteredRecent.length === 0) {
+        showAlert('error', language === 'ta'
+          ? 'தேர்ந்தெடுக்கப்பட்ட வடிகட்டிக்கு சமீபத்திய கோரிக்கைகள் எதுவும் இல்லை.'
+          : 'No recent requests available for the selected date filter.');
+        return;
+      }
+
+      const todayStr = getTodayDateString();
+      let dateFilterLabel = '';
+      if (requestFromDate === todayStr && requestToDate === todayStr) {
+        dateFilterLabel = language === 'ta' ? `இன்று (${todayStr})` : `Today (${todayStr})`;
+      } else {
+        dateFilterLabel = `${requestFromDate} to ${requestToDate}`;
+      }
+
+      await printBranchRecentRequestsDirect({
+        organisationName: user?.organisationName || 'Saravana Bhavan',
+        branchName: user?.branchName || 'Branch 1',
+        branchManager: user?.fullName ? `${user.fullName} (${user.username})` : (user?.username || 'Branch Manager'),
+        date: todayStr,
+        recentRequests: filteredRecent,
+        dateFilterLabel,
+        language
+      });
+    } catch (err) {
+      console.error('Error directly printing Recent Requests', err);
+      showAlert('error', err.message || (language === 'ta' ? 'அச்சிடுவதில் பிழை' : 'Failed to print Recent Requests'));
+    } finally {
+      setDirectPrintingRecent(false);
+    }
+  };
+
   // Download Draft PDF
   const handleDownloadDraftPdf = async (draft) => {
     if (!draft || !draft.items || draft.items.length === 0) {
@@ -346,6 +452,31 @@ export function BranchPortal({ user, activeTab, onSelectTab }) {
       showAlert('error', err.message || 'Failed to generate Draft PDF');
     } finally {
       setDownloadingDraftPdfId(null);
+    }
+  };
+
+  // Direct Print Draft
+  const handleDirectPrintDraft = async (draft) => {
+    if (!draft || !draft.items || draft.items.length === 0) {
+      showAlert('error', language === 'ta' ? 'இந்த வரைவில் பொருட்கள் இல்லை.' : 'No items in this draft to print.');
+      return;
+    }
+    try {
+      setDirectPrintingDraftId(draft.id);
+      await printBranchOrderListDirect({
+        organisationName: user?.organisationName || 'Saravana Bhavan',
+        branchName: draft.branchName || user?.branchName || 'Branch 1',
+        date: (draft.createdAt || '').slice(0, 10) || getTodayDateString(),
+        items: draft.items,
+        isDraft: true,
+        draftName: draft.draftName,
+        language
+      });
+    } catch (err) {
+      console.error('Error directly printing Draft', err);
+      showAlert('error', err.message || 'Failed to print Draft');
+    } finally {
+      setDirectPrintingDraftId(null);
     }
   };
 
@@ -1570,29 +1701,58 @@ export function BranchPortal({ user, activeTab, onSelectTab }) {
                     {t('Review and edit quantities before sending your request to the Store Manager.', 'கிடங்கு மேலாளருக்கு கோரிக்கையை அனுப்பும் முன் அளவுகளை சரிபார்க்கவும்.')}
                   </p>
                 </div>
-                <button
-                  type="button"
-                  className="secondary small"
-                  id="btn-download-order-pdf"
-                  disabled={orderItemsList.length === 0 || downloadingOrderPdf}
-                  onClick={handleDownloadOrderListPdf}
-                  style={{
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: 6,
-                    height: 34,
-                    padding: '0 12px',
-                    fontWeight: 600,
-                    fontSize: 12.5,
-                    borderRadius: 6
-                  }}
-                  title={language === 'ta' ? 'கிளை ஆர்டர் பட்டியலை PDF ஆக பதிவிறக்கவும்' : 'Print / Download Order PDF'}
-                >
-                  <span>📄</span>
-                  {downloadingOrderPdf
-                    ? (language === 'ta' ? 'தயாராகிறது...' : 'Generating...')
-                    : (language === 'ta' ? 'ஆர்டர் PDF அச்சிடு / பதிவிறக்கு' : 'Print / Download Order PDF')}
-                </button>
+                <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                  <button
+                    type="button"
+                    className="secondary small"
+                    id="btn-direct-print-order"
+                    disabled={orderItemsList.length === 0 || directPrintingOrder}
+                    onClick={handleDirectPrintOrderList}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 6,
+                      height: 34,
+                      padding: '0 12px',
+                      fontWeight: 600,
+                      fontSize: 12.5,
+                      borderRadius: 6,
+                      background: '#F0FDF4',
+                      color: 'var(--primary-dark-green)',
+                      borderColor: 'var(--primary-dark-green)'
+                    }}
+                    title={language === 'ta' ? 'கிளை ஆர்டர் பட்டியலை நேரடியாக அச்சிடு' : 'Direct Print Order'}
+                  >
+                    <span>🖨️</span>
+                    {directPrintingOrder
+                      ? (language === 'ta' ? 'அச்சிடுகிறது...' : 'Printing...')
+                      : (language === 'ta' ? 'நேரடி அச்சு' : 'Direct Print')}
+                  </button>
+
+                  <button
+                    type="button"
+                    className="secondary small"
+                    id="btn-download-order-pdf"
+                    disabled={orderItemsList.length === 0 || downloadingOrderPdf}
+                    onClick={handleDownloadOrderListPdf}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 6,
+                      height: 34,
+                      padding: '0 12px',
+                      fontWeight: 600,
+                      fontSize: 12.5,
+                      borderRadius: 6
+                    }}
+                    title={language === 'ta' ? 'கிளை ஆர்டர் பட்டியலை PDF ஆக பதிவிறக்கவும்' : 'Download Order PDF'}
+                  >
+                    <span>📄</span>
+                    {downloadingOrderPdf
+                      ? (language === 'ta' ? 'தயாராகிறது...' : 'Generating...')
+                      : (language === 'ta' ? 'ஆர்டர் PDF பதிவிறக்கு' : 'Download Order PDF')}
+                  </button>
+                </div>
               </div>
 
               {/* Desktop Table View (> 768px) */}
@@ -2110,7 +2270,34 @@ export function BranchPortal({ user, activeTab, onSelectTab }) {
                   Requests recorded and organized by their original request creation dates and timestamps.
                 </p>
               </div>
-              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                <button
+                  type="button"
+                  className="secondary small"
+                  id="btn-direct-print-recent-requests"
+                  onClick={handleDirectPrintRecentRequests}
+                  disabled={myRequests.length === 0 || directPrintingRecent}
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    height: 34,
+                    padding: '0 12px',
+                    fontWeight: 600,
+                    fontSize: 12.5,
+                    borderRadius: 6,
+                    background: '#F0FDF4',
+                    color: 'var(--primary-dark-green)',
+                    borderColor: 'var(--primary-dark-green)'
+                  }}
+                  title={language === 'ta' ? 'சமீபத்திய கோரிக்கைகளை நேரடியாக அச்சிடு' : 'Direct Print Recent Requests'}
+                >
+                  <span>🖨️</span>
+                  {directPrintingRecent
+                    ? (language === 'ta' ? 'அச்சிடுகிறது...' : 'Printing...')
+                    : (language === 'ta' ? 'நேரடி அச்சு' : 'Direct Print')}
+                </button>
+
                 <button
                   type="button"
                   className="secondary small"
@@ -2127,12 +2314,12 @@ export function BranchPortal({ user, activeTab, onSelectTab }) {
                     fontSize: 12.5,
                     borderRadius: 6
                   }}
-                  title={language === 'ta' ? 'சமீபத்திய கோரிக்கைகளை PDF ஆக பதிவிறக்கவும்' : 'Print / Download Recent Requests PDF'}
+                  title={language === 'ta' ? 'சமீபத்திய கோரிக்கைகளை PDF ஆக பதிவிறக்கவும்' : 'Download Recent Requests PDF'}
                 >
                   <span>📄</span>
                   {downloadingRecentPdf
                     ? (language === 'ta' ? 'தயாராகிறது...' : 'Generating...')
-                    : (language === 'ta' ? 'சமீபத்திய கோரிக்கைகள் PDF' : 'Print / Download Recent Requests PDF')}
+                    : (language === 'ta' ? 'சமீபத்திய கோரிக்கைகள் PDF' : 'Download Recent Requests PDF')}
                 </button>
                 <button
                   type="button"
@@ -2206,7 +2393,7 @@ export function BranchPortal({ user, activeTab, onSelectTab }) {
                             <th>{t('Item Name', 'Item Name')}</th>
                             <th>{t('Department', 'துறை')}</th>
                             <th style={{ textAlign: 'right' }}>{t('Requested Quantity', 'Requested Quantity')}</th>
-                            <th style={{ textAlign: 'right' }}>{t('Dispatched Quantity', 'Dispatched Quantity')}</th>
+                            <th style={{ textAlign: 'right' }}>{t('Delivered Quantity', 'Delivered Quantity')}</th>
                             <th style={{ textAlign: 'right' }}>{t('Confirmed Received Quantity', 'Confirmed Received Quantity')}</th>
                             <th>{t('Status', 'Status')}</th>
                           </tr>
@@ -2263,7 +2450,7 @@ export function BranchPortal({ user, activeTab, onSelectTab }) {
                         <th>{t('Department', 'துறை')}</th>
                         <th>{t('Unit', 'Unit')}</th>
                         <th>{t('Requested Quantity', 'Requested Quantity')}</th>
-                        <th>{t('Dispatched Quantity', 'Dispatched Quantity')}</th>
+                        <th>{t('Delivered Quantity', 'Delivered Quantity')}</th>
                         <th>{t('Confirmed Received Quantity', 'Confirmed Received Quantity')}</th>
                         <th>{t('Status', 'Status')}</th>
                       </tr>
@@ -2492,6 +2679,18 @@ export function BranchPortal({ user, activeTab, onSelectTab }) {
                           <button
                             type="button"
                             className="secondary small"
+                            id={`btn-direct-print-draft-${draft.id}`}
+                            onClick={() => handleDirectPrintDraft(draft)}
+                            disabled={directPrintingDraftId === draft.id}
+                            style={{ height: 30, padding: '0 8px', fontSize: 12, background: '#F0FDF4', color: 'var(--primary-dark-green)', borderColor: 'var(--primary-dark-green)' }}
+                            title={language === 'ta' ? 'வரைவை நேரடியாக அச்சிடு' : 'Direct Print draft'}
+                          >
+                            <span>🖨️</span> {directPrintingDraftId === draft.id ? '...' : (language === 'ta' ? 'அச்சு' : 'Print')}
+                          </button>
+
+                          <button
+                            type="button"
+                            className="secondary small"
                             id={`btn-pdf-draft-${draft.id}`}
                             onClick={() => handleDownloadDraftPdf(draft)}
                             disabled={downloadingDraftPdfId === draft.id}
@@ -2562,7 +2761,7 @@ export function BranchPortal({ user, activeTab, onSelectTab }) {
             <div>
               <h3 className="card-title">{t('Deliveries Sent to', 'Deliveries Sent to')} {user?.branchName}</h3>
               <p className="muted" style={{ margin: '4px 0 0' }}>
-                {t('Grouped by original dispatch date...', 'Grouped by original dispatch date. Please click Acknowledge Received only after physically receiving and verifying the delivery at your branch.')}
+                {t('Grouped by original delivery date...', 'Grouped by original delivery date. Please click Acknowledge Received only after physically receiving and verifying the delivery at your branch.')}
               </p>
             </div>
             <button
@@ -2576,7 +2775,7 @@ export function BranchPortal({ user, activeTab, onSelectTab }) {
 
           {/* Date Picker next to controls, defaults to today with All Dates option */}
           <DateFilterBar
-            label={t('Original Dispatch Date', 'Original Dispatch Date')}
+            label={t('Original Delivery Date', 'Original Delivery Date')}
             selectedDate={deliveryDate}
             onDateChange={(d) => {
               setDeliveryDate(d);
@@ -2621,9 +2820,9 @@ export function BranchPortal({ user, activeTab, onSelectTab }) {
                     <table>
                       <thead>
                         <tr>
-                          <th style={{ width: '155px' }}>{t('Dispatch Date & Time', 'Dispatch Date & Time')}</th>
+                          <th style={{ width: '155px' }}>{t('Delivery Date & Time', 'Delivery Date & Time')}</th>
                           <th>{t('Item Name', 'Item Name')}</th>
-                          <th style={{ width: '135px', textAlign: 'center' }}>{t('Dispatched Quantity', 'Dispatched Quantity')}</th>
+                          <th style={{ width: '135px', textAlign: 'center' }}>{t('Delivered Quantity', 'Delivered Quantity')}</th>
                           <th style={{ width: '145px', textAlign: 'center' }}>{t('Actual Received Quantity', 'Actual Received Quantity')}</th>
                           <th style={{ width: '125px', textAlign: 'center' }}>{t('Shortage Quantity', 'Shortage Quantity')}</th>
                           <th style={{ width: '170px', textAlign: 'center' }}>{t('Acknowledgement Status', 'Acknowledgement Status')}</th>
@@ -2824,7 +3023,7 @@ export function BranchPortal({ user, activeTab, onSelectTab }) {
                                     className="secondary small"
                                     disabled={isFullyReturned}
                                     onClick={() => handleOpenReturnModal(d)}
-                                    title={isFullyReturned ? t('Fully Returned', 'Dispatched quantity has been fully returned') : t('Return', 'Return item to central inventory')}
+                                    title={isFullyReturned ? t('Fully Returned', 'Delivered quantity has been fully returned') : t('Return', 'Return item to central inventory')}
                                     style={{
                                       width: '100%',
                                       maxWidth: '150px',
@@ -2861,10 +3060,10 @@ export function BranchPortal({ user, activeTab, onSelectTab }) {
                 <table>
                   <thead>
                     <tr>
-                      <th style={{ width: '155px' }}>{t('Dispatch Date & Time', 'Dispatch Date & Time')}</th>
+                      <th style={{ width: '155px' }}>{t('Delivery Date & Time', 'Delivery Date & Time')}</th>
                       <th>{t('Item Name', 'Item Name')}</th>
                       <th style={{ width: '75px', textAlign: 'center' }}>{t('Unit', 'Unit')}</th>
-                      <th style={{ width: '105px', textAlign: 'center' }}>{t('Dispatched Quantity', 'Dispatched Quantity')}</th>
+                      <th style={{ width: '105px', textAlign: 'center' }}>{t('Delivered Quantity', 'Delivered Quantity')}</th>
                       <th style={{ width: '115px', textAlign: 'center' }}>{t('Actual Received Quantity', 'Actual Received Quantity')}</th>
                       <th style={{ width: '105px', textAlign: 'center' }}>{t('Shortage Quantity', 'Shortage Quantity')}</th>
                       <th style={{ width: '170px', textAlign: 'center' }}>{t('Acknowledgement Status', 'Acknowledgement Status')}</th>
@@ -3066,7 +3265,7 @@ export function BranchPortal({ user, activeTab, onSelectTab }) {
                                 className="secondary small"
                                 disabled={isFullyReturned}
                                 onClick={() => handleOpenReturnModal(d)}
-                                title={isFullyReturned ? t('Fully Returned', 'Dispatched quantity has been fully returned') : t('Return', 'Return item to central inventory')}
+                                title={isFullyReturned ? t('Fully Returned', 'Delivered quantity has been fully returned') : t('Return', 'Return item to central inventory')}
                                 style={{
                                   width: '100%',
                                   maxWidth: '150px',
@@ -3206,10 +3405,10 @@ export function BranchPortal({ user, activeTab, onSelectTab }) {
                         <thead>
                           <tr>
                             <th>{t('Acknowledgement Date & Time', 'Acknowledgement Date & Time')}</th>
-                            <th>{t('Original Dispatch Date & Time', 'Original Dispatch Date & Time')}</th>
+                            <th>{t('Original Delivery Date & Time', 'Original Delivery Date & Time')}</th>
                             <th>{t('Item Name', 'Item Name')}</th>
                             <th style={{ width: '75px', textAlign: 'center' }}>{t('Unit', 'Unit')}</th>
-                            <th style={{ width: '95px', textAlign: 'center' }}>{t('Dispatched Quantity', 'Dispatched Quantity')}</th>
+                            <th style={{ width: '95px', textAlign: 'center' }}>{t('Delivered Quantity', 'Delivered Quantity')}</th>
                             <th style={{ width: '105px', textAlign: 'center' }}>{t('Received Quantity', 'Received Quantity')}</th>
                             <th style={{ width: '105px', textAlign: 'center' }}>{t('Shortage Quantity', 'Shortage Quantity')}</th>
                             <th style={{ textAlign: 'center' }}>{t('Status', 'Status')}</th>
@@ -3347,10 +3546,10 @@ export function BranchPortal({ user, activeTab, onSelectTab }) {
                   <thead>
                     <tr>
                       <th>{t('Acknowledgement Date & Time', 'Acknowledgement Date & Time')}</th>
-                      <th>{t('Original Dispatch Date & Time', 'Original Dispatch Date & Time')}</th>
+                      <th>{t('Original Delivery Date & Time', 'Original Delivery Date & Time')}</th>
                       <th>{t('Item Name', 'Item Name')}</th>
                       <th style={{ width: '75px', textAlign: 'center' }}>{t('Unit', 'Unit')}</th>
-                      <th style={{ width: '95px', textAlign: 'center' }}>{t('Dispatched Quantity', 'Dispatched Quantity')}</th>
+                      <th style={{ width: '95px', textAlign: 'center' }}>{t('Delivered Quantity', 'Delivered Quantity')}</th>
                       <th style={{ width: '105px', textAlign: 'center' }}>{t('Received Quantity', 'Received Quantity')}</th>
                       <th style={{ width: '105px', textAlign: 'center' }}>{t('Shortage Quantity', 'Shortage Quantity')}</th>
                       <th style={{ textAlign: 'center' }}>{t('Status', 'Status')}</th>
@@ -3703,6 +3902,16 @@ export function BranchPortal({ user, activeTab, onSelectTab }) {
                 <button
                   type="button"
                   className="secondary small"
+                  id="btn-direct-print-modal-draft"
+                  onClick={() => handleDirectPrintDraft(viewingDraft)}
+                  disabled={savingEditDraft || editDraftItems.length === 0}
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: 6, height: 34, background: '#F0FDF4', color: 'var(--primary-dark-green)', borderColor: 'var(--primary-dark-green)' }}
+                >
+                  <span>🖨️</span> {language === 'ta' ? 'நேரடி அச்சு' : 'Direct Print'}
+                </button>
+                <button
+                  type="button"
+                  className="secondary small"
                   onClick={() => handleDownloadDraftPdf(viewingDraft)}
                   disabled={savingEditDraft || editDraftItems.length === 0}
                   style={{ display: 'inline-flex', alignItems: 'center', gap: 6, height: 34 }}
@@ -3912,7 +4121,7 @@ export function BranchPortal({ user, activeTab, onSelectTab }) {
             <div className="modal-header">
               <div>
                 <h3 id="return-modal-title" style={{ margin: 0, color: 'var(--green)' }}>
-                  {t('Return Dispatched Item', 'Return Dispatched Item')}
+                  {t('Return Delivered Item', 'Return Delivered Item')}
                 </h3>
                 <p className="muted" style={{ margin: '4px 0 0', fontSize: '13px' }}>
                   {t('Branch', 'Branch')}: <b>{user?.branchName}</b> • {t('Return to Central Store', 'Return to Central Store')}
@@ -3958,7 +4167,7 @@ export function BranchPortal({ user, activeTab, onSelectTab }) {
                 </div>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, textAlign: 'center', paddingTop: 8, borderTop: '1px solid rgba(0,0,0,0.06)' }}>
                   <div>
-                    <div style={{ fontSize: 11, color: '#666' }}>{t('Dispatched', 'Dispatched')}</div>
+                    <div style={{ fontSize: 11, color: '#666' }}>{t('Delivered', 'Delivered')}</div>
                     <div style={{ fontWeight: 700, fontSize: 14, color: 'var(--green)' }}>
                       {returnModalItem.quantity} {translateUnit(returnModalItem.unit)}
                     </div>
@@ -4129,7 +4338,7 @@ export function BranchPortal({ user, activeTab, onSelectTab }) {
                   </div>
 
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10, fontSize: 13, color: '#555' }}>
-                    <span>{t('Original Dispatch Date & Time', 'Original Dispatch Date & Time')}:</span>
+                    <span>{t('Original Delivery Date & Time', 'Original Delivery Date & Time')}:</span>
                     <b style={{ color: '#2d3748' }}>
                       {formatDateTime(ackModalItem.createdAt || ackModalItem.dispatchDate, language)}
                     </b>
@@ -4145,7 +4354,7 @@ export function BranchPortal({ user, activeTab, onSelectTab }) {
                   }}>
                     <div>
                       <div style={{ fontSize: 11.5, color: '#666', textTransform: 'uppercase', letterSpacing: 0.5 }}>
-                        {t('Dispatched Quantity', 'Dispatched Quantity')}
+                        {t('Delivered Quantity', 'Delivered Quantity')}
                       </div>
                       <div style={{ fontWeight: 800, fontSize: 18, color: 'var(--primary-dark-green)', marginTop: 2 }}>
                         {dispatched} <span style={{ fontSize: 13, fontWeight: 600 }}>{translateUnit(ackModalItem.unit)}</span>
@@ -4211,7 +4420,7 @@ export function BranchPortal({ user, activeTab, onSelectTab }) {
                     <div style={{ display: 'block', fontWeight: 600, fontSize: 13.5, color: '#1f2937', marginBottom: 6 }}>
                       {t('Shortage Quantity', 'Shortage Quantity')}
                       <span style={{ fontWeight: 400, fontSize: 12, color: '#6b7280', marginLeft: 6 }}>
-                        ({t('Shortage Quantity = Dispatched Quantity - Actual Received Quantity', 'Shortage = Dispatched - Received')})
+                        ({t('Shortage Quantity = Delivered Quantity - Actual Received Quantity', 'Shortage = Delivered - Received')})
                       </span>
                     </div>
 
@@ -4231,8 +4440,8 @@ export function BranchPortal({ user, activeTab, onSelectTab }) {
                         <span>⚠️</span>
                         <span>
                           {language === 'ta'
-                            ? `பெறப்பட்ட அளவு (${parsedVal}) அனுப்பப்பட்ட அளவை (${dispatched}) விட அதிகமாக இருக்க முடியாது.`
-                            : `Actual received quantity (${parsedVal}) cannot exceed dispatched quantity (${dispatched}).`}
+                            ? `பெறப்பட்ட அளவு (${parsedVal}) விநியோகிக்கப்பட்ட அளவை (${dispatched}) விட அதிகமாக இருக்க முடியாது.`
+                            : `Actual received quantity (${parsedVal}) cannot exceed delivered quantity (${dispatched}).`}
                         </span>
                       </div>
                     ) : isNegative ? (
@@ -4317,7 +4526,7 @@ export function BranchPortal({ user, activeTab, onSelectTab }) {
                           <span style={{ fontSize: 16 }}>✕</span>
                           <div>
                             <span style={{ fontWeight: 700, fontSize: 13.5 }}>
-                              {t('Zero Receipt — Entire Dispatched Quantity Missing', 'Zero Receipt — Entire Dispatched Quantity Missing')}
+                              {t('Zero Receipt — Entire Delivered Quantity Missing', 'Zero Receipt — Entire Delivered Quantity Missing')}
                             </span>
                             <div style={{ fontSize: 11.5, opacity: 0.9 }}>
                               0 received • Full shortage recorded

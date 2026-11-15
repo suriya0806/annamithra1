@@ -52,7 +52,8 @@ public class DataInitializer implements CommandLineRunner {
         String[] tables = {
             "app_users", "user_sessions", "branch", "item", "purchase_order",
             "purchase_order_header", "purchase_receipt", "branch_request",
-            "dispatch", "dispatch_return", "inventory_transaction", "item_category"
+            "dispatch", "dispatch_return", "inventory_transaction", "item_category",
+            "vendor", "vendor_inventory_entry", "vendor_inventory_entry_item"
         };
         for (String table : tables) {
             try {
@@ -258,6 +259,75 @@ public class DataInitializer implements CommandLineRunner {
         try {
             jdbcTemplate.execute("UPDATE dispatch SET dispatch_number = CONCAT('DSP-', id) WHERE dispatch_number IS NULL OR TRIM(dispatch_number) = ''");
         } catch (Exception ignored) {}
+
+        // Vendor management & Vendor Inventory Entry tables
+        try {
+            jdbcTemplate.execute("CREATE TABLE IF NOT EXISTS vendor (" +
+                "id BIGSERIAL PRIMARY KEY, " +
+                "organisation_id BIGINT NOT NULL, " +
+                "name VARCHAR(255) NOT NULL, " +
+                "contact_phone VARCHAR(64), " +
+                "address VARCHAR(500), " +
+                "gst_number VARCHAR(64), " +
+                "active BOOLEAN DEFAULT TRUE, " +
+                "created_by VARCHAR(128), " +
+                "created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, " +
+                "updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP" +
+                ")");
+        } catch (Exception ignored) {}
+
+        try {
+            jdbcTemplate.execute("CREATE TABLE IF NOT EXISTS vendor_inventory_entry (" +
+                "id BIGSERIAL PRIMARY KEY, " +
+                "entry_number VARCHAR(64) UNIQUE, " +
+                "organisation_id BIGINT NOT NULL, " +
+                "branch_id BIGINT, " +
+                "vendor_id BIGINT NOT NULL, " +
+                "vendor_name VARCHAR(255) NOT NULL, " +
+                "entry_date DATE NOT NULL DEFAULT CURRENT_DATE, " +
+                "entry_date_time TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, " +
+                "status VARCHAR(64) NOT NULL DEFAULT 'SAVED', " +
+                "remarks VARCHAR(500), " +
+                "client_submission_id VARCHAR(128), " +
+                "total_items INTEGER DEFAULT 0, " +
+                "total_quantity NUMERIC(12,3) DEFAULT 0, " +
+                "payment_mode VARCHAR(64) DEFAULT 'CASH', " +
+                "grand_total NUMERIC(12,2) DEFAULT 0, " +
+                "received_by VARCHAR(128), " +
+                "brought_by VARCHAR(128), " +
+                "created_by VARCHAR(128) NOT NULL, " +
+                "created_by_user_id BIGINT, " +
+                "created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, " +
+                "updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, " +
+                "updated_by VARCHAR(128)" +
+                ")");
+        } catch (Exception ignored) {}
+
+        try {
+            jdbcTemplate.execute("ALTER TABLE vendor_inventory_entry ADD COLUMN IF NOT EXISTS payment_mode VARCHAR(64) DEFAULT 'CASH'");
+            jdbcTemplate.execute("ALTER TABLE vendor_inventory_entry ADD COLUMN IF NOT EXISTS grand_total NUMERIC(12,2) DEFAULT 0");
+            jdbcTemplate.execute("ALTER TABLE vendor_inventory_entry ADD COLUMN IF NOT EXISTS received_by VARCHAR(128)");
+            jdbcTemplate.execute("ALTER TABLE vendor_inventory_entry ADD COLUMN IF NOT EXISTS brought_by VARCHAR(128)");
+        } catch (Exception ignored) {}
+
+        try {
+            jdbcTemplate.execute("CREATE TABLE IF NOT EXISTS vendor_inventory_entry_item (" +
+                "id BIGSERIAL PRIMARY KEY, " +
+                "entry_id BIGINT NOT NULL, " +
+                "organisation_id BIGINT NOT NULL, " +
+                "item_id BIGINT NOT NULL, " +
+                "item_name VARCHAR(255) NOT NULL, " +
+                "unit VARCHAR(32) NOT NULL DEFAULT 'KG', " +
+                "quantity NUMERIC(12,3) NOT NULL DEFAULT 0, " +
+                "stock_before NUMERIC(12,3) DEFAULT 0, " +
+                "stock_after NUMERIC(12,3) DEFAULT 0, " +
+                "unit_rate NUMERIC(12,2) DEFAULT 0, " +
+                "total_rate NUMERIC(12,2) DEFAULT 0, " +
+                "transaction_id BIGINT, " +
+                "created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP" +
+                ")");
+        } catch (Exception ignored) {}
+
         // Create department table if not exists
         try {
             jdbcTemplate.execute("CREATE TABLE IF NOT EXISTS department (" +

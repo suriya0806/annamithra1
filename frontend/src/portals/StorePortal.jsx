@@ -3,9 +3,11 @@ import { api } from '../api';
 import { Alert } from '../components/Alert';
 import {
   downloadOrderPdf,
+  printOrderDirect,
   parseOrderDateTime,
   downloadBranchRequestReportPdf,
-  downloadBranchRequestsPdf
+  downloadBranchRequestsPdf,
+  printBranchRequestsDirect
 } from '../utils/pdfGenerator';
 import { BRANCH_ORDER_CATEGORIES } from './BranchPortal';
 import DateFilterBar, { DateSectionHeader, EmptyDateMessage } from '../components/DateFilterBar';
@@ -15,15 +17,48 @@ import {
   getTodayDateString,
   toLocalDateString,
   formatDateLabel,
-  formatDateTime
+  formatDateTime,
+  groupByDate
 } from '../utils/dateGrouping';
 import { ReportsView } from '../components/ReportsView';
 import { AddItemsView } from '../components/AddItemsView';
+import { VendorEntryView } from '../components/VendorEntryView';
 
-export function StorePortal({ activeTab }) {
+export function StorePortal({ activeTab, onSelectTab }) {
   const { language, t, translateItem, translateUnit, translateStatus, translateRole, translateCategory } = useLanguage();
   const formatDisplayDate = (d) => formatDateLabel(d, language);
   const formatDisplayDateTime = (d) => formatDateTime(d, language);
+
+  // Workflow state: Vendor Inventory Entry <-> Add Items Catalogue navigation
+  const [vendorEntryPendingItemName, setVendorEntryPendingItemName] = useState(() => {
+    return sessionStorage.getItem('annamithra_pending_cat_item_name') || '';
+  });
+  const [newlyCreatedCatalogueItem, setNewlyCreatedCatalogueItem] = useState(null);
+
+  const handleNavigateToAddItemsFromVendorEntry = (typedName) => {
+    setVendorEntryPendingItemName(typedName);
+    sessionStorage.setItem('annamithra_pending_cat_item_name', typedName);
+    if (onSelectTab) {
+      onSelectTab('add-items');
+    }
+  };
+
+  const handleItemCreatedInCatalogue = (createdItem) => {
+    setNewlyCreatedCatalogueItem(createdItem);
+    setVendorEntryPendingItemName('');
+    sessionStorage.removeItem('annamithra_pending_cat_item_name');
+    if (onSelectTab) {
+      onSelectTab('entry-items');
+    }
+  };
+
+  const handleCancelAddItemsToVendorEntry = () => {
+    setVendorEntryPendingItemName('');
+    sessionStorage.removeItem('annamithra_pending_cat_item_name');
+    if (onSelectTab) {
+      onSelectTab('entry-items');
+    }
+  };
 
   // Sub-tabs
   const [entrySubTab, setEntrySubTab] = useState('view'); // 'view' | 'entry'
@@ -107,7 +142,7 @@ export function StorePortal({ activeTab }) {
   const [selectedBranchReqCategory, setSelectedBranchReqCategory] = useState('');
   const [branchRequestsList, setBranchRequestsList] = useState([]);
   const [historyModalItem, setHistoryModalItem] = useState(null);
-  
+
   // Dispatch state
   const [outstandingRequests, setOutstandingRequests] = useState([]);
   const [dispatchReqDate, setDispatchReqDate] = useState(getTodayDateString());
@@ -118,6 +153,9 @@ export function StorePortal({ activeTab }) {
   const [allTimeRawRequests, setAllTimeRawRequests] = useState([]); // All-time requests for fallback sorting
   const [downloadingBranchRequestsPdf, setDownloadingBranchRequestsPdf] = useState(false);
   const [downloadingBranchPdf, setDownloadingBranchPdf] = useState(null); // branchName currently generating PDF
+  const [directPrintingBranchRequests, setDirectPrintingBranchRequests] = useState(false);
+  const [directPrintingBranch, setDirectPrintingBranch] = useState(null); // branchName currently direct printing
+  const [directPrintingOrder, setDirectPrintingOrder] = useState(false);
 
   // Dispatch Additional Items "+ New Item" modal state
   const [showDispatchNewItemModal, setShowDispatchNewItemModal] = useState(false);
@@ -279,15 +317,15 @@ export function StorePortal({ activeTab }) {
           try {
             const parsed = JSON.parse(saved);
             if (Array.isArray(parsed) && parsed.length > 0) return parsed;
-          } catch {}
+          } catch { }
         }
         // Auto-select latest pending order numbers if none currently active
         const pendingNums = Array.from(new Set(
           list.filter(o => o.poNumber && (o.status === 'ORDERED' || o.status === 'PARTIALLY_RECEIVED'))
-              .map(o => o.poNumber)
+            .map(o => o.poNumber)
         ));
         if (pendingNums.length > 0) {
-          try { localStorage.setItem('annamithra_working_order_numbers', JSON.stringify(pendingNums)); } catch {}
+          try { localStorage.setItem('annamithra_working_order_numbers', JSON.stringify(pendingNums)); } catch { }
           return pendingNums;
         }
         return [];
@@ -438,7 +476,7 @@ export function StorePortal({ activeTab }) {
       if (!lines || !Array.isArray(lines) || lines.length === 0) {
         const cached = localStorage.getItem('annamithra_order_draft');
         if (cached) {
-          try { lines = JSON.parse(cached); } catch (e) {}
+          try { lines = JSON.parse(cached); } catch (e) { }
         }
       }
 
@@ -678,17 +716,17 @@ export function StorePortal({ activeTab }) {
 
   const handleExportDispatches = () => {
     const data = dispatchReport.map(d => ({
-      'Dispatch Date and Time': d.dispatchDateTime ? d.dispatchDateTime.replace('T', ' ').slice(0, 16) : (d.dispatchDate || ''),
+      'Delivery Date and Time': d.dispatchDateTime ? d.dispatchDateTime.replace('T', ' ').slice(0, 16) : (d.dispatchDate || ''),
       'Branch Name': d.branchName,
       'Department': d.department || d.category || '',
       'Category': d.category || '',
       'Item Name': d.itemName,
       'Unit': d.unit,
       'Requested Quantity': d.requestedQuantity,
-      'Dispatched Quantity': d.dispatchedQuantity,
+      'Delivered Quantity': d.dispatchedQuantity,
       'Delivery/Acknowledgement Status': d.status
     }));
-    downloadCsv('branch_dispatch_report', data);
+    downloadCsv('branch_delivery_report', data);
   };
 
   // Tab switch effect
@@ -1467,10 +1505,57 @@ export function StorePortal({ activeTab }) {
     }
   };
 
+  // Handler to direct print All Branches Requests report
+  const handleDirectPrintBranchRequests = async () => {
+    try {
+      setDirectPrintingBranchRequests(true);
+      await printBranchRequestsDirect({
+        sortedBranches,
+        requests: allBranchRequests,
+        dateFilter: dispatchReqDate,
+        isAllDates: !dispatchReqDate,
+        language,
+        catalogueItems
+      });
+    } catch (err) {
+      console.error('Failed to direct print all branches requests', err);
+      showAlert('error', err.message || (language === 'ta'
+        ? 'அனைத்து கிளைகளின் கோரிக்கைகள் அச்சிட முடியவில்லை'
+        : 'Failed to print All Branches Requests'));
+    } finally {
+      setDirectPrintingBranchRequests(false);
+    }
+  };
+
+  // Handler to direct print an Individual Branch Requests report
+  const handleDirectPrintSingleBranch = async (branch) => {
+    if (!branch) return;
+    const branchName = branch.name || 'Branch';
+    try {
+      setDirectPrintingBranch(branchName);
+      await printBranchRequestsDirect({
+        sortedBranches: [branch],
+        requests: allBranchRequests,
+        dateFilter: dispatchReqDate,
+        isAllDates: !dispatchReqDate,
+        language,
+        singleBranch: branch,
+        catalogueItems
+      });
+    } catch (err) {
+      console.error(`Failed to direct print for branch ${branchName}`, err);
+      showAlert('error', err.message || (language === 'ta'
+        ? `${branchName} கிளையின் கோரிக்கைகள் அச்சிட முடியவில்லை`
+        : `Failed to print for ${branchName}`));
+    } finally {
+      setDirectPrintingBranch(null);
+    }
+  };
+
   // Dispatch Items submit for a specific branch
   const handleDispatchItems = async (branchName) => {
     if (!branchName) {
-      return showAlert('error', 'Please select a branch to dispatch');
+      return showAlert('error', t('Select Branch for Delivery', 'விநியோகம் செய்ய கிளையைத் தேர்ந்தெடுக்கவும்'));
     }
     if (dispatchingBranch) return;
 
@@ -1486,7 +1571,7 @@ export function StorePortal({ activeTab }) {
 
     // 1. Validate and gather consolidated requested items
     for (const group of branchItems) {
-      const unfulfilled = Math.max(0, group.totalRequested - group.alreadyDispatched);
+      const unfulfilled = Math.max(0, Math.round(((group.totalRequested || 0) - (group.alreadyDispatched || 0)) * 1000) / 1000);
       const curStr = dispatchQtys[group.key] !== undefined ? dispatchQtys[group.key] : String(unfulfilled);
 
       if (curStr === null || String(curStr).trim() === '') {
@@ -1495,14 +1580,29 @@ export function StorePortal({ activeTab }) {
 
       const qVal = parseFloat(curStr);
       if (isNaN(qVal) || qVal < 0) {
-        return showAlert('error', `Please enter a valid non-negative dispatch quantity for ${group.itemName}`);
+        return showAlert('error', language === 'ta' ? `${group.itemName} பொருளுக்கு சரியான விநியோக அளவை உள்ளிடவும்` : `Please enter a valid non-negative delivery quantity for ${group.itemName}`);
       }
       if (qVal === 0) continue;
+
+      // Validate: Delivery quantity must not exceed available stock
+      const centralStock = getCentralStock(group.itemName, group.unit);
+      if (qVal > centralStock) {
+        return showAlert('error', language === 'ta'
+          ? `${group.itemName} விநியோக அளவு (${qVal} ${translateUnit(group.unit)}) மைய இருப்பை (${centralStock} ${translateUnit(group.unit)}) விட அதிகமாக இருக்கக்கூடாது`
+          : `Delivery quantity for ${group.itemName} (${qVal} ${group.unit}) cannot exceed available stock (${centralStock} ${group.unit})`);
+      }
+
+      // Validate: Delivery quantity must not exceed remaining requested quantity
+      if (qVal > unfulfilled) {
+        return showAlert('error', language === 'ta'
+          ? `${group.itemName} விநியோக அளவு (${qVal} ${translateUnit(group.unit)}) கோரப்பட்ட நிலுவை அளவை (${unfulfilled} ${translateUnit(group.unit)}) விட அதிகமாக இருக்கக்கூடாது. கூடுதல் தேவைக்கு 'கூடுதல் பொருட்கள்' பிரிவைப் பயன்படுத்தவும்.`
+          : `Delivery quantity for ${group.itemName} (${qVal} ${group.unit}) cannot exceed remaining requested quantity (${unfulfilled} ${group.unit}). Use Additional Items for extra quantities.`);
+      }
 
       let needed = qVal;
       for (const req of group.requests) {
         if (needed <= 0) break;
-        const reqRemaining = Math.max(0, (req.requested || 0) - (req.dispatched || 0));
+        const reqRemaining = Math.max(0, Math.round(((req.requested || 0) - (req.dispatched || 0)) * 1000) / 1000);
         if (reqRemaining <= 0) continue;
         const toAlloc = Math.min(needed, reqRemaining);
         const reqDept = (req.departmentName || req.department || req.category || group.department || 'General').trim();
@@ -1543,7 +1643,15 @@ export function StorePortal({ activeTab }) {
       if (!add.itemName) continue;
       const qVal = parseFloat(add.dispatchQty);
       if (isNaN(qVal) || qVal <= 0) {
-        return showAlert('error', `Please enter a positive dispatch quantity for additional item ${add.itemName}`);
+        return showAlert('error', language === 'ta' ? `கூடுதல் பொருள் ${add.itemName}க்கு சரியான விநியோக அளவை உள்ளிடவும்` : `Please enter a positive delivery quantity for additional item ${add.itemName}`);
+      }
+
+      // Validate additional item against available stock
+      const addStock = getCentralStock(add.itemName, add.unit);
+      if (qVal > addStock) {
+        return showAlert('error', language === 'ta'
+          ? `கூடுதல் பொருள் ${add.itemName} விநியோக அளவு (${qVal} ${translateUnit(add.unit)}) மைய இருப்பை (${addStock} ${translateUnit(add.unit)}) விட அதிகமாக இருக்கக்கூடாது`
+          : `Delivery quantity for additional item ${add.itemName} (${qVal} ${add.unit}) cannot exceed available stock (${addStock} ${add.unit})`);
       }
 
       itemsToDispatch.push({
@@ -1556,13 +1664,13 @@ export function StorePortal({ activeTab }) {
     }
 
     if (itemsToDispatch.length === 0) {
-      return showAlert('error', `Please enter at least one item with a positive dispatch quantity for ${branchName}`);
+      return showAlert('error', language === 'ta' ? `${branchName} கிளைக்கு குறைந்தபட்சம் ஒரு பொருளுக்கான விநியோக அளவை உள்ளிடவும்` : `Please enter at least one item with a positive delivery quantity for ${branchName}`);
     }
 
     try {
       setDispatchingBranch(branchName);
       const dispatches = await api.dispatchItems(branchName, itemsToDispatch);
-      showAlert('success', `✓ Successfully dispatched ${dispatches.length} item(s) to ${branchName}! Central inventory deducted. Marked as Pending Acknowledgement.`);
+      showAlert('success', language === 'ta' ? `✓ ${branchName} கிளைக்கு ${dispatches.length} பொருட்கள் வெற்றிகரமாக விநியோகிக்கப்பட்டது! மைய இருப்பு கழிக்கப்பட்டது.` : `✓ Successfully delivered ${dispatches.length} item(s) to ${branchName}! Central inventory deducted. Marked as Pending Acknowledgement.`);
       setAdditionalItemsByBranch(prev => ({ ...prev, [branchName]: [] }));
       await Promise.all([
         loadInventory(),
@@ -1570,7 +1678,7 @@ export function StorePortal({ activeTab }) {
         loadStoreDispatchHistory(null, dispatchHistoryDate, dispatchHistoryIsAllDates)
       ]);
     } catch (err) {
-      showAlert('error', err.message || `Failed to dispatch items to ${branchName}`);
+      showAlert('error', err.message || (language === 'ta' ? `${branchName} கிளைக்கு பொருட்களை விநியோகிப்பதில் தோல்வி` : `Failed to deliver items to ${branchName}`));
     } finally {
       setDispatchingBranch(null);
     }
@@ -1863,6 +1971,19 @@ export function StorePortal({ activeTab }) {
     }
   };
 
+  const handleDirectPrintOrder = async (order) => {
+    if (!order) return;
+    try {
+      setDirectPrintingOrder(true);
+      await printOrderDirect(order, { formatType: 'STORE_MANAGER', language });
+    } catch (err) {
+      console.error('Failed to print order', err);
+      showAlert('error', err.message || 'Failed to print order');
+    } finally {
+      setDirectPrintingOrder(false);
+    }
+  };
+
   return (
     <div className="page">
       <Alert
@@ -1873,7 +1994,12 @@ export function StorePortal({ activeTab }) {
 
       {/* 1. CENTRAL INVENTORY TAB */}
       {activeTab === 'add-items' && (
-        <AddItemsView userRole="Store Manager" />
+        <AddItemsView
+          userRole="Store Manager"
+          initialItemName={vendorEntryPendingItemName}
+          onItemCreated={handleItemCreatedInCatalogue}
+          onCancel={vendorEntryPendingItemName ? handleCancelAddItemsToVendorEntry : undefined}
+        />
       )}
 
       {activeTab === 'central-inventory' && (
@@ -1883,7 +2009,7 @@ export function StorePortal({ activeTab }) {
               <div>
                 <h3 className="card-title">{t('Central Inventory Available Stock', 'Central Inventory Available Stock')}</h3>
                 <p className="muted" style={{ margin: '4px 0 0' }}>
-                  {t('Current running stock balances calculated from verified receipts and dispatches in Supabase PostgreSQL.', 'Current running stock balances calculated from verified receipts and dispatches in Supabase PostgreSQL.')}
+                  {t('Current running stock balances calculated from verified receipts and deliveries in Supabase PostgreSQL.', 'Current running stock balances calculated from verified receipts and deliveries in Supabase PostgreSQL.')}
                 </p>
               </div>
               <button type="button" className="secondary small" onClick={loadInventory}>
@@ -1940,7 +2066,7 @@ export function StorePortal({ activeTab }) {
                   )}
                 </h3>
                 <p className="muted" style={{ margin: '4px 0 0' }}>
-                  {t('Inspect physical receipts and branch dispatches recorded by transaction date and time.', 'Inspect physical receipts and branch dispatches recorded by transaction date and time.')}
+                  {t('Inspect physical receipts and branch deliveries recorded by transaction date and time.', 'Inspect physical receipts and branch deliveries recorded by transaction date and time.')}
                 </p>
               </div>
               <button
@@ -2052,7 +2178,7 @@ export function StorePortal({ activeTab }) {
                                 <td>{translateUnit(tx.unit)}</td>
                                 <td>
                                   <span className={`badge ${isReceipt ? 'badge-completed' : 'badge-ordered'}`}>
-                                    {isReceipt ? '📥 ' + t('Received', 'Receipt') : '📤 ' + t('Dispatched', 'Dispatch')}
+                                    {isReceipt ? '📥 ' + t('Received', 'Receipt') : '📤 ' + t('Delivered', 'Delivery')}
                                   </span>
                                 </td>
                                 <td>
@@ -2105,7 +2231,7 @@ export function StorePortal({ activeTab }) {
                             <td>{translateUnit(tx.unit)}</td>
                             <td>
                               <span className={`badge ${isReceipt ? 'badge-completed' : 'badge-ordered'}`}>
-                                {isReceipt ? '📥 ' + t('Received', 'Receipt') : '📤 ' + t('Dispatched', 'Dispatch')}
+                                {isReceipt ? '📥 ' + t('Received', 'Receipt') : '📤 ' + t('Delivered', 'Delivery')}
                               </span>
                             </td>
                             <td>
@@ -2134,777 +2260,22 @@ export function StorePortal({ activeTab }) {
         </>
       )}
 
-      {/* 2. ENTRY ITEMS TAB — COMPACT TWO COLUMN LAYOUT */}
+      {/* 2. ENTRY ITEMS TAB — VENDOR-BASED DIRECT INVENTORY ENTRY */}
       {activeTab === 'entry-items' && (
-        <section>
-          {/* 1. Compact Header: Title, Subtitle, Refresh Orders Button */}
-          <div style={{
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            marginBottom: 8,
-            padding: '2px 0 4px',
-            flexWrap: 'wrap',
-            gap: 10
-          }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-              <h3 style={{ margin: 0, fontSize: 18, color: 'var(--primary-dark-green)', display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span>📦</span> {t('Store Manager — Receive Items', 'Store Manager — Receive Items')}
-              </h3>
-              <span className="muted" style={{ fontSize: 13 }}>
-                • {t('Receive Items', 'Order-wise goods receipt & central inventory acknowledgement')}
-              </span>
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <button
-                type="button"
-                className="secondary small"
-                onClick={() => loadEntryOrders(entryDate, entryIsAllDates)}
-                disabled={loading}
-                style={{ padding: '5px 12px', fontSize: 12, height: 32 }}
-              >
-                {loading ? t('Loading...', 'Refreshing...') : '↻ ' + t('Refresh Orders', 'Refresh Orders')}
-              </button>
-            </div>
-          </div>
-
-          {/* 2. Small Inline Order Date & Add New Item Bar directly above Receive Items section */}
-          <div
-            className="entry-items-inline-toolbar"
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              flexWrap: 'wrap',
-              gap: '8px 12px',
-              marginBottom: 12,
-              padding: '2px 0 4px'
-            }}
-          >
-            {/* Inline Date Controls: Order Date: [date] [Today] [All Dates] Today: DD/MM/YYYY */}
-            <div style={{ display: 'inline-flex', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
-              <label
-                htmlFor="entry-order-date-input"
-                style={{
-                  fontWeight: 600,
-                  color: 'var(--primary-dark-green)',
-                  fontSize: 13,
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: 5,
-                  margin: 0,
-                  cursor: 'pointer',
-                  whiteSpace: 'nowrap'
-                }}
-              >
-                <span>📅</span> {t('Order Date', 'Order Date')}:
-              </label>
-
-              <input
-                id="entry-order-date-input"
-                type="date"
-                value={entryDate || ''}
-                onChange={(e) => {
-                  const val = e.target.value;
-                  setEntryDate(val);
-                  setEntryIsAllDates(false);
-                  loadEntryOrders(val, false);
-                }}
-                style={{
-                  width: 150,
-                  height: 36,
-                  padding: '4px 8px',
-                  fontSize: 13,
-                  border: '1px solid var(--border-color)',
-                  borderRadius: 6,
-                  background: '#fff',
-                  color: 'var(--dark-text)'
-                }}
-              />
-
-              <button
-                type="button"
-                className={!entryIsAllDates && entryDate === getTodayDateString() ? 'primary small' : 'secondary small'}
-                onClick={() => {
-                  const today = getTodayDateString();
-                  setEntryDate(today);
-                  setEntryIsAllDates(false);
-                  loadEntryOrders(today, false);
-                }}
-                style={{
-                  height: 34,
-                  padding: '0 12px',
-                  fontSize: 12,
-                  fontWeight: 600,
-                  borderRadius: 6,
-                  display: 'inline-flex',
-                  alignItems: 'center'
-                }}
-                title="View purchase orders created today"
-              >
-                {t('Today', 'Today')}
-              </button>
-
-              <button
-                type="button"
-                className={entryIsAllDates ? 'primary small' : 'secondary small'}
-                onClick={() => {
-                  setEntryIsAllDates(true);
-                  loadEntryOrders(entryDate, true);
-                }}
-                style={{
-                  height: 34,
-                  padding: '0 12px',
-                  fontSize: 12,
-                  fontWeight: 600,
-                  borderRadius: 6,
-                  display: 'inline-flex',
-                  alignItems: 'center'
-                }}
-                title="View all historical purchase orders"
-              >
-                {t('All Dates', 'All Dates')}
-              </button>
-
-              {/* Small text label instead of large filtered message */}
-              <span
-                style={{
-                  fontSize: 12,
-                  color: 'var(--text-muted)',
-                  fontWeight: 500,
-                  marginLeft: 4,
-                  whiteSpace: 'nowrap'
-                }}
-              >
-                {entryIsAllDates ? (
-                  t('Displaying all historical dates (newest first)', 'Showing All Dates')
-                ) : (
-                  (() => {
-                    const todayStr = getTodayDateString();
-                    const formatDDMM = (dStr) => {
-                      if (!dStr) return '';
-                      const parts = String(dStr).slice(0, 10).split('-');
-                      return parts.length === 3 ? `${parts[2]}/${parts[1]}/${parts[0]}` : dStr;
-                    };
-                    return entryDate === todayStr
-                      ? `${t('Today', 'Today')}: ${formatDDMM(todayStr)}`
-                      : `${t('Date', 'Date')}: ${formatDDMM(entryDate)}`;
-                  })()
-                )}
-              </span>
-            </div>
-
-            {/* Add New Item Button (same row, aligned to right) */}
-            <div style={{ marginLeft: 'auto' }}>
-              <button
-                type="button"
-                className="primary"
-                onClick={handleOpenAddItemModal}
-                style={{
-                  height: 34,
-                  padding: '0 14px',
-                  fontSize: 12,
-                  fontWeight: 600,
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: 6,
-                  whiteSpace: 'nowrap',
-                  borderRadius: 6
-                }}
-                title="Add new item to catalogue (Shortcut: F5)"
-                id="btn-add-new-item-top"
-              >
-                <span>➕</span> {t('Add New Item', 'Add New Item')}
-                <kbd
-                  style={{
-                    fontSize: 10,
-                    background: 'rgba(255, 255, 255, 0.25)',
-                    padding: '1px 5px',
-                    borderRadius: 3,
-                    border: '1px solid rgba(255, 255, 255, 0.4)',
-                    marginLeft: 2
-                  }}
-                >
-                  F5
-                </kbd>
-              </button>
-            </div>
-          </div>
-
-          {/* 3. TWO-COLUMN GRID: Left ~46% Receive Items, Right ~54% Orders / Items to Receive */}
-          <div className="store-entry-grid">
-            {/* LEFT COLUMN: Receive Items (Grouped purchase orders awaiting receipt) */}
-            <div className="card store-entry-left-card">
-
-              {/* Receive Items Title Bar */}
-              <div className="card-header" style={{ padding: '10px 14px 6px', alignItems: 'center' }}>
-                <div>
-                  <h4 className="card-title" style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 15, margin: 0 }}>
-                    <span>📋</span> {t('Receive Items', 'Receive Items')}
-                  </h4>
-                </div>
-                <span className="badge badge-ordered" style={{ fontSize: 11 }}>
-                  {filteredGroupedOrders.length} {t('Order', 'Order')}{filteredGroupedOrders.length === 1 ? '' : 's'}
-                </span>
-              </div>
-
-              {/* Search & Status Filters */}
-              <div style={{ padding: '6px 14px 10px', display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-                <div style={{ flex: 1, minWidth: 140 }}>
-                  <input
-                    type="text"
-                    placeholder={t('Search by item or order...', 'Search Order # or item...')}
-                    value={entrySearch}
-                    onChange={e => setEntrySearch(e.target.value)}
-                    style={{ fontSize: 12, padding: '5px 8px' }}
-                  />
-                </div>
-                <div style={{ display: 'flex', gap: 4 }}>
-                  {[
-                    { id: 'ALL', label: t('Any', 'All') },
-                    { id: 'AWAITING', label: t('Pending', 'Awaiting') },
-                    { id: 'PARTIAL', label: t('Partially Received', 'Partial') },
-                    { id: 'RECEIVED', label: t('Received', 'Received') }
-                  ].map(tab => (
-                    <button
-                      key={tab.id}
-                      type="button"
-                      className={`small ${entryStatusFilter === tab.id ? 'primary' : 'secondary'}`}
-                      onClick={() => setEntryStatusFilter(tab.id)}
-                      style={{ padding: '3px 8px', fontSize: 11 }}
-                    >
-                      {tab.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Grouped Purchase Orders Table */}
-              <div className="table-wrap" style={{ maxHeight: 600, overflowY: 'auto' }}>
-                <table className="compact-table">
-                  <thead>
-                    <tr>
-                      <th>{t('Order Number', 'Order Number')}</th>
-                      <th>{t('Order Date & Time', 'Order Date & Time')}</th>
-                      <th style={{ textAlign: 'center' }}>{t('Total Items', 'Items')}</th>
-                      <th style={{ textAlign: 'center' }}>{t('Status', 'Status')}</th>
-                      <th style={{ textAlign: 'center' }}>{t('Action', 'Action')}</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {filteredGroupedOrders.length > 0 ? (
-                      filteredGroupedOrders.map(group => {
-                        const isInWorkingArea = workingOrderNumbers.includes(group.poNumber);
-
-                        return (
-                          <tr
-                            key={group.poNumber}
-                            style={{
-                              background: isInWorkingArea ? 'rgba(46, 125, 50, 0.04)' : undefined,
-                              transition: 'background 0.2s ease'
-                            }}
-                          >
-                            <td>
-                              <span style={{ fontWeight: 700, color: 'var(--primary-dark-green)', fontFamily: 'monospace', fontSize: 13 }}>
-                                {group.poNumber}
-                              </span>
-                            </td>
-                            <td style={{ fontSize: 12, whiteSpace: 'nowrap' }} className="muted">
-                              {group.orderDateTime ? formatDisplayDateTime(group.orderDateTime) : formatDisplayDate(group.orderDate)}
-                            </td>
-                            <td style={{ textAlign: 'center', fontSize: 12, fontWeight: 600 }}>
-                              {group.totalItems} {t('Items', 'பொருட்கள்')}
-                            </td>
-                            <td style={{ textAlign: 'center', whiteSpace: 'nowrap' }}>
-                              {group.remainingItemsCount > 0 ? (
-                                <span
-                                  className="badge"
-                                  style={{
-                                    background: '#fee2e2',
-                                    color: '#b91c1c',
-                                    border: '1px solid #fecaca',
-                                    fontWeight: 700,
-                                    fontSize: 11
-                                  }}
-                                >
-                                  {group.remainingItemsCount} {t('Items', 'பொருட்கள்')} {t('Pending', 'Remaining')}
-                                </span>
-                              ) : (
-                                <span className="badge badge-completed" style={{ fontSize: 11 }}>
-                                  ✓ {t('Completed', 'Fully Received')}
-                                </span>
-                              )}
-                            </td>
-                            <td style={{ textAlign: 'center', whiteSpace: 'nowrap' }}>
-                              <button
-                                type="button"
-                                className={`small ${isInWorkingArea ? 'secondary' : 'primary'}`}
-                                onClick={() => handleMoveToReceive(group.poNumber)}
-                                style={{
-                                  padding: '4px 8px',
-                                  fontSize: 11,
-                                  borderColor: isInWorkingArea ? 'var(--green)' : undefined,
-                                  color: isInWorkingArea ? 'var(--green)' : undefined
-                                }}
-                                title={isInWorkingArea ? 'Already in right-side working area' : `Move ${group.poNumber} to right-side working area`}
-                              >
-                                {isInWorkingArea ? '✓ ' + t('Active', 'In Working Area') : t('Select Order', 'Move to Receive') + ' →'}
-                              </button>
-                            </td>
-                          </tr>
-                        );
-                      })
-                    ) : (
-                      <tr>
-                        <td colSpan="5" className="empty" style={{ padding: '24px 12px' }}>
-                          {loading ? t('Loading...', 'Loading orders...') : t('No records found.', 'No purchase orders found matching filters')}
-                        </td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-
-            {/* RIGHT COLUMN: Orders / Items to Receive (One Card per Order) */}
-            <div className="card store-entry-right-card">
-              <div className="card-header" style={{ padding: '10px 14px', alignItems: 'center' }}>
-                <div>
-                  <h4 className="card-title" style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 15, margin: 0 }}>
-                    <span>📥</span> {t('Orders / Items to Receive', 'Orders / Items to Receive')}
-                  </h4>
-                  <p className="muted" style={{ margin: '2px 0 0', fontSize: 12 }}>
-                    {t('Select an order from the left to receive', 'Enter received quantities and click Add to Inventory / Confirm Receipt.')}
-                  </p>
-                </div>
-                {workingOrderNumbers.length > 0 && (
-                  <button
-                    type="button"
-                    className="secondary small"
-                    onClick={() => {
-                      setWorkingOrderNumbers([]);
-                      try { localStorage.removeItem('annamithra_working_order_numbers'); } catch {}
-                    }}
-                    style={{ fontSize: 11, padding: '3px 8px' }}
-                    title="Clear all working cards"
-                  >
-                    {t('Clear All', 'Clear All Cards')}
-                  </button>
-                )}
-              </div>
-
-              {/* List of working order cards */}
-              <div style={{ padding: '10px 14px', display: 'flex', flexDirection: 'column', gap: 14 }}>
-                {workingOrdersGrouped.length > 0 ? (
-                  workingOrdersGrouped.map(group => {
-                    const isAllDone = group.remainingItemsCount === 0;
-                    const isConfirming = confirmingOrder === group.orderNumber;
-
-                    return (
-                      <div key={group.orderNumber} className="order-receipt-card" id={`receipt-card-${group.orderNumber}`}>
-                        {/* Order Card Header: e.g. ORDER01 — 2 Items Remaining */}
-                        <div className="order-receipt-card-header">
-                          <div className="order-title">
-                            <span style={{ fontFamily: 'monospace', fontSize: 15, color: 'var(--primary-dark-green)' }}>
-                              🏷️ {group.orderNumber}
-                            </span>
-                            <span className="muted" style={{ fontSize: 12, fontWeight: 500 }}>
-                              • {t('Ordered', 'Ordered')}: {group.orderDateTime ? formatDisplayDateTime(group.orderDateTime) : formatDisplayDate(group.orderDate)}
-                            </span>
-                            {isAllDone ? (
-                              <span className="badge badge-completed" style={{ fontSize: 11, marginLeft: 4 }}>
-                                ✓ {t('Completed', 'Fully Received')}
-                              </span>
-                            ) : (
-                              <span
-                                className="badge"
-                                style={{
-                                  background: '#fee2e2',
-                                  color: '#b91c1c',
-                                  border: '1px solid #fecaca',
-                                  fontWeight: 700,
-                                  fontSize: 11,
-                                  marginLeft: 4
-                                }}
-                              >
-                                {group.remainingItemsCount} {t('Items', 'பொருட்கள்')} {t('Pending', 'Remaining')}
-                              </span>
-                            )}
-                          </div>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                            <button
-                              type="button"
-                              className="close-btn"
-                              onClick={() => handleRemoveFromWorkingList(group.orderNumber)}
-                              title={`Close ${group.orderNumber} from working list`}
-                              style={{ width: 24, height: 24, fontSize: 12 }}
-                            >
-                              ✕
-                            </button>
-                          </div>
-                        </div>
-
-                        {/* Order Items Table */}
-                        <div className="table-wrap" style={{ margin: 0 }}>
-                          <table className="order-receipt-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
-                            <thead>
-                              <tr>
-                                <th>{t('Item Name', 'Item Name')}</th>
-                                <th>{t('Unit', 'Unit')}</th>
-                                <th style={{ textAlign: 'right' }}>{t('Ordered Qty', 'Ordered Qty')}</th>
-                                <th style={{ textAlign: 'right' }}>{t('Received Qty', 'Received Qty')}</th>
-                                <th style={{ textAlign: 'right' }}>{t('Pending', 'Remaining Qty')}</th>
-                                <th style={{ textAlign: 'center', width: 140 }}>{t('Receive Items', 'Receive Now')}</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {group.lines.map(line => {
-                                const remaining = Math.max(0, (line.quantity || 0) - (line.receivedQty || 0));
-                                const isLineFullyReceived = remaining === 0;
-                                const currentInput = receiveQtys[line.id] !== undefined ? receiveQtys[line.id] : '';
-
-                                return (
-                                  <tr key={line.id} style={{ background: isLineFullyReceived ? 'rgba(46, 125, 50, 0.03)' : undefined }}>
-                                    <td>
-                                      <b>{translateItem(line.item)}</b>
-                                    </td>
-                                    <td>{translateUnit(line.unit)}</td>
-                                    <td style={{ textAlign: 'right', fontWeight: 600 }}>
-                                      {line.quantity}
-                                    </td>
-                                    <td style={{ textAlign: 'right', color: (line.receivedQty || 0) > 0 ? 'var(--green)' : 'inherit', fontWeight: 600 }}>
-                                      {line.receivedQty || 0}
-                                    </td>
-                                    <td style={{ textAlign: 'right' }}>
-                                      <span style={{
-                                        fontWeight: 700,
-                                        color: remaining > 0 ? '#b91c1c' : 'var(--green)'
-                                      }}>
-                                        {remaining}
-                                      </span>
-                                    </td>
-                                    <td style={{ textAlign: 'center' }}>
-                                      {isLineFullyReceived ? (
-                                        <span className="badge badge-completed" style={{ fontSize: 10 }}>✓ {t('Received', 'Received')}</span>
-                                      ) : (
-                                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}>
-                                          <input
-                                            type="number"
-                                            min="0.001"
-                                            step="any"
-                                            max={remaining}
-                                            placeholder={`Max ${remaining}`}
-                                            value={currentInput}
-                                            onChange={e => {
-                                              const v = e.target.value;
-                                              setReceiveQtys(prev => ({ ...prev, [line.id]: v }));
-                                            }}
-                                            onKeyDown={e => {
-                                              if (e.key === 'Enter') {
-                                                e.preventDefault();
-                                                handleConfirmOrderReceipt(group);
-                                              }
-                                            }}
-                                            disabled={isConfirming}
-                                            style={{
-                                              width: 75,
-                                              padding: '4px 6px',
-                                              fontSize: 13,
-                                              textAlign: 'right'
-                                            }}
-                                          />
-                                          <button
-                                            type="button"
-                                            className="secondary small"
-                                            onClick={() => setReceiveQtys(prev => ({ ...prev, [line.id]: String(remaining) }))}
-                                            disabled={isConfirming}
-                                            style={{ padding: '2px 5px', fontSize: 10, lineHeight: 1.2 }}
-                                            title="Fill remaining quantity"
-                                          >
-                                            {t('Any', 'All')}
-                                          </button>
-                                        </div>
-                                      )}
-                                    </td>
-                                  </tr>
-                                );
-                              })}
-                            </tbody>
-                          </table>
-                        </div>
-
-                        {/* Order Card Footer with Add to Inventory / Confirm Receipt button */}
-                        <div style={{
-                          padding: '10px 14px',
-                          background: 'var(--cream-surface)',
-                          borderTop: '1px solid var(--border-color)',
-                          display: 'flex',
-                          justifyContent: 'space-between',
-                          alignItems: 'center',
-                          flexWrap: 'wrap',
-                          gap: 10
-                        }}>
-                          <div style={{ fontSize: 12 }} className="muted">
-                            {group.remainingItemsCount > 0 ? (
-                              <span>{t('Enter actual physical quantities received above and click confirm.', 'Enter actual physical quantities received above and click confirm.')}</span>
-                            ) : (
-                              <span style={{ color: 'var(--green)', fontWeight: 600 }}>✓ {t('Completed', 'All items in this order have been fully received into central inventory.')}</span>
-                            )}
-                          </div>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                            {group.remainingItemsCount > 0 ? (
-                              <button
-                                type="button"
-                                className="primary"
-                                onClick={() => handleConfirmOrderReceipt(group)}
-                                disabled={isConfirming}
-                                style={{
-                                  padding: '6px 14px',
-                                  fontSize: 13,
-                                  fontWeight: 700,
-                                  display: 'inline-flex',
-                                  alignItems: 'center',
-                                  gap: 6
-                                }}
-                              >
-                                <span>📥</span> {isConfirming ? t('Loading...', 'Updating Inventory...') : t('Confirm Receipt', 'Add to Inventory / Confirm Receipt')}
-                              </button>
-                            ) : (
-                              <span className="badge badge-completed" style={{ fontSize: 12 }}>
-                                ✓ {t('Completed', 'Fully Received')}
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })
-                ) : (
-                  <div
-                    style={{
-                      border: '2px dashed var(--border-color)',
-                      borderRadius: 8,
-                      padding: '36px 20px',
-                      textAlign: 'center',
-                      background: 'var(--cream-surface)'
-                    }}
-                  >
-                    <div style={{ fontSize: 36, marginBottom: 8 }}>📦</div>
-                    <h4 style={{ margin: '0 0 6px', color: 'var(--primary-dark-green)' }}>
-                      {t('Select an order from the left to receive', 'No Orders in Working Area')}
-                    </h4>
-                    <p className="muted" style={{ margin: '0 0 16px', fontSize: 13, maxWidth: 360, marginInline: 'auto' }}>
-                      {t('Select an order from the left to receive', 'Select an order from the Receive Items list on the left and click Move to Receive to display all its items and confirm stock.')}
-                    </p>
-                    {filteredGroupedOrders.length > 0 && (
-                      <button
-                        type="button"
-                        className="primary small"
-                        onClick={() => {
-                          const firstPending = filteredGroupedOrders.find(o => o.remainingItemsCount > 0);
-                          if (firstPending) handleMoveToReceive(firstPending.poNumber);
-                        }}
-                      >
-                        {t('Select Order', 'Move Latest Order')} ({filteredGroupedOrders[0]?.poNumber}) →
-                      </button>
-                    )}
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-
-          {/* ADD NEW ITEM & STOCK DIRECTLY MODAL (Available throughout Entry Items page & via F5) */}
-          {showAddItemModal && (
-            <div className="modal-overlay" onClick={handleCloseAddItemModal}>
-              <div
-                className="modal-content"
-                style={{ maxWidth: 460 }}
-                onClick={e => e.stopPropagation()}
-              >
-                <div className="modal-header">
-                  <h3 style={{ display: 'flex', alignItems: 'center', gap: 6, margin: 0, color: 'var(--primary-dark-green)' }}>
-                    <span>➕</span> {t('Add New Item and Stock', 'Add New Item & Stock')}
-                  </h3>
-                  <button
-                    type="button"
-                    className="close-btn"
-                    onClick={handleCloseAddItemModal}
-                    disabled={savingNewItem}
-                  >
-                    ✕
-                  </button>
-                </div>
-
-                <p className="muted" style={{ margin: '8px 0 16px', fontSize: 13 }}>
-                  {t('Add a new or existing item and specify the stock quantity to add directly to Central Inventory.', 'Add a new or existing item and specify the stock quantity to add directly to Central Inventory.')}
-                </p>
-
-                {addItemError && (
-                  <div className="alert-banner alert-error" style={{ marginBottom: 14 }}>
-                    <span>⚠️</span>
-                    <div style={{ flex: 1, fontSize: 13 }}>{addItemError}</div>
-                  </div>
-                )}
-
-                <form onSubmit={handleSaveNewItem}>
-                  <div style={{ marginBottom: 14 }}>
-                    <label style={{ display: 'block', fontSize: 13, fontWeight: 700, color: 'var(--green)', marginBottom: 6 }}>
-                      {t('Item Name', 'Item Name')} *
-                    </label>
-                    <input
-                      ref={addItemInputRef}
-                      type="text"
-                      placeholder={language === 'ta' ? 'எ.கா. புதிய அரிசி, சமையல் எண்ணெய்...' : 'e.g. Basmati Rice, Cooking Oil...'}
-                      value={newItemName}
-                      onChange={e => {
-                        const val = e.target.value;
-                        setNewItemName(val);
-                        if (addItemError) setAddItemError('');
-                        const found = catalogueItems.find(it => it.name && it.name.trim().toLowerCase() === val.trim().toLowerCase());
-                        if (found && found.unit) {
-                          setNewItemUnit(found.unit);
-                        }
-                      }}
-                      onKeyDown={e => {
-                        if (e.key === 'Enter') {
-                          e.preventDefault();
-                          const trimmed = (newItemName || '').trim();
-                          if (!trimmed) {
-                            setAddItemError(t('Item name is required.', 'Item name is required.'));
-                            addItemInputRef.current?.focus();
-                            return;
-                          }
-                          setAddItemError('');
-                          modalUnitSelectRef.current?.focus();
-                        }
-                      }}
-                      disabled={savingNewItem}
-                      autoFocus
-                    />
-                    {(() => {
-                      const existing = catalogueItems.find(it => it.name && it.name.trim().toLowerCase() === (newItemName || '').trim().toLowerCase());
-                      if (existing) {
-                        const curStock = inventory.find(iv => (iv.name || iv.item || '').trim().toLowerCase() === existing.name.trim().toLowerCase())?.stock ?? existing.stock ?? 0;
-                        return (
-                          <div style={{ marginTop: 4, fontSize: 12, color: 'var(--primary-dark-green)', fontWeight: 600 }}>
-                            ℹ️ {language === 'ta'
-                              ? `ஏற்கனவே உள்ள பொருள் (தற்போதைய கையிருப்பு: ${curStock} ${translateUnit(existing.unit)}). உள்ளிட்ட அளவு இதனுடன் சேர்க்கப்படும்.`
-                              : `Existing catalogue item (Current Stock: ${curStock} ${existing.unit}). Entered quantity will be added to this stock.`}
-                          </div>
-                        );
-                      }
-                      return null;
-                    })()}
-                  </div>
-
-                  <div style={{ marginBottom: 14 }}>
-                    <label style={{ display: 'block', fontSize: 13, fontWeight: 700, color: 'var(--green)', marginBottom: 6 }}>
-                      {t('Unit', 'Unit of Measurement')} *
-                    </label>
-                    <select
-                      ref={modalUnitSelectRef}
-                      value={newItemUnit}
-                      onChange={e => {
-                        setNewItemUnit(e.target.value);
-                        if (addItemError) setAddItemError('');
-                      }}
-                      onKeyDown={e => {
-                        if (e.key === 'Enter') {
-                          e.preventDefault();
-                          if (newItemUnit === '__CUSTOM__') {
-                            modalCustomUnitRef.current?.focus();
-                            return;
-                          }
-                          modalQtyInputRef.current?.focus();
-                        }
-                      }}
-                      disabled={savingNewItem}
-                    >
-                      <option value="KG">KG ({translateUnit('kg')})</option>
-                      <option value="L">L ({translateUnit('l')})</option>
-                      <option value="Pieces">{translateUnit('pieces')}</option>
-                      <option value="Packets">{translateUnit('packets')}</option>
-                      <option value="Bags">{translateUnit('bags')}</option>
-                      <option value="Bundles">{translateUnit('bunch')}</option>
-                      <option value="Boxes">{translateUnit('boxes')}</option>
-                      <option value="Grams">{translateUnit('grams')}</option>
-                      <option value="ML">{translateUnit('ml')}</option>
-                      <option value="__CUSTOM__">+ {t('Other / Custom Unit...', 'Other / Custom Unit...')}</option>
-                    </select>
-
-                    {newItemUnit === '__CUSTOM__' && (
-                      <input
-                        ref={modalCustomUnitRef}
-                        type="text"
-                        placeholder={t('Select Unit', 'Enter custom unit (e.g. Cans, Tins)')}
-                        style={{ marginTop: 8 }}
-                        value={newItemCustomUnit}
-                        onChange={e => {
-                          setNewItemCustomUnit(e.target.value);
-                          if (addItemError) setAddItemError('');
-                        }}
-                        onKeyDown={e => {
-                          if (e.key === 'Enter') {
-                            e.preventDefault();
-                            modalQtyInputRef.current?.focus();
-                          }
-                        }}
-                        disabled={savingNewItem}
-                      />
-                    )}
-                  </div>
-
-                  <div style={{ marginBottom: 18 }}>
-                    <label style={{ display: 'block', fontSize: 13, fontWeight: 700, color: 'var(--green)', marginBottom: 6 }}>
-                      {t('Quantity to Add to Inventory', 'Quantity to Add to Inventory')} *
-                    </label>
-                    <input
-                      ref={modalQtyInputRef}
-                      type="number"
-                      min="0.001"
-                      step="any"
-                      placeholder={language === 'ta' ? 'அளவை உள்ளிடவும் (எ.கா. 25)' : 'Enter quantity (e.g. 25)'}
-                      value={newItemQuantity}
-                      onChange={e => {
-                        setNewItemQuantity(e.target.value);
-                        if (addItemError) setAddItemError('');
-                      }}
-                      onKeyDown={e => {
-                        if (e.key === 'Enter') {
-                          e.preventDefault();
-                          handleSaveNewItem(e);
-                        }
-                      }}
-                      disabled={savingNewItem}
-                    />
-                  </div>
-
-                  <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 20 }}>
-                    <button
-                      type="button"
-                      className="secondary"
-                      onClick={handleCloseAddItemModal}
-                      disabled={savingNewItem}
-                    >
-                      {t('Cancel', 'Cancel')}
-                    </button>
-                    <button
-                      type="submit"
-                      className="primary"
-                      disabled={savingNewItem}
-                      id="btn-save-new-item"
-                    >
-                      {savingNewItem
-                        ? t('Saving and Adding Stock...', 'Saving and Adding Stock...')
-                        : t('Save and Add to Inventory', 'Save and Add to Inventory')}
-                    </button>
-                  </div>
-                </form>
-              </div>
-            </div>
-          )}
-        </section>
+        <VendorEntryView
+          showAlert={showAlert}
+          catalogueItems={catalogueItems}
+          newlyCreatedItem={newlyCreatedCatalogueItem}
+          onClearNewlyCreatedItem={() => setNewlyCreatedCatalogueItem(null)}
+          onNavigateToAddItems={handleNavigateToAddItemsFromVendorEntry}
+          onCatalogueUpdated={async () => {
+            const iList = await api.getItems();
+            if (Array.isArray(iList)) setCatalogueItems(iList);
+          }}
+          onInventoryUpdated={async () => {
+            await loadInventory();
+          }}
+        />
       )}
 
       {/* 3. BRANCH REQUESTS / DISPATCH TAB */}
@@ -2916,7 +2287,7 @@ export function StorePortal({ activeTab }) {
               type="button"
               className="subnav-btn active"
             >
-              {t('Dispatch', 'விநியோகம்')}
+              {t('Delivery', 'விநியோகம்')}
             </button>
           </div>
 
@@ -3053,6 +2424,35 @@ export function StorePortal({ activeTab }) {
 
                 <button
                   type="button"
+                  className="secondary small btn-direct-print-all-branches"
+                  id="btn-direct-print-all-branches"
+                  disabled={directPrintingBranchRequests}
+                  onClick={handleDirectPrintBranchRequests}
+                  style={{
+                    height: 32,
+                    padding: '0 12px',
+                    fontSize: 12,
+                    fontWeight: 600,
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    borderRadius: 6,
+                    background: '#F0FDF4',
+                    color: 'var(--primary-dark-green)',
+                    border: '1px solid var(--primary-dark-green)',
+                    cursor: directPrintingBranchRequests ? 'not-allowed' : 'pointer',
+                    boxShadow: '0 1px 3px rgba(0, 59, 43, 0.1)'
+                  }}
+                  title={language === 'ta' ? 'அனைத்து கிளைகளின் கோரிக்கைகளை நேரடியாக அச்சிடு' : 'Direct Print All Branches Requests Report'}
+                >
+                  <span>🖨️</span>
+                  {directPrintingBranchRequests
+                    ? (language === 'ta' ? 'அச்சிடுகிறது...' : 'Printing...')
+                    : (language === 'ta' ? 'நேரடி அச்சு (அனைத்தும்)' : 'Direct Print All')}
+                </button>
+
+                <button
+                  type="button"
                   className="primary small btn-download-branch-requests-pdf btn-download-all-branches-pdf"
                   id="btn-download-all-branches-pdf"
                   disabled={downloadingBranchRequestsPdf}
@@ -3165,6 +2565,37 @@ export function StorePortal({ activeTab }) {
 
                       {/* ACTIONS: DOWNLOAD INDIVIDUAL BRANCH PDF & ADD ADDITIONAL ITEM */}
                       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                        {/* DIRECT PRINT INDIVIDUAL BRANCH BUTTON */}
+                        <button
+                          type="button"
+                          className="secondary small btn-direct-print-branch"
+                          id={`btn-direct-print-${(bName || '').toLowerCase().replace(/[^a-z0-9]/g, '-')}`}
+                          disabled={directPrintingBranch === bName}
+                          onClick={() => handleDirectPrintSingleBranch(branch)}
+                          style={{
+                            height: 32,
+                            padding: '0 12px',
+                            fontSize: 12,
+                            fontWeight: 600,
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: 6,
+                            borderRadius: 6,
+                            whiteSpace: 'nowrap',
+                            background: '#F0FDF4',
+                            color: 'var(--primary-dark-green)',
+                            border: '1px solid var(--primary-dark-green)',
+                            cursor: directPrintingBranch === bName ? 'not-allowed' : 'pointer',
+                            boxShadow: '0 1px 3px rgba(0, 0, 0, 0.08)'
+                          }}
+                          title={language === 'ta' ? `${bName} கிளையின் கோரிக்கைகளை நேரடியாக அச்சிடு` : `Direct Print for ${bName}`}
+                        >
+                          <span>🖨️</span>
+                          {directPrintingBranch === bName
+                            ? (language === 'ta' ? 'அச்சிடுகிறது...' : 'Printing...')
+                            : (language === 'ta' ? 'நேரடி அச்சு' : 'Direct Print')}
+                        </button>
+
                         {/* DOWNLOAD INDIVIDUAL BRANCH PDF BUTTON */}
                         <button
                           type="button"
@@ -3242,9 +2673,9 @@ export function StorePortal({ activeTab }) {
                               <tr>
                                 <th>{t('Item Name', 'பொருளின் பெயர்')}</th>
                                 <th style={{ textAlign: 'right' }}>{t('Requested Quantity', 'கோரப்பட்ட அளவு')}</th>
-                                <th style={{ textAlign: 'right' }}>{t('Dispatched Quantity', 'அனுப்பப்பட்ட அளவு')}</th>
+                                <th style={{ textAlign: 'right' }}>{t('Delivered Quantity', 'விநியோகிக்கப்பட்ட அளவு')}</th>
                                 <th style={{ textAlign: 'right' }}>{t('Available Stock', 'மையத்தில் உள்ள இருப்பு')}</th>
-                                <th style={{ textAlign: 'center', width: 160 }}>{t('Dispatch Quantity', 'விநியோக அளவு')}</th>
+                                <th style={{ textAlign: 'center', width: 160 }}>{t('Delivery Quantity', 'விநியோக அளவு')}</th>
                                 <th style={{ textAlign: 'right' }}>{t('Pending Quantity', 'மீதமுள்ள விநியோகம்')}</th>
                               </tr>
                             </thead>
@@ -3252,55 +2683,73 @@ export function StorePortal({ activeTab }) {
                               {branchConsolidated.length > 0 ? (
                                 branchConsolidated.map(item => {
                                   const centralStock = getCentralStock(item.itemName, item.unit);
-                                  const unfulfilled = Math.max(0, item.totalRequested - item.alreadyDispatched);
+                                  // Formula: Pending Quantity = Requested Quantity - Previously Delivered Quantity
+                                  const pendingQty = Math.max(0, Math.round(((item.totalRequested || 0) - (item.alreadyDispatched || 0)) * 1000) / 1000);
                                   const curDispatchStr = dispatchQtys[item.key] !== undefined
                                     ? dispatchQtys[item.key]
-                                    : String(unfulfilled);
+                                    : String(pendingQty);
                                   const curDispatch = curDispatchStr === '' ? 0 : parseFloat(curDispatchStr);
-                                  const remainingToDispatch = Math.max(0, item.totalRequested - item.alreadyDispatched - (isNaN(curDispatch) ? 0 : curDispatch));
-                                  const exceedsStock = !isNaN(curDispatch) && curDispatch > centralStock;
+                                  const safeDispatch = isNaN(curDispatch) ? 0 : curDispatch;
+
+                                  // Formula: Remaining Stock = Available Stock - Newly Entered Delivery Quantity
+                                  const remainingStock = Math.round((centralStock - safeDispatch) * 1000) / 1000;
+
+                                  // Validation checks
+                                  const exceedsStock = !isNaN(curDispatch) && (centralStock <= 0 ? curDispatch > 0 : curDispatch > centralStock);
+                                  const exceedsRequested = !isNaN(curDispatch) && curDispatch > pendingQty;
 
                                   return (
-                                    <tr key={item.key} style={{ background: exceedsStock ? 'rgba(245, 158, 11, 0.05)' : undefined }}>
+                                    <tr key={item.key} style={{ background: (exceedsStock || exceedsRequested) ? 'rgba(245, 158, 11, 0.05)' : undefined }}>
+                                      {/* 1. Item Name + Requests badge + Department badge */}
                                       <td>
-                                        <b>{translateItem(item.itemName)}</b>
-                                        {item.requests.length > 1 && (
-                                          <span
-                                            className="badge"
-                                            style={{
-                                              marginLeft: 8,
-                                              fontSize: 10,
-                                              background: 'var(--cream-surface)',
-                                              color: 'var(--primary-dark-green)',
-                                              borderColor: 'var(--gold)'
-                                            }}
-                                          >
-                                            {item.requests.length} {language === 'ta' ? 'கோரிக்கைகள்' : 'reqs'}
-                                          </span>
-                                        )}
+                                        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                                          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                                            <b style={{ color: 'var(--primary-dark-green)' }}>{translateItem(item.itemName)}</b>
+                                            {item.requests.length > 1 && (
+                                              <span
+                                                className="badge"
+                                                style={{
+                                                  fontSize: 10,
+                                                  background: 'var(--cream-surface)',
+                                                  color: 'var(--primary-dark-green)',
+                                                  borderColor: 'var(--gold)'
+                                                }}
+                                              >
+                                                {item.requests.length} {language === 'ta' ? 'கோரிக்கைகள்' : 'reqs'}
+                                              </span>
+                                            )}
+                                          </div>
+                                          <div>
+                                            <span
+                                              style={{
+                                                fontSize: 11,
+                                                fontWeight: 600,
+                                                background: '#e0f2fe',
+                                                color: '#0369a1',
+                                                padding: '2px 8px',
+                                                borderRadius: 4,
+                                                display: 'inline-flex',
+                                                alignItems: 'center',
+                                                gap: 3
+                                              }}
+                                            >
+                                              🏢 {translateCategory(item.department || item.requests?.[0]?.department || 'General')}
+                                            </span>
+                                          </div>
+                                        </div>
                                       </td>
-                                      <td>
-                                        <span
-                                          style={{
-                                            fontSize: 12,
-                                            fontWeight: 600,
-                                            background: '#e0f2fe',
-                                            color: '#0369a1',
-                                            padding: '2px 8px',
-                                            borderRadius: 4,
-                                            display: 'inline-flex',
-                                            alignItems: 'center',
-                                            gap: 3
-                                          }}
-                                        >
-                                          🏢 {translateCategory(item.department || item.requests?.[0]?.department || 'General')}
-                                        </span>
+
+                                      {/* 2. Requested Quantity (numeric + unit) */}
+                                      <td style={{ textAlign: 'right', fontWeight: 600, whiteSpace: 'nowrap' }}>
+                                        {item.totalRequested} {translateUnit(item.unit)}
                                       </td>
-                                      <td>{translateUnit(item.unit)}</td>
-                                      <td style={{ textAlign: 'right', fontWeight: 600 }}>{item.totalRequested}</td>
-                                      <td style={{ textAlign: 'right', color: item.alreadyDispatched > 0 ? '#8c671b' : 'inherit' }}>
-                                        {item.alreadyDispatched}
+
+                                      {/* 3. Delivered Quantity (previously delivered numeric + unit) */}
+                                      <td style={{ textAlign: 'right', color: item.alreadyDispatched > 0 ? '#8c671b' : 'inherit', whiteSpace: 'nowrap' }}>
+                                        {item.alreadyDispatched} {translateUnit(item.unit)}
                                       </td>
+
+                                      {/* 4. Available Stock (central stock + unit & remaining stock calculation) */}
                                       <td style={{ textAlign: 'right' }}>
                                         <div style={{ display: 'inline-flex', flexDirection: 'column', alignItems: 'flex-end', gap: 2 }}>
                                           <span
@@ -3321,13 +2770,21 @@ export function StorePortal({ activeTab }) {
                                               ⚠️ {t('Low Stock', 'Low Stock')}
                                             </span>
                                           ) : null}
+                                          {safeDispatch > 0 && !isNaN(remainingStock) && (
+                                            <span style={{ fontSize: 10, color: remainingStock < 0 ? '#b91c1c' : '#64748b', fontWeight: 500 }}>
+                                              {language === 'ta' ? 'மீதம்:' : 'Remaining:'} {remainingStock} {translateUnit(item.unit)}
+                                            </span>
+                                          )}
                                         </div>
                                       </td>
+
+                                      {/* 5. Delivery Quantity (user input + Max button) */}
                                       <td style={{ textAlign: 'center' }}>
                                         <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
                                           <input
                                             type="number"
                                             min="0"
+                                            max={centralStock > 0 ? Math.min(centralStock, pendingQty) : pendingQty}
                                             step="any"
                                             style={{
                                               width: 80,
@@ -3335,7 +2792,7 @@ export function StorePortal({ activeTab }) {
                                               textAlign: 'right',
                                               padding: '4px 6px',
                                               fontSize: 13,
-                                              border: exceedsStock ? '1.5px solid #d97706' : '1px solid var(--border-color)',
+                                              border: (exceedsStock || exceedsRequested) ? '1.5px solid #d97706' : '1px solid var(--border-color)',
                                               borderRadius: 6
                                             }}
                                             value={curDispatchStr}
@@ -3345,39 +2802,56 @@ export function StorePortal({ activeTab }) {
                                           <button
                                             type="button"
                                             className="secondary small"
-                                            onClick={() => setDispatchQtys(prev => ({ ...prev, [item.key]: String(unfulfilled) }))}
+                                            onClick={() => {
+                                              const maxFill = centralStock > 0 ? Math.min(centralStock, pendingQty) : pendingQty;
+                                              setDispatchQtys(prev => ({ ...prev, [item.key]: String(maxFill) }));
+                                            }}
                                             style={{ height: 32, padding: '0 6px', fontSize: 11 }}
-                                            title={`Fill requested amount (${unfulfilled})`}
+                                            title={`Fill requested amount (${pendingQty})`}
                                           >
                                             {t('Max', 'அதிகபட்சம்')}
                                           </button>
                                         </div>
                                         {exceedsStock && (
                                           <div style={{ color: '#b45309', fontSize: 10, marginTop: 2, fontWeight: 600 }}>
-                                            ⚠️ {t('Exceeds stock', 'இருப்பை விட அதிகம்')} ({centralStock})
+                                            ⚠️ {t('Exceeds stock', 'இருப்பை விட அதிகம்')} ({centralStock} {translateUnit(item.unit)})
+                                          </div>
+                                        )}
+                                        {!exceedsStock && exceedsRequested && (
+                                          <div style={{ color: '#b45309', fontSize: 10, marginTop: 2, fontWeight: 600 }}>
+                                            ⚠️ {t('Exceeds req', 'தேவையை விட அதிகம்')} ({pendingQty} {translateUnit(item.unit)})
                                           </div>
                                         )}
                                       </td>
+
+                                      {/* 6. Pending Quantity (Requested - Delivered numeric + unit) */}
                                       <td style={{ textAlign: 'right' }}>
-                                        <span
-                                          style={{
-                                            fontWeight: 700,
-                                            fontSize: 13,
-                                            color: remainingToDispatch > 0 ? '#b78103' : 'var(--green)'
-                                          }}
-                                        >
-                                          {remainingToDispatch} {translateUnit(item.unit)}
-                                        </span>
+                                        <div style={{ display: 'inline-flex', flexDirection: 'column', alignItems: 'flex-end', gap: 2 }}>
+                                          <span
+                                            style={{
+                                              fontWeight: 700,
+                                              fontSize: 13,
+                                              color: pendingQty > 0 ? '#b78103' : 'var(--green)'
+                                            }}
+                                          >
+                                            {pendingQty} {translateUnit(item.unit)}
+                                          </span>
+                                          {safeDispatch > 0 && safeDispatch < pendingQty && (
+                                            <span style={{ fontSize: 10, color: '#64748b', fontWeight: 500 }}>
+                                              {language === 'ta' ? 'விநியோகத்திற்கு பின்:' : 'After delivery:'} {Math.max(0, Math.round((pendingQty - safeDispatch) * 1000) / 1000)} {translateUnit(item.unit)}
+                                            </span>
+                                          )}
+                                        </div>
                                       </td>
                                     </tr>
                                   );
                                 })
                               ) : (
                                 <tr>
-                                  <td colSpan="8" className="empty" style={{ padding: '24px 12px' }}>
+                                  <td colSpan="6" className="empty" style={{ padding: '24px 12px' }}>
                                     {language === 'ta'
-                                      ? `${bName} கிளைக்கு நிலுவையில் உள்ள கோரிக்கைகள் இல்லை. கீழே கூடுதல் பொருட்களை அனுப்பலாம்.`
-                                      : `No unfulfilled requests for ${bName}${dispatchReqDate ? ` on ${formatDisplayDate(dispatchReqDate)}` : ''}. You can dispatch additional items below.`}
+                                      ? `${bName} கிளைக்கு நிலுவையில் உள்ள கோரிக்கைகள் இல்லை. கீழே கூடுதல் பொருட்களை விநியோகிக்கலாம்.`
+                                      : `No unfulfilled requests for ${bName}${dispatchReqDate ? ` on ${formatDisplayDate(dispatchReqDate)}` : ''}. You can deliver additional items below.`}
                                   </td>
                                 </tr>
                               )}
@@ -3414,7 +2888,7 @@ export function StorePortal({ activeTab }) {
                                   <th>{t('Unit', 'அலகு')}</th>
                                   <th>{t('Item Type', 'பொருள் வகை')}</th>
                                   <th style={{ textAlign: 'right' }}>{t('Central Stock Available', 'மையத்தில் உள்ள இருப்பு')}</th>
-                                  <th style={{ textAlign: 'center', width: 140 }}>{t('Dispatch Quantity', 'விநியோக அளவு')}</th>
+                                  <th style={{ textAlign: 'center', width: 140 }}>{t('Delivery Quantity', 'விநியோக அளவு')}</th>
                                   <th style={{ textAlign: 'center' }}>{t('Action', 'செயல்')}</th>
                                 </tr>
                               </thead>
@@ -3551,8 +3025,8 @@ export function StorePortal({ activeTab }) {
                         >
                           <span>🚚</span>
                           {isDispatchingThisBranch
-                            ? (language === 'ta' ? `${bName} கிளைக்கு விநியோகிக்கிறது...` : `Dispatching to ${bName}...`)
-                            : (language === 'ta' ? `${bName} கிளைக்கு விநியோகி` : `Dispatch Items → ${bName}`)}
+                            ? (language === 'ta' ? `${bName} கிளைக்கு விநியோகிக்கிறது...` : `Delivering to ${bName}...`)
+                            : (language === 'ta' ? `${bName} கிளைக்கு விநியோகி` : `Deliver Items → ${bName}`)}
                         </button>
                       </div>
                     </div>
@@ -3594,7 +3068,7 @@ export function StorePortal({ activeTab }) {
                 <p className="muted" style={{ margin: '0 0 18px', fontSize: 13, lineHeight: 1.5, color: '#5A6962' }}>
                   {language === 'ta'
                     ? 'விநியோகத்திற்காக ஒரு புதிய பொருளை பட்டியலில் சேர்க்கவும். இது தரவுத்தளத்தில் நிரந்தரமாக சேமிக்கப்படும்.'
-                    : 'Create a new catalogue item for dispatch. It will be persistently saved to the database.'}
+                    : 'Create a new catalogue item for delivery. It will be persistently saved to the database.'}
                 </p>
 
                 <form onSubmit={handleSaveDispatchNewItem}>
@@ -3804,8 +3278,8 @@ export function StorePortal({ activeTab }) {
                             {loading
                               ? t('Calculating requirements...', 'தேவைகள் கணக்கிடப்படுகின்றன...')
                               : (consolidatedReqDate && !consolidatedIsAllDates
-                                  ? (language === 'ta' ? 'இந்த தேதிக்கான நிலுவை கிளை தேவைகள் எதுவும் கிடைக்கவில்லை.' : 'No outstanding branch requirements found for this date.')
-                                  : (language === 'ta' ? 'நிலுவை கிளை தேவைகள் எதுவும் கிடைக்கவில்லை.' : 'No outstanding branch requirements found.'))}
+                                ? (language === 'ta' ? 'இந்த தேதிக்கான நிலுவை கிளை தேவைகள் எதுவும் கிடைக்கவில்லை.' : 'No outstanding branch requirements found for this date.')
+                                : (language === 'ta' ? 'நிலுவை கிளை தேவைகள் எதுவும் கிடைக்கவில்லை.' : 'No outstanding branch requirements found.'))}
                           </td>
                         </tr>
                       )}
@@ -3873,9 +3347,9 @@ export function StorePortal({ activeTab }) {
                           const orderDateTimeStr = formatDisplayDateTime(order.createdAt || order.orderDate);
                           const badgeClass =
                             order.status === 'ORDERED' ? 'badge-ordered' :
-                            order.status === 'RECEIVED' ? 'badge-completed' :
-                            order.status === 'PARTIALLY_RECEIVED' ? 'badge-partial' :
-                            'badge-pending';
+                              order.status === 'RECEIVED' ? 'badge-completed' :
+                                order.status === 'PARTIALLY_RECEIVED' ? 'badge-partial' :
+                                  'badge-pending';
 
                           return lines.map((line, idx) => (
                             <tr
@@ -4181,8 +3655,8 @@ export function StorePortal({ activeTab }) {
                     loading
                       ? t('Loading previous orders...', 'முந்தைய ஆர்டர்கள் ஏற்றப்படுகின்றன...')
                       : previousOrderIsAllDates
-                      ? (language === 'ta' ? 'கொள்முதல் ஆர்டர்கள் எதுவும் சமர்ப்பிக்கப்படவில்லை.' : 'No purchase orders submitted yet.')
-                      : (language === 'ta' ? `${formatDisplayDate(previousOrderDate)} அன்று முந்தைய ஆர்டர்கள் எதுவும் இல்லை.` : `No previous orders found for ${formatDisplayDate(previousOrderDate)}.`)
+                        ? (language === 'ta' ? 'கொள்முதல் ஆர்டர்கள் எதுவும் சமர்ப்பிக்கப்படவில்லை.' : 'No purchase orders submitted yet.')
+                        : (language === 'ta' ? `${formatDisplayDate(previousOrderDate)} அன்று முந்தைய ஆர்டர்கள் எதுவும் இல்லை.` : `No previous orders found for ${formatDisplayDate(previousOrderDate)}.`)
                   }
                 />
               ) : previousOrderIsAllDates ? (
@@ -4209,11 +3683,10 @@ export function StorePortal({ activeTab }) {
                                 <td>{formatDisplayDateTime(order.orderDate || order.createdAt)}</td>
                                 <td>{itemsCount} {itemsCount === 1 ? t('item', 'item') : t('items', 'items')}</td>
                                 <td>
-                                  <span className={`badge ${
-                                    order.status === 'ORDERED' ? 'badge-ordered' :
+                                  <span className={`badge ${order.status === 'ORDERED' ? 'badge-ordered' :
                                     order.status === 'RECEIVED' ? 'badge-completed' :
-                                    order.status === 'PARTIALLY_RECEIVED' ? 'badge-partial' : 'badge-pending'
-                                  }`}>
+                                      order.status === 'PARTIALLY_RECEIVED' ? 'badge-partial' : 'badge-pending'
+                                    }`}>
                                     {translateStatus(order.status)}
                                   </span>
                                 </td>
@@ -4257,11 +3730,10 @@ export function StorePortal({ activeTab }) {
                               <td>{formatDisplayDateTime(order.orderDate || order.createdAt)}</td>
                               <td>{itemsCount} {itemsCount === 1 ? t('item', 'item') : t('items', 'items')}</td>
                               <td>
-                                <span className={`badge ${
-                                  order.status === 'ORDERED' ? 'badge-ordered' :
+                                <span className={`badge ${order.status === 'ORDERED' ? 'badge-ordered' :
                                   order.status === 'RECEIVED' ? 'badge-completed' :
-                                  order.status === 'PARTIALLY_RECEIVED' ? 'badge-partial' : 'badge-pending'
-                                }`}>
+                                    order.status === 'PARTIALLY_RECEIVED' ? 'badge-partial' : 'badge-pending'
+                                  }`}>
                                   {translateStatus(order.status)}
                                 </span>
                               </td>
@@ -4352,10 +3824,25 @@ export function StorePortal({ activeTab }) {
               <div className="order-modal-footer">
                 <button
                   type="button"
+                  id="btn-direct-print-modal-order"
+                  className="secondary"
+                  disabled={directPrintingOrder}
+                  onClick={() => handleDirectPrintOrder(viewOrderModal)}
+                  style={{
+                    background: '#F0FDF4',
+                    color: 'var(--primary-dark-green)',
+                    borderColor: 'var(--primary-dark-green)'
+                  }}
+                >
+                  🖨️ {directPrintingOrder ? t('Printing...', 'அச்சிடுகிறது...') : t('Direct Print', 'நேரடி அச்சு')}
+                </button>
+                <button
+                  type="button"
+                  id="btn-download-modal-order-pdf"
                   className="secondary"
                   onClick={() => handleDownloadPdf(viewOrderModal)}
                 >
-                  {t('Download PDF', 'Download PDF')}
+                  📄 {t('Download PDF', 'Download PDF')}
                 </button>
                 <button
                   type="button"
@@ -4463,15 +3950,14 @@ export function StorePortal({ activeTab }) {
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10, paddingTop: 12, borderTop: '1px solid var(--border-color)' }}>
               <div style={{ fontSize: 12.5, color: 'var(--text-muted)' }}>
                 <span>{t('Delivery Status', 'Delivery Status')}: </span>
-                <span className={`badge ${
-                  historyModalItem.deliveryStatus === 'COMPLETED' ? 'badge-completed' :
+                <span className={`badge ${historyModalItem.deliveryStatus === 'COMPLETED' ? 'badge-completed' :
                   historyModalItem.deliveryStatus === 'PARTIALLY_DELIVERED' ? 'badge-ordered' :
-                  'badge-pending'
-                }`}>
+                    'badge-pending'
+                  }`}>
                   {translateStatus(historyModalItem.deliveryStatusLabel || historyModalItem.deliveryStatus)}
                 </span>
                 <span style={{ marginLeft: 12 }}>
-                  {t('Dispatched:', 'Dispatched:')} <b>{historyModalItem.alreadyDispatchedQuantity}</b> | {t('Confirmed Received:', 'Confirmed Received:')} <b>{historyModalItem.confirmedReceivedQuantity}</b>
+                  {t('Delivered:', 'Delivered:')} <b>{historyModalItem.alreadyDispatchedQuantity}</b> | {t('Confirmed Received:', 'Confirmed Received:')} <b>{historyModalItem.confirmedReceivedQuantity}</b>
                 </span>
               </div>
               <button

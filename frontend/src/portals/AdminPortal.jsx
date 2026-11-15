@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { api } from '../api';
 import { Alert } from '../components/Alert';
 import { PasswordInput } from '../components/PasswordInput';
-import { downloadOrderPdf, parseOrderDateTime } from '../utils/pdfGenerator';
+import { downloadOrderPdf, printOrderDirect, parseOrderDateTime } from '../utils/pdfGenerator';
 import DateFilterBar, { DateSectionHeader, EmptyDateMessage } from '../components/DateFilterBar';
 import { useAddItemShortcut } from '../utils/useAddItemShortcut';
 import { useLanguage } from '../i18n/LanguageContext';
@@ -52,7 +52,7 @@ export function AdminPortal({ activeTab }) {
     try {
       const org = await api.getMyOrganisation();
       setMyOrg(org);
-    } catch {}
+    } catch { }
     try {
       const sm = await api.getStoreManager();
       setStoreManager(sm);
@@ -63,7 +63,7 @@ export function AdminPortal({ activeTab }) {
           fullName: sm.fullName || ''
         }));
       }
-    } catch {}
+    } catch { }
   };
 
   const loadAccounts = async () => {
@@ -436,6 +436,25 @@ export function AdminPortal({ activeTab }) {
       downloadOrderPdf(order, { formatType: 'ORG_ADMIN', language });
     } catch (err) {
       showAlert('error', err.message || 'Failed to generate PDF for order');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Direct Print for Organisation Admin Purchase Order
+  const handleDirectPrint = async (groupOrOrderNumber) => {
+    try {
+      setLoading(true);
+      let order = groupOrOrderNumber;
+      if (typeof groupOrOrderNumber === 'string') {
+        order = await api.getOrderByOrderNumber(groupOrOrderNumber);
+      } else if (!groupOrOrderNumber.lines || groupOrOrderNumber.lines.length === 0) {
+        order = await api.getOrderByOrderNumber(groupOrOrderNumber.orderNumber);
+      }
+      await printOrderDirect(order, { formatType: 'ORG_ADMIN', language });
+    } catch (err) {
+      console.error('Failed to print order', err);
+      showAlert('error', err.message || 'Failed to print order');
     } finally {
       setLoading(false);
     }
@@ -1458,10 +1477,9 @@ export function AdminPortal({ activeTab }) {
                                     <tr key={group.orderNumber}>
                                       <td><b>{group.orderNumber}</b></td>
                                       <td>
-                                        <span className={`badge ${
-                                          isPending ? 'badge-pending' :
-                                          group.status === 'ORDERED' ? 'badge-ordered' : 'badge-completed'
-                                        }`}>
+                                        <span className={`badge ${isPending ? 'badge-pending' :
+                                            group.status === 'ORDERED' ? 'badge-ordered' : 'badge-completed'
+                                          }`}>
                                           {translateStatus(group.status || 'PENDING')}
                                         </span>
                                       </td>
@@ -1477,10 +1495,19 @@ export function AdminPortal({ activeTab }) {
                                           <button
                                             type="button"
                                             className="secondary small"
+                                            onClick={() => handleDirectPrint(group)}
+                                            title={`Direct Print for ${group.orderNumber}`}
+                                            style={{ background: '#F0FDF4', color: 'var(--primary-dark-green)', borderColor: 'var(--primary-dark-green)' }}
+                                          >
+                                            🖨️ {t('Direct Print', 'நேரடி அச்சு')}
+                                          </button>
+                                          <button
+                                            type="button"
+                                            className="secondary small"
                                             onClick={() => handleDownloadPdf(group)}
                                             title={`Download PDF for ${group.orderNumber}`}
                                           >
-                                            {t('Download PDF')}
+                                            📄 {t('Download PDF')}
                                           </button>
                                         </div>
                                       </td>
@@ -1511,10 +1538,9 @@ export function AdminPortal({ activeTab }) {
                               <tr key={group.orderNumber}>
                                 <td><b>{group.orderNumber}</b></td>
                                 <td>
-                                  <span className={`badge ${
-                                    isPending ? 'badge-pending' :
-                                    group.status === 'ORDERED' ? 'badge-ordered' : 'badge-completed'
-                                  }`}>
+                                  <span className={`badge ${isPending ? 'badge-pending' :
+                                      group.status === 'ORDERED' ? 'badge-ordered' : 'badge-completed'
+                                    }`}>
                                     {translateStatus(group.status || 'PENDING')}
                                   </span>
                                 </td>
@@ -1530,10 +1556,19 @@ export function AdminPortal({ activeTab }) {
                                     <button
                                       type="button"
                                       className="secondary small"
+                                      onClick={() => handleDirectPrint(group)}
+                                      title={`Direct Print for ${group.orderNumber}`}
+                                      style={{ background: '#F0FDF4', color: 'var(--primary-dark-green)', borderColor: 'var(--primary-dark-green)' }}
+                                    >
+                                      🖨️ {t('Direct Print', 'நேரடி அச்சு')}
+                                    </button>
+                                    <button
+                                      type="button"
+                                      className="secondary small"
                                       onClick={() => handleDownloadPdf(group)}
                                       title={`Download PDF for ${group.orderNumber}`}
                                     >
-                                      {t('Download PDF')}
+                                      📄 {t('Download PDF')}
                                     </button>
                                   </div>
                                 </td>
@@ -1608,9 +1643,17 @@ export function AdminPortal({ activeTab }) {
                             <button
                               type="button"
                               className="secondary"
+                              onClick={() => handleDirectPrint(selectedAdminOrder)}
+                              style={{ background: '#F0FDF4', color: 'var(--primary-dark-green)', borderColor: 'var(--primary-dark-green)' }}
+                            >
+                              🖨️ {t('Direct Print', 'நேரடி அச்சு')}
+                            </button>
+                            <button
+                              type="button"
+                              className="secondary"
                               onClick={() => handleDownloadPdf(selectedAdminOrder)}
                             >
-                              {t('Download PDF')}
+                              📄 {t('Download PDF')}
                             </button>
                             {(selectedAdminOrder.status || 'PENDING') === 'PENDING' ? (
                               <button
@@ -1768,11 +1811,10 @@ export function AdminPortal({ activeTab }) {
                               <td style={{ textAlign: 'right' }}><span style={{ fontWeight: 700, color: 'var(--green)' }}>{po.quantity} {translateUnit(po.unit)}</span></td>
                               <td style={{ textAlign: 'right' }}><span style={{ fontWeight: 600 }}>{po.receivedQty || 0} {translateUnit(po.unit)}</span></td>
                               <td>
-                                <span className={`badge ${
-                                  po.status === 'PENDING' ? 'badge-pending' :
-                                  po.status === 'ORDERED' ? 'badge-ordered' :
-                                  po.status === 'RECEIVED' ? 'badge-completed' : 'badge-partial'
-                                }`}>
+                                <span className={`badge ${po.status === 'PENDING' ? 'badge-pending' :
+                                    po.status === 'ORDERED' ? 'badge-ordered' :
+                                      po.status === 'RECEIVED' ? 'badge-completed' : 'badge-partial'
+                                  }`}>
                                   {translateStatus(po.status)}
                                 </span>
                               </td>
@@ -1809,11 +1851,10 @@ export function AdminPortal({ activeTab }) {
                         <td><span style={{ fontWeight: 700, color: 'var(--green)' }}>{po.quantity}</span></td>
                         <td><span style={{ fontWeight: 600 }}>{po.receivedQty || 0}</span></td>
                         <td>
-                          <span className={`badge ${
-                            po.status === 'PENDING' ? 'badge-pending' :
-                            po.status === 'ORDERED' ? 'badge-ordered' :
-                            po.status === 'RECEIVED' ? 'badge-completed' : 'badge-partial'
-                          }`}>
+                          <span className={`badge ${po.status === 'PENDING' ? 'badge-pending' :
+                              po.status === 'ORDERED' ? 'badge-ordered' :
+                                po.status === 'RECEIVED' ? 'badge-completed' : 'badge-partial'
+                            }`}>
                             {translateStatus(po.status)}
                           </span>
                         </td>

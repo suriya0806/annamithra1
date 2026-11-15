@@ -6,6 +6,7 @@ import com.annamithra.dto.PurchaseOrderReportDto;
 import com.annamithra.dto.InventoryEntryReportDto;
 import com.annamithra.dto.BranchRequestReportDto;
 import com.annamithra.dto.BranchDispatchReportDto;
+import com.annamithra.dto.BranchConsolidatedReportDto;
 import com.annamithra.dto.CategoryWiseReportResponse;
 import com.annamithra.model.UserSession;
 import com.annamithra.security.SecurityHelper;
@@ -51,6 +52,17 @@ public class ReportController {
         return reportService.getCentralInventoryReport(fromDate, toDate, search, orgId);
     }
 
+    @GetMapping("/central-inventory/consolidated")
+    public BranchConsolidatedReportDto getConsolidatedCentralInventoryReport(
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate fromDate,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate toDate,
+            @RequestParam(required = false) String search,
+            HttpServletRequest request) {
+        UserSession user = security.requireRole(request, "Store Manager", "Organisation Admin", "Master Admin");
+        Long orgId = security.requireOrganisationId(user);
+        return reportService.getConsolidatedCentralInventoryReport(fromDate, toDate, search, orgId);
+    }
+
     @GetMapping("/purchase-orders")
     public List<PurchaseOrderReportDto> getPurchaseOrderReport(
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date,
@@ -85,10 +97,27 @@ public class ReportController {
             @RequestParam(required = false) String status,
             @RequestParam(required = false) String category,
             @RequestParam(required = false) String department,
+            @RequestParam(required = false) String view,
+            @RequestParam(required = false) Boolean departmentBreakdown,
             HttpServletRequest request) {
         UserSession user = security.requireRole(request, "Store Manager", "Organisation Admin", "Master Admin");
         Long orgId = security.requireOrganisationId(user);
-        return reportService.getBranchRequestReport(fromDate, toDate, branch, search, status, category, department, orgId);
+        return reportService.getBranchRequestReport(fromDate, toDate, branch, search, status, category, department, view, departmentBreakdown, orgId);
+    }
+
+    @GetMapping("/branch-requests/consolidated")
+    public BranchConsolidatedReportDto getConsolidatedBranchRequestReport(
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate fromDate,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate toDate,
+            @RequestParam(required = false) String branch,
+            @RequestParam(required = false) String department,
+            @RequestParam(required = false) String search,
+            @RequestParam(required = false) String status,
+            @RequestParam(required = false) Boolean departmentBreakdown,
+            HttpServletRequest request) {
+        UserSession user = security.requireRole(request, "Store Manager", "Organisation Admin", "Master Admin");
+        Long orgId = security.requireOrganisationId(user);
+        return reportService.getConsolidatedBranchRequestReport(fromDate, toDate, branch, department, search, status, departmentBreakdown, orgId);
     }
 
     @GetMapping("/dispatches")
@@ -105,6 +134,20 @@ public class ReportController {
         UserSession user = security.requireRole(request, "Store Manager", "Organisation Admin", "Master Admin");
         Long orgId = security.requireOrganisationId(user);
         return reportService.getBranchDispatchReport(date, fromDate, toDate, branch, search, status, category, department, orgId);
+    }
+
+    @GetMapping("/dispatches/consolidated")
+    public BranchConsolidatedReportDto getConsolidatedDispatchReport(
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate fromDate,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate toDate,
+            @RequestParam(required = false) String branch,
+            @RequestParam(required = false) String department,
+            @RequestParam(required = false) String search,
+            @RequestParam(required = false) String status,
+            HttpServletRequest request) {
+        UserSession user = security.requireRole(request, "Store Manager", "Organisation Admin", "Master Admin");
+        Long orgId = security.requireOrganisationId(user);
+        return reportService.getConsolidatedDispatchReport(fromDate, toDate, branch, department, search, status, orgId);
     }
 
     @GetMapping("/category-wise")

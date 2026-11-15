@@ -46,7 +46,7 @@ export function TopNavbar({ user, activeTab, onSelectTab, onLogout }) {
         ];
       case 'Store Manager':
         return [
-          { id: 'branch-requests', label: t('Dispatch', 'Dispatch'), icon: '🚚' },
+          { id: 'branch-requests', label: t('Delivery', 'விநியோகம்'), icon: '🚚' },
           { id: 'central-inventory', label: t('Central Inventory'), icon: '📦' },
           { id: 'add-items', label: t('Add Items'), icon: '🏷️' },
           { id: 'entry-items', label: t('Entry Items'), icon: '📥' },

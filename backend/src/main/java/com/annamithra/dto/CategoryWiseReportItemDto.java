@@ -27,7 +27,7 @@ public class CategoryWiseReportItemDto {
         this.category = (category != null && !category.isBlank()) ? category.trim() : "Uncategorised";
         this.unit = (unit != null && !unit.isBlank()) ? unit.trim().toUpperCase() : "KG";
         this.branchName = branchName;
-        this.department = (department != null && !department.isBlank()) ? department.trim() : "Not specified";
+        this.department = (department != null && !department.isBlank()) ? department.trim() : "Unassigned";
         this.requestedQuantity = requestedQuantity;
         this.dispatchedQuantity = dispatchedQuantity;
         this.pendingQuantity = pendingQuantity;

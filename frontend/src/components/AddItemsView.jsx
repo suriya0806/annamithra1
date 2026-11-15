@@ -14,11 +14,11 @@ export const STANDARD_UNITS = [
   'BUNDLE'
 ];
 
-export function AddItemsView({ userRole }) {
+export function AddItemsView({ userRole, initialItemName = '', onItemCreated, onCancel }) {
   const { language, t, translateItem, translateUnit, translateCategory } = useLanguage();
 
   // Active view: 'items' (Item Master list & search) | 'add-item' | 'categories' (Category Management)
-  const [activeSubTab, setActiveSubTab] = useState('items');
+  const [activeSubTab, setActiveSubTab] = useState(() => (initialItemName && initialItemName.trim() ? 'add-item' : 'items'));
 
   // Alerts
   const [alert, setAlert] = useState(null);
@@ -38,11 +38,18 @@ export function AddItemsView({ userRole }) {
   const [selectedCategoryFilter, setSelectedCategoryFilter] = useState('ALL');
 
   // Form state: Add Item
-  const [itemName, setItemName] = useState('');
+  const [itemName, setItemName] = useState(() => (initialItemName && initialItemName.trim() ? initialItemName.trim() : ''));
   const [itemUnit, setItemUnit] = useState('KG');
   const [customUnit, setCustomUnit] = useState('');
   const [selectedCategoryId, setSelectedCategoryId] = useState('');
   const [savingItem, setSavingItem] = useState(false);
+
+  useEffect(() => {
+    if (initialItemName && initialItemName.trim()) {
+      setItemName(initialItemName.trim());
+      setActiveSubTab('add-item');
+    }
+  }, [initialItemName]);
 
   // Edit Item Modal state
   const [editingItem, setEditingItem] = useState(null);
@@ -196,6 +203,10 @@ export function AddItemsView({ userRole }) {
 
       await loadItems();
       setActiveSubTab('items');
+
+      if (onItemCreated) {
+        onItemCreated(created);
+      }
     } catch (err) {
       console.error('Failed to add item', err);
       showAlert('error', err.message || t('Failed to create item'));
@@ -568,6 +579,18 @@ export function AddItemsView({ userRole }) {
           ========================================================================= */}
       {activeSubTab === 'add-item' && (
         <div className="card narrow" style={{ maxWidth: 640, margin: '0 auto' }}>
+          {onCancel && (
+            <div style={{ marginBottom: 10, display: 'flex', justifyContent: 'flex-start' }}>
+              <button
+                type="button"
+                className="secondary small"
+                onClick={onCancel}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, padding: '5px 12px' }}
+              >
+                ← {language === 'ta' ? 'சரக்கு வரவு பக்கத்திற்குத் திரும்பு' : 'Return to Vendor Inventory Entry'}
+              </button>
+            </div>
+          )}
           <div className="card-header" style={{ marginBottom: 12 }}>
             <h3 className="card-title" style={{ fontSize: 17, margin: 0 }}>
               ➕ {t('Add Item', 'Add Item')}
@@ -823,7 +846,10 @@ export function AddItemsView({ userRole }) {
               <button
                 type="button"
                 className="secondary"
-                onClick={() => setActiveSubTab('items')}
+                onClick={() => {
+                  if (onCancel) onCancel();
+                  else setActiveSubTab('items');
+                }}
                 disabled={savingItem}
               >
                 {t('Cancel')}
