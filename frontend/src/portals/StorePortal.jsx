@@ -1584,13 +1584,8 @@ export function StorePortal({ activeTab, onSelectTab }) {
       }
       if (qVal === 0) continue;
 
-      // Validate: Delivery quantity must not exceed available stock
+      // Validate: Delivery quantity is allowed to exceed available central stock (deficit/negative stock supported)
       const centralStock = getCentralStock(group.itemName, group.unit);
-      if (qVal > centralStock) {
-        return showAlert('error', language === 'ta'
-          ? `${group.itemName} விநியோக அளவு (${qVal} ${translateUnit(group.unit)}) மைய இருப்பை (${centralStock} ${translateUnit(group.unit)}) விட அதிகமாக இருக்கக்கூடாது`
-          : `Delivery quantity for ${group.itemName} (${qVal} ${group.unit}) cannot exceed available stock (${centralStock} ${group.unit})`);
-      }
 
       // Validate: Delivery quantity must not exceed remaining requested quantity
       if (qVal > unfulfilled) {
@@ -1646,13 +1641,8 @@ export function StorePortal({ activeTab, onSelectTab }) {
         return showAlert('error', language === 'ta' ? `கூடுதல் பொருள் ${add.itemName}க்கு சரியான விநியோக அளவை உள்ளிடவும்` : `Please enter a positive delivery quantity for additional item ${add.itemName}`);
       }
 
-      // Validate additional item against available stock
+      // Additional item delivery quantity is allowed to exceed available central stock (deficit/negative stock supported)
       const addStock = getCentralStock(add.itemName, add.unit);
-      if (qVal > addStock) {
-        return showAlert('error', language === 'ta'
-          ? `கூடுதல் பொருள் ${add.itemName} விநியோக அளவு (${qVal} ${translateUnit(add.unit)}) மைய இருப்பை (${addStock} ${translateUnit(add.unit)}) விட அதிகமாக இருக்கக்கூடாது`
-          : `Delivery quantity for additional item ${add.itemName} (${qVal} ${add.unit}) cannot exceed available stock (${addStock} ${add.unit})`);
-      }
 
       itemsToDispatch.push({
         requestId: null,
@@ -2784,7 +2774,7 @@ export function StorePortal({ activeTab, onSelectTab }) {
                                           <input
                                             type="number"
                                             min="0"
-                                            max={centralStock > 0 ? Math.min(centralStock, pendingQty) : pendingQty}
+                                            max={pendingQty}
                                             step="any"
                                             style={{
                                               width: 80,
@@ -2803,8 +2793,7 @@ export function StorePortal({ activeTab, onSelectTab }) {
                                             type="button"
                                             className="secondary small"
                                             onClick={() => {
-                                              const maxFill = centralStock > 0 ? Math.min(centralStock, pendingQty) : pendingQty;
-                                              setDispatchQtys(prev => ({ ...prev, [item.key]: String(maxFill) }));
+                                              setDispatchQtys(prev => ({ ...prev, [item.key]: String(pendingQty) }));
                                             }}
                                             style={{ height: 32, padding: '0 6px', fontSize: 11 }}
                                             title={`Fill requested amount (${pendingQty})`}
@@ -2813,8 +2802,8 @@ export function StorePortal({ activeTab, onSelectTab }) {
                                           </button>
                                         </div>
                                         {exceedsStock && (
-                                          <div style={{ color: '#b45309', fontSize: 10, marginTop: 2, fontWeight: 600 }}>
-                                            ⚠️ {t('Exceeds stock', 'இருப்பை விட அதிகம்')} ({centralStock} {translateUnit(item.unit)})
+                                          <div style={{ color: '#b45309', fontSize: 10.5, marginTop: 3, fontWeight: 600, lineHeight: 1.25 }}>
+                                            ⚠️ {t('Warning: Delivery quantity exceeds available stock. Delivery can still proceed.', 'எச்சரிக்கை: விநியோக அளவு கையிருப்பில் உள்ள இருப்பை விட அதிகம். விநியோகத்தைத் தொடரலாம்.')} ({language === 'ta' ? 'கையிருப்பு:' : 'Stock:'} {centralStock} {translateUnit(item.unit)})
                                           </div>
                                         )}
                                         {!exceedsStock && exceedsRequested && (
@@ -2982,8 +2971,8 @@ export function StorePortal({ activeTab, onSelectTab }) {
                                           onChange={e => handleUpdateAdditionalItem(bName, item.id, 'dispatchQty', e.target.value)}
                                         />
                                         {exceedsAddStock && (
-                                          <div style={{ color: '#b45309', fontSize: 10, marginTop: 2, fontWeight: 600 }}>
-                                            ⚠️ {t('Exceeds stock', 'இருப்பை விட அதிகம்')} ({addStock})
+                                          <div style={{ color: '#b45309', fontSize: 10.5, marginTop: 3, fontWeight: 600, lineHeight: 1.25 }}>
+                                            ⚠️ {t('Warning: Delivery quantity exceeds available stock. Delivery can still proceed.', 'எச்சரிக்கை: விநியோக அளவு கையிருப்பில் உள்ள இருப்பை விட அதிகம். விநியோகத்தைத் தொடரலாம்.')} ({language === 'ta' ? 'கையிருப்பு:' : 'Stock:'} {addStock} {translateUnit(item.unit)})
                                           </div>
                                         )}
                                       </td>

@@ -771,6 +771,8 @@ export const dictionary = {
   'Dispatch Qty': 'அனுப்பும் அளவு',
   'Max': 'அதிகபட்சம்',
   'Exceeds stock': 'இருப்பை விட அதிகம்',
+  'Warning: Delivery quantity exceeds available stock. Delivery can still proceed.': 'எச்சரிக்கை: விநியோக அளவு கையிருப்பில் உள்ள இருப்பை விட அதிகம். விநியோகத்தைத் தொடரலாம்.',
+  'Available Stock:': 'கையிருப்பு:',
   'Exceeds req': 'தேவையை விட அதிகம்',
   'Additional Non-Requested Items': 'கூடுதல் கோரப்படாத பொருட்கள்',
   'Added': 'சேர்க்கப்பட்டது',
