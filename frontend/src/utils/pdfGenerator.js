@@ -2,10 +2,10 @@ import { formatQuantityWithUnit, formatUnitSummary, cleanUnitName } from './quan
 import { jsPDF } from 'jspdf';
 import html2canvas from 'html2canvas';
 import { itemTranslations, unitTranslations, statusTranslations, categoryTranslations } from '../i18n/translations.js';
-import { printThermalReceipt, generateThermalReceiptHtml } from '../components/ThermalPrintLayout.jsx';
+import { printThermalReceipt, generateThermalReceiptHtml, getAuthenticatedOrganisationName } from '../components/ThermalPrintLayout.jsx';
 import { getTodayDateString } from './dateGrouping.js';
 
-export { printThermalReceipt, generateThermalReceiptHtml };
+export { printThermalReceipt, generateThermalReceiptHtml, getAuthenticatedOrganisationName };
 
 /**
  * Extracts and formats the saved order date and creation time without shifting timezones
@@ -511,7 +511,7 @@ export async function printOrderDirect(orderOrNumber, itemsOrOptions = [], optio
   const safeItems = Array.isArray(items) ? items : [];
 
   return printThermalReceipt({
-    organisationName: isTa ? 'சரவண பவன் குழுமம்' : 'Saravana Bhavan Group',
+    organisationName: getAuthenticatedOrganisationName(isTa ? 'சரவண பவன் குழுமம்' : 'Saravana Bhavan Group'),
     branchName: formatType === 'ORG_ADMIN'
       ? (isTa ? 'நிர்வாகக் கொள்முதல்' : 'Organisation Admin Purchase')
       : (isTa ? 'சேமிப்பக மேலாளர்' : 'Store Central Inventory'),
@@ -744,8 +744,8 @@ export function buildBranchRequestsPages({
               <span style="font-size: 20px;">🍲</span>
               <h1 style="margin: 0; font-size: 25px; font-weight: 800; letter-spacing: 0.3px; color: #ffffff;">
                 ${singleBranch
-                  ? (isTa ? `அன்னமித்ரா — ${singleBranch.name || 'கிளை'} விநியோக அறிக்கை` : `Annamithra — ${singleBranch.name || 'Branch'} Delivery Report`)
-                  : (isTa ? 'அன்னமித்ரா — ஸ்டோர் மேலாளர் விநியோக அறிக்கை' : 'Annamithra — Store Manager Delivery Report')}
+          ? (isTa ? `அன்னமித்ரா — ${singleBranch.name || 'கிளை'} விநியோக அறிக்கை` : `Annamithra — ${singleBranch.name || 'Branch'} Delivery Report`)
+          : (isTa ? 'அன்னமித்ரா — ஸ்டோர் மேலாளர் விநியோக அறிக்கை' : 'Annamithra — Store Manager Delivery Report')}
               </h1>
             </div>
             <div style="font-size: 11px; color: #D4A63B; margin-top: 3px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.8px;">
@@ -791,9 +791,9 @@ export function buildBranchRequestsPages({
 
           <div style="font-size: 14.5px; color: #17352B; font-weight: 700;">
             ${singleBranch
-              ? `📋 ${grandTotalRequests} ${isTa ? 'கோரிக்கைகள்' : 'Items'} (${grandTotalRequestedQty} ${isTa ? 'மொத்த அளவு' : 'Total Qty'})`
-              : `🏢 ${grandTotalBranches} ${isTa ? 'கிளைகள்' : 'Branches'} &nbsp;|&nbsp; 📋 ${grandTotalRequests} ${isTa ? 'கோரிக்கைகள்' : 'Items'}`
-            }
+          ? `📋 ${grandTotalRequests} ${isTa ? 'கோரிக்கைகள்' : 'Items'} (${grandTotalRequestedQty} ${isTa ? 'மொத்த அளவு' : 'Total Qty'})`
+          : `🏢 ${grandTotalBranches} ${isTa ? 'கிளைகள்' : 'Branches'} &nbsp;|&nbsp; 📋 ${grandTotalRequests} ${isTa ? 'கோரிக்கைகள்' : 'Items'}`
+        }
           </div>
         </div>
       `;
@@ -803,8 +803,8 @@ export function buildBranchRequestsPages({
         <div style="background: #003B2B; border-radius: 6px; padding: 8px 16px; color: #ffffff; display: flex; justify-content: space-between; align-items: center; border-bottom: 3px solid #D4A63B; margin-bottom: 14px;">
           <div style="font-size: 14px; font-weight: 700; color: #ffffff;">
             🍲 ${singleBranch
-            ? (isTa ? `அன்னமித்ரா — ${singleBranch.name || 'கிளை'} விநியோக அறிக்கை (தொடர்ச்சி)` : `Annamithra — ${singleBranch.name || 'Branch'} Delivery Report (Continued)`)
-            : (isTa ? 'அன்னமித்ரா — ஸ்டோர் மேலாளர் விநியோக அறிக்கை (தொடர்ச்சி)' : 'Annamithra — Store Manager Delivery Report (Continued)')}
+          ? (isTa ? `அன்னமித்ரா — ${singleBranch.name || 'கிளை'} விநியோக அறிக்கை (தொடர்ச்சி)` : `Annamithra — ${singleBranch.name || 'Branch'} Delivery Report (Continued)`)
+          : (isTa ? 'அன்னமித்ரா — ஸ்டோர் மேலாளர் விநியோக அறிக்கை (தொடர்ச்சி)' : 'Annamithra — Store Manager Delivery Report (Continued)')}
           </div>
           <div style="font-size: 11px; color: #D4A63B; font-weight: 600;">
             📅 ${filterScopeLabel} &nbsp;|&nbsp; 🕒 ${generationTimestamp}
@@ -1082,13 +1082,13 @@ export function buildBranchRequestsPages({
       <div>
         <div style="font-size: 16.5px; font-weight: 800; color: #ffffff;">
           🏆 ${singleBranch
-            ? (isTa ? `${singleBranch.name || 'கிளை'} ஒட்டுமொத்த சுருக்கம்` : `${singleBranch.name || 'Branch'} — Summary Totals`)
-            : (isTa ? 'அறிக்கை ஒட்டுமொத்த சுருக்கம் (Grand Report Totals)' : 'Grand Report Summary')}
+      ? (isTa ? `${singleBranch.name || 'கிளை'} ஒட்டுமொத்த சுருக்கம்` : `${singleBranch.name || 'Branch'} — Summary Totals`)
+      : (isTa ? 'அறிக்கை ஒட்டுமொத்த சுருக்கம் (Grand Report Totals)' : 'Grand Report Summary')}
         </div>
         <div style="font-size: 13.5px; color: #D4A63B; margin-top: 3px; font-weight: 600;">
           ${singleBranch
-            ? (isTa ? `கிளை: ${singleBranch.name}  |  மொத்த கோரிக்கைப் பதிவுகள்: ${grandTotalRequests}` : `Branch: ${singleBranch.name}  |  Total Request Records: ${grandTotalRequests}`)
-            : (isTa ? `மொத்த அங்கீகரிக்கப்பட்ட கிளைகள்: ${grandTotalBranches}  |  மொத்த கோரிக்கைப் பதிவுகள்: ${grandTotalRequests}` : `Total Authorized Branches: ${grandTotalBranches}  |  Total Request Records: ${grandTotalRequests}`)}
+      ? (isTa ? `கிளை: ${singleBranch.name}  |  மொத்த கோரிக்கைப் பதிவுகள்: ${grandTotalRequests}` : `Branch: ${singleBranch.name}  |  Total Request Records: ${grandTotalRequests}`)
+      : (isTa ? `மொத்த அங்கீகரிக்கப்பட்ட கிளைகள்: ${grandTotalBranches}  |  மொத்த கோரிக்கைப் பதிவுகள்: ${grandTotalRequests}` : `Total Authorized Branches: ${grandTotalBranches}  |  Total Request Records: ${grandTotalRequests}`)}
         </div>
       </div>
       <div style="display: flex; gap: 24px; font-size: 14.5px; font-weight: 700;">
@@ -1230,7 +1230,7 @@ export async function printBranchRequestsDirect(options = {}) {
   ];
 
   return printThermalReceipt({
-    organisationName: isTa ? 'சரவண பவன் குழுமம்' : 'Saravana Bhavan Group',
+    organisationName: getAuthenticatedOrganisationName(isTa ? 'சரவண பவன் குழுமம்' : 'Saravana Bhavan Group'),
     branchName: isSingle ? `${isTa ? 'கிளை:' : 'Branch:'} ${branchName}` : (isTa ? 'சேமிப்பகம் - அனைத்து கிளைகள்' : 'Store - All Branches'),
     title: isTa ? '*** கிளை கோரிக்கைகள் பட்டியல் ***' : '*** BRANCH REQUESTS LIST ***',
     dateLabel: isAllDates ? (isTa ? 'அனைத்து தேதிகள்' : 'All Dates') : (dateFilter || (isTa ? 'இன்று' : 'Today')),
@@ -1331,22 +1331,22 @@ export function buildBranchOrderListPages({
     pageEl.style.width = `${PAGE_WIDTH_PX}px`;
     pageEl.style.minHeight = `${PAGE_MIN_HEIGHT_PX}px`;
     pageEl.style.padding = '36px 42px';
-      pageEl.style.boxSizing = 'border-box';
-      pageEl.style.background = '#FDFBF7';
-      pageEl.style.fontFamily = "'Noto Sans Tamil', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
-      pageEl.style.color = '#17352B';
-      pageEl.style.display = 'flex';
-      pageEl.style.flexDirection = 'column';
-      pageEl.style.justifyContent = 'space-between';
+    pageEl.style.boxSizing = 'border-box';
+    pageEl.style.background = '#FDFBF7';
+    pageEl.style.fontFamily = "'Noto Sans Tamil', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
+    pageEl.style.color = '#17352B';
+    pageEl.style.display = 'flex';
+    pageEl.style.flexDirection = 'column';
+    pageEl.style.justifyContent = 'space-between';
 
-      // Header
-      let headerHtml = '';
-      if (pageInfo.isFirstPage) {
-        const reportTitle = isDraft
-          ? (isTa ? 'கிளை வரைவு ஆர்டர்' : 'Branch Order Draft')
-          : (isTa ? 'கிளை ஆர்டர் பட்டியல்' : 'Branch Order Report');
+    // Header
+    let headerHtml = '';
+    if (pageInfo.isFirstPage) {
+      const reportTitle = isDraft
+        ? (isTa ? 'கிளை வரைவு ஆர்டர்' : 'Branch Order Draft')
+        : (isTa ? 'கிளை ஆர்டர் பட்டியல்' : 'Branch Order Report');
 
-        headerHtml = `
+      headerHtml = `
           <div style="margin-bottom: 12px;">
             <div style="display: flex; justify-content: space-between; align-items: flex-start;">
               <div>
@@ -1429,9 +1429,9 @@ export function buildBranchOrderListPages({
             </div>
           </div>
         `;
-      } else {
-        // Compact Running Header for Pages 2+
-        headerHtml = `
+    } else {
+      // Compact Running Header for Pages 2+
+      headerHtml = `
           <div style="margin-bottom: 12px;">
             <div style="display: flex; justify-content: space-between; align-items: center;">
               <div>
@@ -1449,30 +1449,30 @@ export function buildBranchOrderListPages({
             <div style="height: 2px; background: linear-gradient(90deg, #D4A63B, #F3D98B, #D4A63B); margin-top: 6px; border-radius: 1px;"></div>
           </div>
         `;
-      }
+    }
 
-      // Rows for Section A
-      let rowsHtml = '';
-      if (pageInfo.items.length === 0) {
-        rowsHtml = `
+    // Rows for Section A
+    let rowsHtml = '';
+    if (pageInfo.items.length === 0) {
+      rowsHtml = `
           <tr>
             <td colspan="4" style="padding: 24px 14px; text-align: center; color: #5A6962; font-style: italic; border: 1px solid #E5DDC9; background: #ffffff;">
               ${isTa ? 'கோரிக்கை பட்டியலில் பொருட்கள் எதுவும் இல்லை.' : 'No items in the order list.'}
             </td>
           </tr>
         `;
-      } else {
-        pageInfo.items.forEach((it, idx) => {
-          const rowNum = pageInfo.startIndex + idx + 1;
-          const rawName = String(it.itemName || it.item || '').trim();
-          const translatedName = isTa ? translateItemName(rawName) : rawName;
-          const rawDepartment = String(it.department || it.departmentName || it.category || department || 'General').trim();
-          const rawUnit = String(it.unit || 'KG').trim();
-          const translatedUnit = isTa ? translateUnitName(rawUnit) : rawUnit;
-          const qty = Number(it.requestedQuantity ?? it.quantity) || 0;
-          const bg = idx % 2 === 0 ? '#ffffff' : '#FAF6EC';
+    } else {
+      pageInfo.items.forEach((it, idx) => {
+        const rowNum = pageInfo.startIndex + idx + 1;
+        const rawName = String(it.itemName || it.item || '').trim();
+        const translatedName = isTa ? translateItemName(rawName) : rawName;
+        const rawDepartment = String(it.department || it.departmentName || it.category || department || 'General').trim();
+        const rawUnit = String(it.unit || 'KG').trim();
+        const translatedUnit = isTa ? translateUnitName(rawUnit) : rawUnit;
+        const qty = Number(it.requestedQuantity ?? it.quantity) || 0;
+        const bg = idx % 2 === 0 ? '#ffffff' : '#FAF6EC';
 
-          rowsHtml += `
+        rowsHtml += `
             <tr style="background: ${bg}; border-bottom: 1px solid #E5DDC9;">
               <td style="padding: 8px 10px; text-align: center; color: #5A6962; font-size: 13.5px; font-weight: 600; border: 1px solid #E5DDC9; width: 45px;">
                 ${rowNum}
@@ -1491,10 +1491,10 @@ export function buildBranchOrderListPages({
               </td>
             </tr>
           `;
-        });
-      }
+      });
+    }
 
-      pageEl.innerHTML = `
+    pageEl.innerHTML = `
         <div>
           ${headerHtml}
 
@@ -1543,10 +1543,10 @@ export function buildBranchOrderListPages({
         </div>
       `;
 
-      pageEls.push(pageEl);
-    }
+    pageEls.push(pageEl);
+  }
 
-    return pageEls;
+  return pageEls;
 }
 
 /**
@@ -1612,7 +1612,7 @@ export async function downloadBranchOrderListPdf(options = {}) {
  */
 export async function printBranchOrderListDirect(options = {}) {
   const {
-    organisationName = 'Saravana Bhavan',
+    organisationName = getAuthenticatedOrganisationName('Saravana Bhavan'),
     branchName = 'Branch 1',
     branchManager = '',
     date = '',
@@ -1797,10 +1797,10 @@ export function buildBranchRecentRequestsPages({
     pageEl.style.flexDirection = 'column';
     pageEl.style.justifyContent = 'space-between';
 
-      // Header
-      let headerHtml = '';
-      if (pageInfo.isFirstPage) {
-        headerHtml = `
+    // Header
+    let headerHtml = '';
+    if (pageInfo.isFirstPage) {
+      headerHtml = `
           <div style="margin-bottom: 12px;">
             <div style="display: flex; justify-content: space-between; align-items: flex-start;">
               <div>
@@ -1867,9 +1867,9 @@ export function buildBranchRecentRequestsPages({
             </div>
           </div>
         `;
-      } else {
-        // Compact Running Header for Pages 2+
-        headerHtml = `
+    } else {
+      // Compact Running Header for Pages 2+
+      headerHtml = `
           <div style="margin-bottom: 12px;">
             <div style="display: flex; justify-content: space-between; align-items: center;">
               <div>
@@ -1887,35 +1887,35 @@ export function buildBranchRecentRequestsPages({
             <div style="height: 2px; background: linear-gradient(90deg, #D4A63B, #F3D98B, #D4A63B); margin-top: 6px; border-radius: 1px;"></div>
           </div>
         `;
-      }
+    }
 
-      // Rows for Section B
-      let rowsHtml = '';
-      if (pageInfo.items.length === 0) {
-        rowsHtml = `
+    // Rows for Section B
+    let rowsHtml = '';
+    if (pageInfo.items.length === 0) {
+      rowsHtml = `
           <tr>
             <td colspan="8" style="padding: 24px 14px; text-align: center; color: #5A6962; font-style: italic; border: 1px solid #E5DDC9; background: #ffffff;">
               ${isTa ? 'தேர்ந்தெடுக்கப்பட்ட வடிகட்டிக்கு சமீபத்திய கோரிக்கைகள் எதுவும் இல்லை.' : 'No recent requests found for the selected filter.'}
             </td>
           </tr>
         `;
-      } else {
-        pageInfo.items.forEach((r, idx) => {
-          const rowNum = pageInfo.startIndex + idx + 1;
-          const rawName = String(r.item || r.itemName || '').trim();
-          const translatedName = isTa ? translateItemName(rawName) : rawName;
-          const rawDept = String(r.department || r.departmentName || r.category || 'General').trim();
-          const rawUnit = String(r.unit || 'KG').trim();
-          const translatedUnit = isTa ? translateUnitName(rawUnit) : rawUnit;
-          const dtStr = formatDateTimeStr(r.createdAt || r.requestDate);
-          const reqQty = Number(r.requested) || 0;
-          const dispQty = Number(r.dispatched) || 0;
-          const recQty = Number(r.received) || 0;
-          const statusText = getStatusDisplay(r.status);
-          const badgeStyle = getStatusBadgeStyle(r.status);
-          const bg = idx % 2 === 0 ? '#ffffff' : '#FAF6EC';
+    } else {
+      pageInfo.items.forEach((r, idx) => {
+        const rowNum = pageInfo.startIndex + idx + 1;
+        const rawName = String(r.item || r.itemName || '').trim();
+        const translatedName = isTa ? translateItemName(rawName) : rawName;
+        const rawDept = String(r.department || r.departmentName || r.category || 'General').trim();
+        const rawUnit = String(r.unit || 'KG').trim();
+        const translatedUnit = isTa ? translateUnitName(rawUnit) : rawUnit;
+        const dtStr = formatDateTimeStr(r.createdAt || r.requestDate);
+        const reqQty = Number(r.requested) || 0;
+        const dispQty = Number(r.dispatched) || 0;
+        const recQty = Number(r.received) || 0;
+        const statusText = getStatusDisplay(r.status);
+        const badgeStyle = getStatusBadgeStyle(r.status);
+        const bg = idx % 2 === 0 ? '#ffffff' : '#FAF6EC';
 
-          rowsHtml += `
+        rowsHtml += `
             <tr style="background: ${bg}; border-bottom: 1px solid #E5DDC9;">
               <td style="padding: 7px 6px; text-align: center; color: #5A6962; font-size: 12px; font-weight: 600; border: 1px solid #E5DDC9; width: 32px;">
                 ${rowNum}
@@ -1947,10 +1947,10 @@ export function buildBranchRecentRequestsPages({
               </td>
             </tr>
           `;
-        });
-      }
+      });
+    }
 
-      pageEl.innerHTML = `
+    pageEl.innerHTML = `
         <div>
           ${headerHtml}
 
@@ -2018,10 +2018,10 @@ export function buildBranchRecentRequestsPages({
         </div>
       `;
 
-      pageEls.push(pageEl);
-    }
+    pageEls.push(pageEl);
+  }
 
-    return pageEls;
+  return pageEls;
 }
 
 /**
@@ -2086,7 +2086,7 @@ export async function downloadBranchRecentRequestsPdf(options = {}) {
  */
 export async function printBranchRecentRequestsDirect(options = {}) {
   const {
-    organisationName = 'Saravana Bhavan',
+    organisationName = getAuthenticatedOrganisationName('Saravana Bhavan'),
     branchName = 'Branch 1',
     branchManager = '',
     recentRequests = [],
@@ -2377,7 +2377,8 @@ export async function renderThermalReceiptToPdf(thermalOptions = {}, filename = 
   rootEl.style.margin = '0';
   rootEl.style.background = '#ffffff';
   rootEl.style.color = '#000000';
-  rootEl.style.fontFamily = "'Noto Sans Tamil', 'Outfit', 'Inter', 'Courier New', monospace, sans-serif";
+  rootEl.style.fontWeight = '700';
+  rootEl.style.fontFamily = "'Consolas', 'Menlo', 'Monaco', 'Courier New', 'Noto Sans Tamil', 'Inter', sans-serif, monospace";
   rootEl.style.webkitFontSmoothing = 'antialiased';
 
   container.appendChild(rootEl);
@@ -2580,10 +2581,12 @@ export async function printSimpleInventoryReport({ items = [], dateLabel = 'Toda
 
   const columns = [
     { header: '#', key: '#', align: 'center', width: '22px' },
-    { header: isTa ? 'பொருள்' : 'Item Name', key: 'name', align: 'left', render: r => {
-      const raw = String(r.itemName || r.name || '—').trim();
-      return isTa ? translateItemName(raw) : raw;
-    }},
+    {
+      header: isTa ? 'பொருள்' : 'Item Name', key: 'name', align: 'left', render: r => {
+        const raw = String(r.itemName || r.name || '—').trim();
+        return isTa ? translateItemName(raw) : raw;
+      }
+    },
     { header: isTa ? 'பிரிவு' : 'Category', key: 'category', align: 'left', render: r => isTa ? translateCategoryGlobal(r.category || '') : (r.category || 'General') },
     { header: isTa ? 'இருப்பு' : 'Stock', key: 'stock', align: 'right', render: r => `${r.stock || r.currentStock || 0} ${cleanUnitName(r.unit || '')}` }
   ];
@@ -2594,7 +2597,7 @@ export async function printSimpleInventoryReport({ items = [], dateLabel = 'Toda
   ];
 
   return printThermalReceipt({
-    organisationName: isTa ? 'அன்னமித்ரா உணவு மேலாண்மை' : 'Annamithra Food Management',
+    organisationName: getAuthenticatedOrganisationName(isTa ? 'அன்னமித்ரா உணவு மேலாண்மை' : 'Annamithra Food Management'),
     branchName: isTa ? 'மத்திய சேமிப்பக இருப்பு' : 'Central Store Inventory',
     title: isTa ? '*** நடப்பு இருப்பு அறிக்கை ***' : '*** CURRENT INVENTORY REPORT ***',
     dateLabel,
@@ -2760,17 +2763,21 @@ export function buildSimpleBranchRequestThermalOptions({
   const columns = departmentBreakdown ? [
     { header: '#', key: '#', align: 'center', width: '20px' },
     { header: isTa ? 'துறை' : 'Dept', key: 'department', align: 'left', render: r => r.department || r.category || 'General' },
-    { header: isTa ? 'பொருள்' : 'Item Name', key: 'itemName', align: 'left', render: r => {
-      const raw = String(r.itemName || r.name || '—').trim();
-      return isTa ? translateItemName(raw) : raw;
-    }},
+    {
+      header: isTa ? 'பொருள்' : 'Item Name', key: 'itemName', align: 'left', render: r => {
+        const raw = String(r.itemName || r.name || '—').trim();
+        return isTa ? translateItemName(raw) : raw;
+      }
+    },
     { header: isTa ? 'அளவு' : 'Qty', key: 'quantity', align: 'right', render: r => `${r.totalQuantity ?? r.requestedQuantity ?? r.quantity ?? 0} ${cleanUnitName(r.unit || '')}` }
   ] : [
     { header: '#', key: '#', align: 'center', width: '22px' },
-    { header: isTa ? 'பொருள் பெயர்' : 'Item Name', key: 'itemName', align: 'left', render: r => {
-      const raw = String(r.itemName || r.name || '—').trim();
-      return isTa ? translateItemName(raw) : raw;
-    }},
+    {
+      header: isTa ? 'பொருள் பெயர்' : 'Item Name', key: 'itemName', align: 'left', render: r => {
+        const raw = String(r.itemName || r.name || '—').trim();
+        return isTa ? translateItemName(raw) : raw;
+      }
+    },
     { header: isTa ? 'மொத்த அளவு' : 'Total Qty', key: 'quantity', align: 'right', render: r => `${r.totalQuantity ?? r.requestedQuantity ?? r.quantity ?? 0} ${cleanUnitName(r.unit || '')}` }
   ];
 
@@ -2780,7 +2787,7 @@ export function buildSimpleBranchRequestThermalOptions({
   ];
 
   return {
-    organisationName: isTa ? 'அன்னமித்ரா உணவு மேலாண்மை' : 'Annamithra Food Management',
+    organisationName: getAuthenticatedOrganisationName(isTa ? 'அன்னமித்ரா உணவு மேலாண்மை' : 'Annamithra Food Management'),
     branchName: branch || (isTa ? 'அனைத்து கிளைகள்' : 'All Branches'),
     title: isTa ? '*** கிளை கோரிக்கை அறிக்கை ***' : '*** BRANCH REQUEST REPORT ***',
     subtitle: viewTitle,
@@ -2962,10 +2969,12 @@ export async function printSimpleDispatchReport({
 
   const columns = [
     { header: '#', key: '#', align: 'center', width: '20px' },
-    { header: isTa ? 'பொருள்' : 'Item', key: 'itemName', align: 'left', render: r => {
-      const raw = String(r.itemName || r.name || '—').trim();
-      return isTa ? translateItemName(raw) : raw;
-    }},
+    {
+      header: isTa ? 'பொருள்' : 'Item', key: 'itemName', align: 'left', render: r => {
+        const raw = String(r.itemName || r.name || '—').trim();
+        return isTa ? translateItemName(raw) : raw;
+      }
+    },
     { header: isTa ? 'கிளை' : 'Branch', key: 'branchName', align: 'left', render: r => r.branchName || r.branch || '—' },
     { header: isTa ? 'துறை' : 'Dept', key: 'department', align: 'left', render: r => r.department || r.departmentName || '—' },
     { header: isTa ? 'அளவு' : 'Qty', key: 'dispatchedQuantity', align: 'right', render: r => `${r.dispatchedQuantity ?? r.quantity ?? 0} ${cleanUnitName(r.unit || '')}` }
@@ -2977,7 +2986,7 @@ export async function printSimpleDispatchReport({
   ];
 
   return printThermalReceipt({
-    organisationName: isTa ? 'அன்னமித்ரா உணவு மேலாண்மை' : 'Annamithra Food Management',
+    organisationName: getAuthenticatedOrganisationName(isTa ? 'அன்னமித்ரா உணவு மேலாண்மை' : 'Annamithra Food Management'),
     branchName: isTa ? 'மத்திய கிடங்கு விநியோகம்' : 'Central Store Delivery',
     title: isTa ? '*** விநியோக அறிக்கை ***' : '*** DELIVERY REPORT ***',
     dateLabel,
@@ -3152,7 +3161,7 @@ export async function printCategorySummaryReport(options = {}) {
   ];
 
   return printThermalReceipt({
-    organisationName: isTa ? 'அன்னமித்ரா உணவு மேலாண்மை' : 'Annamithra Food Management',
+    organisationName: getAuthenticatedOrganisationName(isTa ? 'அன்னமித்ரா உணவு மேலாண்மை' : 'Annamithra Food Management'),
     branchName: branch || (isTa ? 'அனைத்து கிளைகள்' : 'All Branches'),
     title: isTa ? '*** வகை வாரியான சுருக்கம் ***' : '*** CATEGORY SUMMARY REPORT ***',
     dateLabel,
@@ -3347,10 +3356,12 @@ export async function printCategoryDetailReport(options = {}) {
 
   const columns = [
     { header: '#', key: '#', align: 'center', width: '20px' },
-    { header: isTa ? 'பொருள்' : 'Item', key: 'itemName', align: 'left', render: r => {
-      const raw = String(r.itemName || '—').trim();
-      return isTa ? translateItemName(raw) : raw;
-    }},
+    {
+      header: isTa ? 'பொருள்' : 'Item', key: 'itemName', align: 'left', render: r => {
+        const raw = String(r.itemName || '—').trim();
+        return isTa ? translateItemName(raw) : raw;
+      }
+    },
     { header: isTa ? 'கிளை' : 'Branch', key: 'branchName', align: 'left' },
     { header: isTa ? 'கோரியவை' : 'Req', key: 'requestedQuantity', align: 'right', render: r => `${r.requestedQuantity || 0} ${cleanUnitName(r.unit || '')}` },
     { header: isTa ? 'விநியோகம்' : 'Delivered', key: 'dispatchedQuantity', align: 'right', render: r => `${r.dispatchedQuantity || 0} ${cleanUnitName(r.unit || '')}` }
@@ -3361,7 +3372,7 @@ export async function printCategoryDetailReport(options = {}) {
   ];
 
   return printThermalReceipt({
-    organisationName: isTa ? 'அன்னமித்ரா உணவு மேலாண்மை' : 'Annamithra Food Management',
+    organisationName: getAuthenticatedOrganisationName(isTa ? 'அன்னமித்ரா உணவு மேலாண்மை' : 'Annamithra Food Management'),
     branchName: branch || (isTa ? 'அனைத்து கிளைகள்' : 'All Branches'),
     title: isTa ? `*** பிரிவு: ${categoryName} ***` : `*** CATEGORY: ${categoryName.toUpperCase()} ***`,
     dateLabel,
@@ -3642,26 +3653,30 @@ export async function printVendorInventoryEntryDirect(options = {}) {
 
   const columns = [
     { header: '#', key: '#', align: 'center', width: '20px' },
-    { header: isTa ? 'பொருள் பெயர்' : 'Item Name', key: 'itemName', align: 'left', render: r => {
-      const rawName = String(r.itemName || r.name || '—').trim();
-      return isTa ? translateItemName(rawName) : rawName;
-    }},
+    {
+      header: isTa ? 'பொருள் பெயர்' : 'Item Name', key: 'itemName', align: 'left', render: r => {
+        const rawName = String(r.itemName || r.name || '—').trim();
+        return isTa ? translateItemName(rawName) : rawName;
+      }
+    },
     { header: isTa ? 'அளவு' : 'Qty', key: 'quantity', align: 'right', render: r => `${r.quantity} ${cleanUnitName(r.unit || '')}` },
     { header: isTa ? 'விலை' : 'Rate', key: 'unitRate', align: 'right', render: r => `₹${Number(r.unitRate || 0).toFixed(2)}` },
-    { header: isTa ? 'மொத்தம்' : 'Total', key: 'totalRate', align: 'right', render: r => {
-      const tot = Number(r.totalRate !== undefined ? r.totalRate : ((r.quantity || 0) * (r.unitRate || 0))) || 0;
-      return `₹${tot.toFixed(2)}`;
-    }}
+    {
+      header: isTa ? 'மொத்தம்' : 'Total', key: 'totalRate', align: 'right', render: r => {
+        const tot = Number(r.totalRate !== undefined ? r.totalRate : ((r.quantity || 0) * (r.unitRate || 0))) || 0;
+        return `₹${tot.toFixed(2)}`;
+      }
+    }
   ];
 
   const summaryRows = [
-    { label: isTa ? 'மொத்த பொருட்கள்:' : 'Total Items:', value: safeItems.length },
-    { label: isTa ? 'மொத்த அளவு:' : 'Total Quantity:', value: Math.round(totalQtySum * 1000) / 1000 },
+    { label: isTa ? 'மொத்த பொருட்கள்:' : 'Total Items:', value: safeItems.length, isBold: true },
+    { label: isTa ? 'மொத்த அளவு:' : 'Total Quantity:', value: Math.round(totalQtySum * 1000) / 1000, isBold: true },
     { label: isTa ? 'மொத்தத் தொகை:' : 'Grand Total:', value: `₹${resolvedGrandTotal.toFixed(2)}`, isTotal: true }
   ];
 
   return printThermalReceipt({
-    organisationName: isTa ? 'அன்னமித்ரா உணவு மேலாண்மை' : 'Annamithra Food Management',
+    organisationName: getAuthenticatedOrganisationName(options.organisationName || (isTa ? 'அன்னமித்ரா உணவு மேலாண்மை' : 'Annamithra Food Management')),
     branchName: isTa ? 'மத்திய சேமிப்பக வரவு' : 'Central Inventory Entry',
     title: isTa ? '*** இருப்பு வரவு ரசீது ***' : '*** VENDOR INVENTORY ENTRY ***',
     dateLabel: entryDate || getTodayDateString(),
@@ -3706,12 +3721,12 @@ export async function printVendorEntryReportDirect(options = {}) {
 
     const summaryRows = [
       { label: isTa ? 'மொத்த விற்பனையாளர்கள்:' : 'Total Vendors:', value: totalVendors, isBold: true },
-      { label: isTa ? 'மொத்த அளவு:' : 'Total Quantity:', value: grandQtyFormatted },
+      { label: isTa ? 'மொத்த அளவு:' : 'Total Quantity:', value: grandQtyFormatted, isBold: true },
       { label: isTa ? 'மொத்தத் தொகை:' : 'Grand Total:', value: `₹${grandTotalAmount.toFixed(2)}`, isTotal: true }
     ];
 
     return printThermalReceipt({
-      organisationName: isTa ? 'அன்னமித்ரா உணவு மேலாண்மை' : 'Annamithra Food Management',
+      organisationName: getAuthenticatedOrganisationName(options.organisationName || (isTa ? 'அன்னமித்ரா உணவு மேலாண்மை' : 'Annamithra Food Management')),
       branchName: isTa ? 'மைய சேமிப்பகம்' : 'Central Store',
       title: isTa ? '*** விற்பனையாளர் சுருக்க அறிக்கை ***' : '*** VENDOR SUMMARY REPORT ***',
       subtitle: isTa ? 'விற்பனையாளர் வாரியாக சுருக்கம்' : 'Consolidated Vendor Summary',
@@ -3733,7 +3748,7 @@ export async function printVendorEntryReportDirect(options = {}) {
     let customBodyHtml = '';
     if (safeGroups.length === 0) {
       customBodyHtml = `
-        <div style="padding: 12px 0; text-align: center; font-style: italic; font-size: 11px;">
+        <div style="padding: 12px 0; text-align: center; font-style: italic; font-size: 11.5px; font-weight: 700; color: #000000;">
           ${isTa ? 'பதிவுகள் எதுவும் இல்லை' : 'No records found matching filters'}
         </div>
       `;
@@ -3752,34 +3767,34 @@ export async function printVendorEntryReportDirect(options = {}) {
           const totalStr = `₹${Number(it.totalRate || 0).toFixed(2)}`;
 
           return `
-            <tr style="page-break-inside: avoid; break-inside: avoid;">
-              <td style="padding: 2.5px 2px; text-align: left; font-size: 10.5px; word-break: break-word;">${escapeHtml(itemName)}</td>
-              <td style="padding: 2.5px 2px; text-align: right; font-size: 10.5px; white-space: nowrap;">${escapeHtml(qtyStr)}</td>
-              <td style="padding: 2.5px 2px; text-align: right; font-size: 10.5px; white-space: nowrap;">${escapeHtml(rateStr)}</td>
-              <td style="padding: 2.5px 2px; text-align: right; font-size: 10.5px; white-space: nowrap;">${escapeHtml(totalStr)}</td>
+            <tr style="page-break-inside: avoid; break-inside: avoid; color: #000000;">
+              <td style="padding: 3px 2px; text-align: left; font-size: 11.5px; font-weight: 700; color: #000000; word-break: break-word;">${escapeHtml(itemName)}</td>
+              <td style="padding: 3px 2px; text-align: right; font-size: 11.5px; font-weight: 700; color: #000000; white-space: nowrap;">${escapeHtml(qtyStr)}</td>
+              <td style="padding: 3px 2px; text-align: right; font-size: 11.5px; font-weight: 700; color: #000000; white-space: nowrap;">${escapeHtml(rateStr)}</td>
+              <td style="padding: 3px 2px; text-align: right; font-size: 11.5px; font-weight: 800; color: #000000; white-space: nowrap;">${escapeHtml(totalStr)}</td>
             </tr>
           `;
         }).join('');
 
         return `
           <div class="branch-section" style="margin: 6px 0 10px 0; page-break-inside: auto; break-inside: auto; page-break-before: auto; break-before: auto;">
-            <div class="branch-header" style="font-weight: 800; font-size: 12px; padding: 3px 0; border-bottom: 1px solid #000000; text-transform: uppercase; page-break-after: avoid; break-after: avoid; page-break-inside: avoid; break-inside: avoid;">
-              🏢 ${vName}
+            <div class="branch-header" style="font-weight: 800; font-size: 12.5px; padding: 3px 0 4px 0; border-bottom: 1.5px solid #000000; text-transform: uppercase; color: #000000; page-break-after: avoid; break-after: avoid; page-break-inside: avoid; break-inside: avoid;">
+              ▶ ${vName}
             </div>
-            <table class="thermal-receipt-table" style="margin: 2px 0; page-break-inside: auto; break-inside: auto; page-break-before: avoid; break-before: avoid;">
+            <table class="thermal-receipt-table" style="margin: 2px 0; width: 100%; border-collapse: collapse; page-break-inside: auto; break-inside: auto; page-break-before: avoid; break-before: avoid;">
               <thead style="display: table-header-group; page-break-after: avoid; break-after: avoid;">
                 <tr>
-                  <th style="padding: 3px 2px; text-align: left; font-size: 10px;">${isTa ? 'பொருள்' : 'Item'}</th>
-                  <th style="padding: 3px 2px; text-align: right; font-size: 10px; width: 55px;">${isTa ? 'அளவு' : 'Qty'}</th>
-                  <th style="padding: 3px 2px; text-align: right; font-size: 10px; width: 45px;">${isTa ? 'விலை' : 'Rate'}</th>
-                  <th style="padding: 3px 2px; text-align: right; font-size: 10px; width: 55px;">${isTa ? 'மொத்தம்' : 'Total'}</th>
+                  <th style="padding: 4px 2px; text-align: left; font-size: 11px; font-weight: 800; color: #000000; border-top: 1.5px dashed #000000; border-bottom: 1.5px dashed #000000;">${isTa ? 'பொருள்' : 'Item'}</th>
+                  <th style="padding: 4px 2px; text-align: right; font-size: 11px; font-weight: 800; color: #000000; width: 60px; border-top: 1.5px dashed #000000; border-bottom: 1.5px dashed #000000;">${isTa ? 'அளவு' : 'Qty'}</th>
+                  <th style="padding: 4px 2px; text-align: right; font-size: 11px; font-weight: 800; color: #000000; width: 50px; border-top: 1.5px dashed #000000; border-bottom: 1.5px dashed #000000;">${isTa ? 'விலை' : 'Rate'}</th>
+                  <th style="padding: 4px 2px; text-align: right; font-size: 11px; font-weight: 800; color: #000000; width: 60px; border-top: 1.5px dashed #000000; border-bottom: 1.5px dashed #000000;">${isTa ? 'மொத்தம்' : 'Total'}</th>
                 </tr>
               </thead>
               <tbody>
-                ${rowsHtml || `<tr><td colspan="4" style="text-align: center; font-style: italic; padding: 4px;">No items</td></tr>`}
+                ${rowsHtml || `<tr><td colspan="4" style="text-align: center; font-style: italic; padding: 6px; font-weight: 700; color: #000000;">No items</td></tr>`}
               </tbody>
             </table>
-            <div style="display: flex; justify-content: space-between; font-size: 11px; font-weight: 700; border-top: 1px dashed #000000; padding: 2px 0 4px 0;">
+            <div style="display: flex; justify-content: space-between; font-size: 12px; font-weight: 800; border-top: 1.5px dashed #000000; padding: 3px 0 5px 0; color: #000000;">
               <span>${isTa ? 'விற்பனையாளர் உபமொத்தம்' : 'Vendor Subtotal'} (${vSubtotalQty}):</span>
               <span>₹${vSubtotalAmount.toFixed(2)}</span>
             </div>
@@ -3790,12 +3805,12 @@ export async function printVendorEntryReportDirect(options = {}) {
 
     const summaryRows = [
       { label: isTa ? 'மொத்த விற்பனையாளர்கள்:' : 'Total Vendors:', value: totalVendors, isBold: true },
-      { label: isTa ? 'மொத்த அளவு:' : 'Total Quantity:', value: grandQtyFormatted },
+      { label: isTa ? 'மொத்த அளவு:' : 'Total Quantity:', value: grandQtyFormatted, isBold: true },
       { label: isTa ? 'மொத்தத் தொகை:' : 'Grand Total:', value: `₹${grandTotalAmount.toFixed(2)}`, isTotal: true }
     ];
 
     return printThermalReceipt({
-      organisationName: isTa ? 'அன்னமித்ரா உணவு மேலாண்மை' : 'Annamithra Food Management',
+      organisationName: getAuthenticatedOrganisationName(options.organisationName || (isTa ? 'அன்னமித்ரா உணவு மேலாண்மை' : 'Annamithra Food Management')),
       branchName: isTa ? 'மைய சேமிப்பகம்' : 'Central Store',
       title: isTa ? '*** விற்பனையாளர் விரிவான அறிக்கை ***' : '*** VENDOR DETAILS REPORT ***',
       subtitle: isTa ? 'விற்பனையாளர் வாரியாக பொருள் விவரங்கள்' : 'Vendor-wise Item Breakdown',
@@ -4222,23 +4237,122 @@ export function buildConsolidatedBranchReportThermalOptions(options = {}) {
 
   if (viewMode === 'summary') {
     const safeRows = Array.isArray(reportData.summaryRows) ? reportData.summaryRows : [];
+    const safeGroups = Array.isArray(reportData.detailsGroups) ? reportData.detailsGroups : [];
+
+    const summaryRows = [
+      { label: `${isTa ? 'மொத்த ' + groupTypeLabel + 'கள்:' : 'Total ' + groupTypeLabel + 's:'}`, value: totalGroups, isBold: true },
+      { label: isTa ? 'மொத்த பொருட்கள்:' : 'Total Items:', value: overallTotalItems },
+      { label: isTa ? 'ஒட்டுமொத்த அளவு:' : 'Total Quantity:', value: grandQtyFormatted, isTotal: true }
+    ];
+
+    // Branch Request Summary with Department Breakdown ON: Group by Branch first, then departments
+    if (reportType === 'requests' && departmentBreakdown) {
+      let customBodyHtml = '';
+      if (safeGroups.length === 0) {
+        customBodyHtml = `
+          <div style="padding: 12px 0; text-align: center; font-style: italic; font-size: 11px;">
+            ${isTa ? 'பதிவுகள் எதுவும் இல்லை' : 'No records found matching filters'}
+          </div>
+        `;
+      } else {
+        customBodyHtml = safeGroups.map(g => {
+          const gName = escapeHtml(g.groupName || 'Unknown');
+          const gItems = Array.isArray(g.items) ? g.items : [];
+          const gSubtotalQty = escapeHtml(g.subtotalQuantityFormatted || '0');
+
+          // Group items in this branch by department
+          const deptMap = new Map();
+          gItems.forEach(it => {
+            const rawDept = (it.department && it.department !== 'All Departments') ? String(it.department).trim() : 'Unassigned';
+            if (!deptMap.has(rawDept)) deptMap.set(rawDept, {});
+            const uMap = deptMap.get(rawDept);
+            const u = cleanUnitName(it.unit || '');
+            const q = Number(it.requestedQuantity ?? it.totalQuantity ?? 0);
+            uMap[u] = Math.round(((uMap[u] || 0) + q) * 1000) / 1000;
+          });
+
+          let deptIdx = 1;
+          const deptRows = Array.from(deptMap.entries()).map(([deptName, uMap]) => {
+            const unitKeys = Object.keys(uMap);
+            const qtyStr = unitKeys.map(u => `${Number(uMap[u]).toLocaleString()} ${u}`).join(', ');
+            return `
+              <tr style="page-break-inside: avoid; break-inside: avoid; border-bottom: 1px dashed #dddddd;">
+                <td style="padding: 4px 2px; text-align: center; font-size: 10px; color: #555; width: 22px;">${deptIdx++}</td>
+                <td style="padding: 4px 2px; text-align: left; font-size: 11px; font-weight: 700; color: #000000;">
+                  🏷️ ${escapeHtml(deptName)}
+                </td>
+                <td style="padding: 4px 2px; text-align: right; font-size: 11px; font-weight: 800; color: #000000; white-space: nowrap;">
+                  ${escapeHtml(qtyStr)}
+                </td>
+              </tr>
+            `;
+          }).join('');
+
+          return `
+            <div class="branch-section" style="margin: 8px 0 12px 0; page-break-inside: auto; break-inside: auto;">
+              <div class="branch-header" style="font-weight: 800; font-size: 12px; padding: 3px 0 4px 0; border-bottom: 1.5px solid #000000; text-transform: uppercase; letter-spacing: 0.3px;">
+                🏢 ${gName}
+              </div>
+              <table class="thermal-receipt-table" style="width: 100%; border-collapse: collapse; margin: 2px 0; table-layout: fixed;">
+                <thead style="display: table-header-group;">
+                  <tr>
+                    <th style="padding: 3px 2px; text-align: center; font-size: 10px; border-bottom: 1px dashed #000; width: 22px;">#</th>
+                    <th style="padding: 3px 2px; text-align: left; font-size: 10px; border-bottom: 1px dashed #000; width: 55%;">${isTa ? 'துறை' : 'Department'}</th>
+                    <th style="padding: 3px 2px; text-align: right; font-size: 10px; width: 40%; border-bottom: 1px dashed #000;">${isTa ? 'மொத்த அளவு' : 'Total Quantity'}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${deptRows || `<tr><td colspan="3" style="text-align: center; font-style: italic; padding: 6px;">${isTa ? 'பதிவுகள் இல்லை' : 'No items'}</td></tr>`}
+                </tbody>
+              </table>
+              <div class="branch-subtotal" style="display: flex; justify-content: space-between; align-items: center; font-size: 11px; font-weight: 800; border-top: 1px dashed #000000; padding: 3px 0 6px 0;">
+                <span>📌 ${gName} ${isTa ? 'கிளை துணை மொத்தம்' : 'Branch Subtotal'}:</span>
+                <span>${gSubtotalQty}</span>
+              </div>
+            </div>
+          `;
+        }).join('');
+      }
+
+      return {
+        organisationName: getAuthenticatedOrganisationName(options.organisationName || (isTa ? 'அன்னமித்ரா உணவு மேலாண்மை' : 'Annamithra Food Management')),
+        branchName: branchFilter !== 'All Branches' ? branchFilter : (isTa ? 'அனைத்து கிளைகள்' : 'All Branches'),
+        title: reportTitle,
+        subtitle,
+        dateLabel: dateRangeLabel,
+        metadata,
+        customBodyHtml,
+        summaryRows,
+        footerNotes: [
+          `*** ${isTa ? 'அறிக்கை சரிபார்க்கப்பட்டது' : 'REPORT VERIFIED'} ***`,
+          'Annamithra POS System',
+          isTa ? '*** அறிக்கை முடிவு ***' : '*** END OF REPORT ***'
+        ],
+        language
+      };
+    }
+
     let columns = [];
     if (reportType === 'requests') {
       columns = [
         { header: '#', key: '#', align: 'center', width: '22px' },
         { header: isTa ? 'கிளை பெயர்' : 'Branch Name', key: 'groupName', align: 'left', render: r => escapeHtml(r.groupName || '—') },
-        { header: isTa ? 'மொத்த அளவு' : 'Total Quantity', key: 'qty', align: 'right', render: r => {
-          const qMap = r.quantityByUnit || {};
-          const keys = Object.keys(qMap);
-          if (keys.length === 1) return Number(qMap[keys[0]]).toLocaleString();
-          return escapeHtml(r.totalQuantityFormatted || '0');
-        }},
-        { header: isTa ? 'அலகு' : 'Unit', key: 'unit', align: 'left', width: '42px', render: r => {
-          const qMap = r.quantityByUnit || {};
-          const keys = Object.keys(qMap);
-          if (keys.length === 1) return escapeHtml(keys[0]);
-          return keys.join(', ');
-        }}
+        {
+          header: isTa ? 'மொத்த அளவு' : 'Total Quantity', key: 'qty', align: 'right', render: r => {
+            const qMap = r.quantityByUnit || {};
+            const keys = Object.keys(qMap);
+            if (keys.length === 1) return Number(qMap[keys[0]]).toLocaleString();
+            return escapeHtml(r.totalQuantityFormatted || '0');
+          }
+        },
+        {
+          header: isTa ? 'அலகு' : 'Unit', key: 'unit', align: 'left', width: '42px', render: r => {
+            const qMap = r.quantityByUnit || {};
+            const keys = Object.keys(qMap);
+            if (keys.length === 1) return escapeHtml(keys[0]);
+            return keys.join(', ');
+          }
+        }
       ];
     } else {
       columns = [
@@ -4249,14 +4363,8 @@ export function buildConsolidatedBranchReportThermalOptions(options = {}) {
       ];
     }
 
-    const summaryRows = [
-      { label: `${isTa ? 'மொத்த ' + groupTypeLabel + 'கள்:' : 'Total ' + groupTypeLabel + 's:'}`, value: totalGroups, isBold: true },
-      { label: isTa ? 'மொத்த பொருட்கள்:' : 'Total Items:', value: overallTotalItems },
-      { label: isTa ? 'ஒட்டுமொத்த அளவு:' : 'Total Quantity:', value: grandQtyFormatted, isTotal: true }
-    ];
-
     return {
-      organisationName: isTa ? 'அன்னமித்ரா உணவு மேலாண்மை' : 'Annamithra Food Management',
+      organisationName: getAuthenticatedOrganisationName(options.organisationName || (isTa ? 'அன்னமித்ரா உணவு மேலாண்மை' : 'Annamithra Food Management')),
       branchName: branchFilter !== 'All Branches' ? branchFilter : (isTa ? 'அனைத்து கிளைகள்' : 'All Branches'),
       title: reportTitle,
       subtitle,
@@ -4289,6 +4397,106 @@ export function buildConsolidatedBranchReportThermalOptions(options = {}) {
         const gItems = Array.isArray(g.items) ? g.items : [];
         const gSubtotalQty = escapeHtml(g.subtotalQuantityFormatted || '0');
 
+        if (reportType === 'requests' && departmentBreakdown) {
+          // ON: Group items by department into separate sections
+          const deptMap = new Map();
+          gItems.forEach(it => {
+            const rawDept = (it.department && it.department !== 'All Departments') ? String(it.department).trim() : 'Unassigned';
+            if (!deptMap.has(rawDept)) deptMap.set(rawDept, { items: [], unitMap: {} });
+            const dObj = deptMap.get(rawDept);
+            dObj.items.push(it);
+            const u = cleanUnitName(it.unit || '');
+            const q = Number(it.requestedQuantity ?? it.totalQuantity ?? 0);
+            dObj.unitMap[u] = Math.round(((dObj.unitMap[u] || 0) + q) * 1000) / 1000;
+          });
+
+          const deptSectionsHtml = Array.from(deptMap.entries()).map(([deptName, dObj]) => {
+            const unitKeys = Object.keys(dObj.unitMap);
+            const deptSubtotalQty = unitKeys.map(u => `${Number(dObj.unitMap[u]).toLocaleString()} ${u}`).join(', ');
+
+            const itemRowsHtml = dObj.items.map(it => {
+              const rawItemName = String(it.itemName || '—').trim();
+              const itemName = isTa ? translateItemName(rawItemName) : rawItemName;
+              const reqQty = Number(it.requestedQuantity ?? it.totalQuantity ?? 0);
+              const delQty = Number(it.deliveredQuantity || 0);
+              const balQty = Number(it.deliveryQuantity !== undefined ? it.deliveryQuantity : Math.max(0, reqQty - delQty));
+              const unitStr = cleanUnitName(it.unit || '');
+              const delDateStr = it.deliveryDate ? String(it.deliveryDate).slice(0, 10) : '';
+              const ackStatus = it.acknowledgementStatus || '';
+
+              let ackDisplay = '';
+              if (ackStatus === 'ACKNOWLEDGED' || ackStatus === 'COMPLETED') {
+                ackDisplay = `<span style="font-size: 8.5px; font-weight: 800; color: #166534;">✓ ${isTa ? 'பெறப்பட்டது' : 'Ack'}</span>`;
+              } else if (ackStatus === 'PARTIALLY_DELIVERED') {
+                ackDisplay = `<span style="font-size: 8.5px; font-weight: 800; color: #D97706;">⚡ ${isTa ? 'பகுதி' : 'Partial'}</span>`;
+              } else if (ackStatus === 'PENDING_DELIVERY') {
+                ackDisplay = `<span style="font-size: 8.5px; font-weight: 800; color: #DC2626;">⏳ ${isTa ? 'நிலுவை' : 'Pending'}</span>`;
+              } else if (ackStatus === 'PENDING_ACKNOWLEDGEMENT' || ackStatus === 'DISPATCHED') {
+                ackDisplay = `<span style="font-size: 8.5px; font-weight: 800; color: #2563EB;">📬 ${isTa ? 'ஒப்புதல்' : 'Sent'}</span>`;
+              } else if (ackStatus) {
+                ackDisplay = `<span style="font-size: 8px; font-weight: 600; color: #555;">${escapeHtml(ackStatus)}</span>`;
+              }
+
+              return `
+                <tr style="page-break-inside: avoid; break-inside: avoid; border-bottom: 1px dashed #dddddd;">
+                  <td style="padding: 4px 2px; text-align: left; vertical-align: top;">
+                    <div style="font-weight: 700; font-size: 11px; line-height: 1.25; color: #000000; word-break: break-word;">${escapeHtml(itemName)}</div>
+                    ${delDateStr ? `<div style="font-size: 8.5px; color: #6B7280; margin-top: 1.5px;">📅 ${isTa ? 'விநியோகம்' : 'Deliv'}: ${escapeHtml(delDateStr)}</div>` : ''}
+                  </td>
+                  <td style="padding: 4px 2px; text-align: right; vertical-align: top; white-space: nowrap;">
+                    <div style="font-weight: 800; font-size: 11px; color: #000000;">Req: ${reqQty.toLocaleString()}</div>
+                    ${delQty > 0 ? `<div style="font-size: 9px; color: #166534; font-weight: 600;">Del: ${delQty.toLocaleString()}</div>` : ''}
+                    <div style="font-size: 9px; color: #B45309; font-weight: 700;">Bal: ${balQty.toLocaleString()}</div>
+                  </td>
+                  <td style="padding: 4px 2px; text-align: center; vertical-align: top; white-space: nowrap;">
+                    <div style="font-weight: 700; font-size: 10.5px; color: #111827;">${escapeHtml(unitStr)}</div>
+                    ${ackDisplay ? `<div style="margin-top: 2px;">${ackDisplay}</div>` : ''}
+                  </td>
+                </tr>
+              `;
+            }).join('');
+
+            return `
+              <div class="department-sub-section" style="margin: 6px 0 8px 0; border: 1px solid #e5e7eb; border-radius: 4px; padding: 4px 6px; background: #fafafa; page-break-inside: auto; break-inside: auto;">
+                <div style="font-weight: 700; font-size: 11px; padding: 3px 6px; background: #f0ead6; border-left: 3px solid #07543D; display: flex; justify-content: space-between; align-items: center;">
+                  <span>🏷️ ${escapeHtml(deptName)}</span>
+                  <span style="font-size: 9.5px; font-weight: 600; color: #555;">${dObj.items.length} ${isTa ? 'பொருட்கள்' : 'Items'}</span>
+                </div>
+                <table class="thermal-receipt-table" style="width: 100%; border-collapse: collapse; margin: 2px 0; table-layout: fixed;">
+                  <thead style="display: table-header-group;">
+                    <tr>
+                      <th style="padding: 3px 2px; text-align: left; font-size: 9.5px; border-bottom: 1px dashed #000; width: 50%;">${isTa ? 'பொருள்' : 'Item'}</th>
+                      <th style="padding: 3px 2px; text-align: right; font-size: 9.5px; width: 28%; border-bottom: 1px dashed #000;">${isTa ? 'கோரிய/விநியோகம்' : 'Req / Deliv'}</th>
+                      <th style="padding: 3px 2px; text-align: center; font-size: 9.5px; width: 22%; border-bottom: 1px dashed #000;">${isTa ? 'அலகு/நிலை' : 'Unit/Status'}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    ${itemRowsHtml || `<tr><td colspan="3" style="text-align: center; font-style: italic; padding: 4px;">${isTa ? 'பதிவுகள் இல்லை' : 'No items'}</td></tr>`}
+                  </tbody>
+                </table>
+                <div style="display: flex; justify-content: space-between; align-items: center; font-size: 10px; font-weight: 700; border-top: 1px dashed #888; padding: 3px 2px 2px 2px; color: #07543D;">
+                  <span>🏷️ ${escapeHtml(deptName)} ${isTa ? 'துறை துணை மொத்தம்' : 'Subtotal'}:</span>
+                  <span>${escapeHtml(deptSubtotalQty)}</span>
+                </div>
+              </div>
+            `;
+          }).join('');
+
+          return `
+            <div class="branch-section" style="margin: 8px 0 12px 0; page-break-inside: auto; break-inside: auto; page-break-before: auto; break-before: auto;">
+              <div class="branch-header" style="font-weight: 800; font-size: 12px; padding: 3px 0 4px 0; border-bottom: 1.5px solid #000000; text-transform: uppercase; letter-spacing: 0.3px;">
+                🏢 ${gName} <span style="font-size: 10px; font-weight: 600; opacity: 0.85;">(${g.totalItems || gItems.length} ${isTa ? 'பொருட்கள்' : 'Items'})</span>
+              </div>
+              ${deptSectionsHtml}
+              <div class="branch-subtotal" style="display: flex; justify-content: space-between; align-items: center; font-size: 11px; font-weight: 800; border-top: 1.5px solid #000000; padding: 4px 0 6px 0; margin-top: 4px;">
+                <span>📌 ${gName} ${isTa ? 'கிளை துணை மொத்தம்' : 'Branch Subtotal'}:</span>
+                <span>${gSubtotalQty}</span>
+              </div>
+            </div>
+          `;
+        }
+
+        // OFF (or non-requests): Single consolidated table per branch
         const rowsHtml = gItems.map(it => {
           const rawItemName = String(it.itemName || '—').trim();
           const itemName = isTa ? translateItemName(rawItemName) : rawItemName;
@@ -4303,31 +4511,31 @@ export function buildConsolidatedBranchReportThermalOptions(options = {}) {
           if (reportType === 'requests') {
             let ackDisplay = '';
             if (ackStatus === 'ACKNOWLEDGED' || ackStatus === 'COMPLETED') {
-              ackDisplay = `<span style="font-size: 8.5px; font-weight: 800; color: #166534;">✓ ${isTa ? 'பெறப்பட்டது' : 'Ack'}</span>`;
+              ackDisplay = `<span style="font-size: 9px; font-weight: 800; color: #000000;">[ ${isTa ? 'பெறப்பட்டது' : 'ACK'} ]</span>`;
             } else if (ackStatus === 'PARTIALLY_DELIVERED') {
-              ackDisplay = `<span style="font-size: 8.5px; font-weight: 800; color: #D97706;">⚡ ${isTa ? 'பகுதி' : 'Partial'}</span>`;
+              ackDisplay = `<span style="font-size: 9px; font-weight: 800; color: #000000;">[ ${isTa ? 'பகுதி' : 'PARTIAL'} ]</span>`;
             } else if (ackStatus === 'PENDING_DELIVERY') {
-              ackDisplay = `<span style="font-size: 8.5px; font-weight: 800; color: #DC2626;">⏳ ${isTa ? 'நிலுவை' : 'Pending'}</span>`;
+              ackDisplay = `<span style="font-size: 9px; font-weight: 800; color: #000000;">[ ${isTa ? 'நிலுவை' : 'PENDING'} ]</span>`;
             } else if (ackStatus === 'PENDING_ACKNOWLEDGEMENT' || ackStatus === 'DISPATCHED') {
-              ackDisplay = `<span style="font-size: 8.5px; font-weight: 800; color: #2563EB;">📬 ${isTa ? 'ஒப்புதல்' : 'Sent'}</span>`;
+              ackDisplay = `<span style="font-size: 9px; font-weight: 800; color: #000000;">[ ${isTa ? 'ஒப்புதல்' : 'SENT'} ]</span>`;
             } else if (ackStatus) {
-              ackDisplay = `<span style="font-size: 8px; font-weight: 600; color: #555;">${escapeHtml(ackStatus)}</span>`;
+              ackDisplay = `<span style="font-size: 9px; font-weight: 800; color: #000000;">[ ${escapeHtml(ackStatus)} ]</span>`;
             }
 
             return `
-              <tr style="page-break-inside: avoid; break-inside: avoid; border-bottom: 1px dashed #dddddd;">
+              <tr style="page-break-inside: avoid; break-inside: avoid; border-bottom: 1px dashed #000000; color: #000000;">
                 <td style="padding: 4px 2px; text-align: left; vertical-align: top;">
-                  <div style="font-weight: 700; font-size: 11px; line-height: 1.25; color: #000000; word-break: break-word;">${escapeHtml(itemName)}</div>
-                  ${deptStr && deptStr !== 'All Departments' ? `<div style="font-size: 9.5px; color: #4B5563; margin-top: 1.5px; word-break: break-word;">[ ${escapeHtml(deptStr)} ]</div>` : ''}
-                  ${delDateStr ? `<div style="font-size: 8.5px; color: #6B7280; margin-top: 1.5px;">📅 ${isTa ? 'விநியோகம்' : 'Deliv'}: ${escapeHtml(delDateStr)}</div>` : ''}
+                  <div style="font-weight: 800; font-size: 11.5px; line-height: 1.25; color: #000000; word-break: break-word;">${escapeHtml(itemName)}</div>
+                  ${deptStr && deptStr !== 'All Departments' ? `<div style="font-size: 10px; font-weight: 700; color: #000000; margin-top: 1.5px; word-break: break-word;">[ ${escapeHtml(deptStr)} ]</div>` : ''}
+                  ${delDateStr ? `<div style="font-size: 9.5px; font-weight: 700; color: #000000; margin-top: 1.5px;">${isTa ? 'விநியோகம்' : 'Deliv'}: ${escapeHtml(delDateStr)}</div>` : ''}
                 </td>
                 <td style="padding: 4px 2px; text-align: right; vertical-align: top; white-space: nowrap;">
-                  <div style="font-weight: 800; font-size: 11px; color: #000000;">Req: ${reqQty.toLocaleString()}</div>
-                  ${delQty > 0 ? `<div style="font-size: 9px; color: #166534; font-weight: 600;">Del: ${delQty.toLocaleString()}</div>` : ''}
-                  <div style="font-size: 9px; color: #B45309; font-weight: 700;">Bal: ${balQty.toLocaleString()}</div>
+                  <div style="font-weight: 800; font-size: 11.5px; color: #000000;">Req: ${reqQty.toLocaleString()}</div>
+                  ${delQty > 0 ? `<div style="font-size: 10px; color: #000000; font-weight: 800;">Del: ${delQty.toLocaleString()}</div>` : ''}
+                  <div style="font-size: 10px; color: #000000; font-weight: 800;">Bal: ${balQty.toLocaleString()}</div>
                 </td>
                 <td style="padding: 4px 2px; text-align: center; vertical-align: top; white-space: nowrap;">
-                  <div style="font-weight: 700; font-size: 10.5px; color: #111827;">${escapeHtml(unitStr)}</div>
+                  <div style="font-weight: 800; font-size: 11px; color: #000000;">${escapeHtml(unitStr)}</div>
                   ${ackDisplay ? `<div style="margin-top: 2px;">${ackDisplay}</div>` : ''}
                 </td>
               </tr>
@@ -4335,32 +4543,32 @@ export function buildConsolidatedBranchReportThermalOptions(options = {}) {
           }
 
           return `
-            <tr style="page-break-inside: avoid; break-inside: avoid; border-bottom: 1px dashed #dddddd;">
-              <td style="padding: 3px 2px; text-align: left; font-size: 11px; word-break: break-word;">${escapeHtml(itemName)}</td>
-              <td style="padding: 3px 2px; text-align: right; font-size: 11px; white-space: nowrap; font-weight: 700;">${escapeHtml(reqQty)}</td>
-              <td style="padding: 3px 2px; text-align: center; font-size: 10px; white-space: nowrap;">${escapeHtml(unitStr)}</td>
+            <tr style="page-break-inside: avoid; break-inside: avoid; border-bottom: 1px dashed #000000; color: #000000;">
+              <td style="padding: 3.5px 2px; text-align: left; font-size: 11.5px; font-weight: 700; color: #000000; word-break: break-word;">${escapeHtml(itemName)}</td>
+              <td style="padding: 3.5px 2px; text-align: right; font-size: 11.5px; white-space: nowrap; font-weight: 800; color: #000000;">${escapeHtml(reqQty)}</td>
+              <td style="padding: 3.5px 2px; text-align: center; font-size: 11px; white-space: nowrap; font-weight: 700; color: #000000;">${escapeHtml(unitStr)}</td>
             </tr>
           `;
         }).join('');
 
         return `
           <div class="branch-section" style="margin: 8px 0 12px 0; page-break-inside: auto; break-inside: auto; page-break-before: auto; break-before: auto;">
-            <div class="branch-header" style="font-weight: 800; font-size: 12px; padding: 3px 0 4px 0; border-bottom: 1.5px solid #000000; text-transform: uppercase; letter-spacing: 0.3px; page-break-after: avoid; break-after: avoid; page-break-inside: avoid; break-inside: avoid;">
-              🏢 ${gName} <span style="font-size: 10px; font-weight: 600; opacity: 0.85;">(${g.totalItems || gItems.length} ${isTa ? 'பொருட்கள்' : 'Items'})</span>
+            <div class="branch-header" style="font-weight: 800; font-size: 12.5px; padding: 4px 0; border-bottom: 1.5px solid #000000; text-transform: uppercase; letter-spacing: 0.3px; color: #000000; page-break-after: avoid; break-after: avoid; page-break-inside: avoid; break-inside: avoid;">
+              ▶ ${gName} <span style="font-size: 10.5px; font-weight: 700; color: #000000;">(${g.totalItems || gItems.length} ${isTa ? 'பொருட்கள்' : 'Items'})</span>
             </div>
             <table class="thermal-receipt-table" style="width: 100%; border-collapse: collapse; margin: 2px 0; table-layout: fixed; page-break-inside: auto; break-inside: auto; page-break-before: avoid; break-before: avoid;">
               <thead style="display: table-header-group; page-break-after: avoid; break-after: avoid;">
                 <tr>
-                  <th style="padding: 3px 2px; text-align: left; font-size: 10px; border-bottom: 1px dashed #000; width: 50%;">${isTa ? 'பொருள் / துறை' : 'Item / Department'}</th>
-                  <th style="padding: 3px 2px; text-align: right; font-size: 10px; width: 28%; border-bottom: 1px dashed #000;">${isTa ? 'கோரிய/விநியோகம்' : 'Req / Deliv'}</th>
-                  <th style="padding: 3px 2px; text-align: center; font-size: 10px; width: 22%; border-bottom: 1px dashed #000;">${isTa ? 'அலகு/நிலை' : 'Unit/Status'}</th>
+                  <th style="padding: 3.5px 2px; text-align: left; font-size: 10.5px; font-weight: 800; color: #000000; border-top: 1.5px dashed #000000; border-bottom: 1.5px dashed #000000; width: 50%;">${isTa ? 'பொருள் / துறை' : 'Item / Department'}</th>
+                  <th style="padding: 3.5px 2px; text-align: right; font-size: 10.5px; font-weight: 800; color: #000000; width: 28%; border-top: 1.5px dashed #000000; border-bottom: 1.5px dashed #000000;">${isTa ? 'கோரிய/விநியோகம்' : 'Req / Deliv'}</th>
+                  <th style="padding: 3.5px 2px; text-align: center; font-size: 10.5px; font-weight: 800; color: #000000; width: 22%; border-top: 1.5px dashed #000000; border-bottom: 1.5px dashed #000000;">${isTa ? 'அலகு/நிலை' : 'Unit/Status'}</th>
                 </tr>
               </thead>
               <tbody>
-                ${rowsHtml || `<tr><td colspan="3" style="text-align: center; font-style: italic; padding: 6px;">${isTa ? 'பதிவுகள் இல்லை' : 'No items'}</td></tr>`}
+                ${rowsHtml || `<tr><td colspan="3" style="text-align: center; font-style: italic; padding: 6px; font-weight: 700; color: #000000;">${isTa ? 'பதிவுகள் இல்லை' : 'No items'}</td></tr>`}
               </tbody>
             </table>
-            <div class="branch-subtotal" style="display: flex; justify-content: space-between; align-items: center; font-size: 11px; font-weight: 800; border-top: 1px dashed #000000; padding: 3px 0 6px 0; page-break-inside: avoid; break-inside: avoid;">
+            <div class="branch-subtotal" style="display: flex; justify-content: space-between; align-items: center; font-size: 12px; font-weight: 800; border-top: 1.5px dashed #000000; padding: 3px 0 6px 0; color: #000000; page-break-inside: avoid; break-inside: avoid;">
               <span>${gName} ${isTa ? 'துணை மொத்தம்' : 'Subtotal'}:</span>
               <span>${gSubtotalQty}</span>
             </div>
@@ -4371,12 +4579,12 @@ export function buildConsolidatedBranchReportThermalOptions(options = {}) {
 
     const summaryRows = [
       { label: `${isTa ? 'மொத்த ' + groupTypeLabel + 'கள்:' : 'Total ' + groupTypeLabel + 's:'}`, value: totalGroups, isBold: true },
-      { label: isTa ? 'மொத்த தனி பொருட்கள்:' : 'Total Unique Items:', value: overallTotalItems },
+      { label: isTa ? 'மொத்த தனி பொருட்கள்:' : 'Total Unique Items:', value: overallTotalItems, isBold: true },
       { label: isTa ? 'ஒட்டுமொத்த அளவு:' : 'Overall Total Quantity:', value: grandQtyFormatted, isTotal: true }
     ];
 
     return {
-      organisationName: isTa ? 'அன்னமித்ரா உணவு மேலாண்மை' : 'Annamithra Food Management',
+      organisationName: getAuthenticatedOrganisationName(options.organisationName || (isTa ? 'அன்னமித்ரா உணவு மேலாண்மை' : 'Annamithra Food Management')),
       branchName: branchFilter !== 'All Branches' ? branchFilter : (isTa ? 'அனைத்து கிளைகள்' : 'All Branches'),
       title: reportTitle,
       subtitle,
@@ -4428,32 +4636,99 @@ export function exportReportCsv({ reportType, items = [], filename = 'report.csv
   if (consolidatedData && (viewMode === 'summary' || viewMode === 'details')) {
     if (viewMode === 'summary') {
       const summaryRows = consolidatedData.summaryRows || [];
-      const groupHeader = (reportType === 'inventory') ? 'Category' : 'Branch Name';
-      const measureHeader = (reportType === 'requests') ? 'Total Requested Quantity' : ((reportType === 'dispatches') ? 'Total Delivered Quantity' : 'Available Stock');
-      headers = ['S.No', groupHeader, 'Total Items', measureHeader];
-      rows = summaryRows.map((r, idx) => [
-        escapeCsv(idx + 1),
-        escapeCsv(r.groupName),
-        escapeCsv(r.totalItems),
-        escapeCsv(r.totalQuantityFormatted)
-      ]);
+      const detailsGroups = consolidatedData.detailsGroups || [];
+
+      if (reportType === 'requests' && departmentBreakdown) {
+        headers = ['S.No', 'Branch Name', 'Department', 'Total Quantity', 'Unit'];
+        let rowIdx = 1;
+        detailsGroups.forEach(g => {
+          const deptMap = new Map();
+          (g.items || []).forEach(it => {
+            const rawDept = (it.department && it.department !== 'All Departments') ? String(it.department).trim() : 'Unassigned';
+            if (!deptMap.has(rawDept)) deptMap.set(rawDept, {});
+            const uMap = deptMap.get(rawDept);
+            const u = cleanUnitName(it.unit || '');
+            const q = Number(it.requestedQuantity ?? it.totalQuantity ?? 0);
+            uMap[u] = Math.round(((uMap[u] || 0) + q) * 1000) / 1000;
+          });
+          deptMap.forEach((uMap, deptName) => {
+            Object.keys(uMap).forEach(u => {
+              rows.push([
+                escapeCsv(rowIdx++),
+                escapeCsv(g.groupName),
+                escapeCsv(deptName),
+                escapeCsv(uMap[u]),
+                escapeCsv(u)
+              ]);
+            });
+          });
+        });
+      } else if (reportType === 'requests') {
+        headers = ['S.No', 'Branch Name', 'Total Quantity', 'Unit'];
+        rows = summaryRows.map((r, idx) => {
+          const qMap = r.quantityByUnit || {};
+          const keys = Object.keys(qMap);
+          const qty = keys.length === 1 ? Number(qMap[keys[0]]).toLocaleString() : (r.totalQuantityFormatted || '0');
+          const unit = keys.length === 1 ? keys[0] : keys.join(', ');
+          return [
+            escapeCsv(idx + 1),
+            escapeCsv(r.groupName),
+            escapeCsv(qty),
+            escapeCsv(unit)
+          ];
+        });
+      } else {
+        const groupHeader = (reportType === 'inventory') ? 'Category' : 'Branch Name';
+        const measureHeader = (reportType === 'dispatches') ? 'Total Delivered Quantity' : 'Available Stock';
+        headers = ['S.No', groupHeader, 'Total Items', measureHeader];
+        rows = summaryRows.map((r, idx) => [
+          escapeCsv(idx + 1),
+          escapeCsv(r.groupName),
+          escapeCsv(r.totalItems),
+          escapeCsv(r.totalQuantityFormatted)
+        ]);
+      }
     } else {
       const detailsGroups = consolidatedData.detailsGroups || [];
-      const groupHeader = (reportType === 'inventory') ? 'Category' : 'Branch Name';
-      const measureHeader = (reportType === 'requests') ? 'Total Requested Quantity' : ((reportType === 'dispatches') ? 'Total Delivered Quantity' : 'Available Stock');
-      headers = ['S.No', groupHeader, 'Item Name', measureHeader, 'Unit'];
-      let rowIdx = 1;
-      detailsGroups.forEach(g => {
-        (g.items || []).forEach(it => {
-          rows.push([
-            escapeCsv(rowIdx++),
-            escapeCsv(g.groupName),
-            escapeCsv(it.itemName),
-            escapeCsv(it.totalQuantity),
-            escapeCsv(it.unit)
-          ]);
+      if (reportType === 'requests') {
+        headers = ['S.No', 'Branch Name', 'Department', 'Item Name', 'Requested Quantity', 'Delivered Quantity', 'Delivery Quantity', 'Unit', 'Delivery Date', 'Acknowledgement Status'];
+        let rowIdx = 1;
+        detailsGroups.forEach(g => {
+          (g.items || []).forEach(it => {
+            const reqQty = Number(it.requestedQuantity ?? it.totalQuantity ?? 0);
+            const delQty = Number(it.deliveredQuantity || 0);
+            const pendingDelQty = Number(it.deliveryQuantity !== undefined ? it.deliveryQuantity : Math.max(0, reqQty - delQty));
+            rows.push([
+              escapeCsv(rowIdx++),
+              escapeCsv(g.groupName),
+              escapeCsv(it.department || 'All Departments'),
+              escapeCsv(it.itemName),
+              escapeCsv(reqQty),
+              escapeCsv(delQty),
+              escapeCsv(pendingDelQty),
+              escapeCsv(it.unit),
+              escapeCsv(it.deliveryDate || ''),
+              escapeCsv(it.acknowledgementStatus || '')
+            ]);
+          });
         });
-      });
+      } else {
+        const groupHeader = (reportType === 'inventory') ? 'Category' : 'Branch Name';
+        const measureHeader = ((reportType === 'dispatches') ? 'Total Delivered Quantity' : 'Available Stock');
+        headers = ['S.No', groupHeader, 'Item Name', measureHeader, 'Unit'];
+        let rowIdx = 1;
+        detailsGroups.forEach(g => {
+          (g.items || []).forEach(it => {
+            rows.push([
+              escapeCsv(rowIdx++),
+              escapeCsv(g.groupName),
+              escapeCsv(it.itemName),
+              escapeCsv(it.totalQuantity),
+              escapeCsv(it.unit)
+            ]);
+          });
+        });
+      }
     }
 
     if (rows.length === 0) {
