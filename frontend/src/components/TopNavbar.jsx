@@ -56,7 +56,6 @@ export function TopNavbar({ user, activeTab, onSelectTab, onLogout }) {
       case 'Branch Manager':
         return [
           { id: 'order-items', label: t('Order Items'), icon: '📝' },
-          { id: 'drafts', label: t('Drafts', 'Drafts'), icon: '📑' },
           { id: 'entry', label: t('Entry'), icon: '📦' },
           { id: 'history', label: t('History'), icon: '📜' }
         ];

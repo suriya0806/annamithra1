@@ -1218,12 +1218,11 @@ export async function printBranchRequestsDirect(options = {}) {
   });
 
   const columns = isSingle ? [
-    { header: '#', key: '#', align: 'center', width: '20px' },
+    { header: '#', key: '#', align: 'center', width: '22px' },
     { header: isTa ? 'பொருள்' : 'Item', key: 'itemName', align: 'left' },
-    { header: isTa ? 'துறை' : 'Dept', key: 'department', align: 'left' },
     { header: isTa ? 'அளவு' : 'Qty', key: 'quantity', align: 'right', render: r => `${r.quantity} ${r.unit}` }
   ] : [
-    { header: '#', key: '#', align: 'center', width: '18px' },
+    { header: '#', key: '#', align: 'center', width: '20px' },
     { header: isTa ? 'கிளை' : 'Branch', key: 'branch', align: 'left' },
     { header: isTa ? 'பொருள்' : 'Item', key: 'itemName', align: 'left' },
     { header: isTa ? 'அளவு' : 'Qty', key: 'quantity', align: 'right', render: r => `${r.quantity} ${r.unit}` }
@@ -1637,7 +1636,6 @@ export async function printBranchOrderListDirect(options = {}) {
   const columns = [
     { header: '#', key: '#', align: 'center', width: '22px' },
     { header: isTa ? 'பொருள்' : 'Item Name', key: 'itemName', align: 'left', render: r => isTa ? translateItemName(r.itemName || r.name) : (r.itemName || r.name) },
-    { header: isTa ? 'துறை' : 'Dept', key: 'department', align: 'left', render: r => r.department || r.category || 'General' },
     { header: isTa ? 'அளவு' : 'Qty', key: 'quantity', align: 'right', render: r => `${r.quantity} ${cleanUnitName(r.unit || '')}` }
   ];
 
@@ -2097,11 +2095,9 @@ export async function printBranchRecentRequestsDirect(options = {}) {
   const safeRequests = Array.isArray(recentRequests) ? recentRequests : [];
 
   const columns = [
-    { header: '#', key: '#', align: 'center', width: '20px' },
+    { header: '#', key: '#', align: 'center', width: '22px' },
     { header: isTa ? 'பொருள்' : 'Item Name', key: 'itemName', align: 'left', render: r => isTa ? translateItemName(r.itemName) : r.itemName },
-    { header: isTa ? 'துறை' : 'Dept', key: 'department', align: 'left', render: r => r.department || r.category || '—' },
-    { header: isTa ? 'அளவு' : 'Qty', key: 'quantity', align: 'right', render: r => `${r.requestedQuantity || r.quantity || 0} ${cleanUnitName(r.unit || '')}` },
-    { header: isTa ? 'நிலை' : 'Status', key: 'status', align: 'center', render: r => isTa ? translateStatusGlobal(r.dispatchStatus || r.status || 'Pending') : (r.dispatchStatus || r.status || 'Pending') }
+    { header: isTa ? 'அளவு' : 'Qty', key: 'quantity', align: 'right', render: r => `${r.requestedQuantity || r.quantity || 0} ${cleanUnitName(r.unit || '')}` }
   ];
 
   return printThermalReceipt({
@@ -2756,21 +2752,10 @@ export function buildSimpleBranchRequestThermalOptions({
 
   const metadata = [
     { label: isTa ? 'கிளை' : 'Branch', value: branch || (isTa ? 'அனைத்து கிளைகள்' : 'All Branches') },
-    department && department !== 'All Departments' ? { label: isTa ? 'துறை' : 'Department', value: department } : null,
     { label: isTa ? 'பார்வை' : 'View Mode', value: viewTitle }
   ].filter(Boolean);
 
-  const columns = departmentBreakdown ? [
-    { header: '#', key: '#', align: 'center', width: '20px' },
-    { header: isTa ? 'துறை' : 'Dept', key: 'department', align: 'left', render: r => r.department || r.category || 'General' },
-    {
-      header: isTa ? 'பொருள்' : 'Item Name', key: 'itemName', align: 'left', render: r => {
-        const raw = String(r.itemName || r.name || '—').trim();
-        return isTa ? translateItemName(raw) : raw;
-      }
-    },
-    { header: isTa ? 'அளவு' : 'Qty', key: 'quantity', align: 'right', render: r => `${r.totalQuantity ?? r.requestedQuantity ?? r.quantity ?? 0} ${cleanUnitName(r.unit || '')}` }
-  ] : [
+  const columns = [
     { header: '#', key: '#', align: 'center', width: '22px' },
     {
       header: isTa ? 'பொருள் பெயர்' : 'Item Name', key: 'itemName', align: 'left', render: r => {
@@ -2963,8 +2948,7 @@ export async function printSimpleDispatchReport({
   const summaryBranchDispStr = formatUnitSummary(branchDispUnitTotals, false);
 
   const metadata = [
-    { label: isTa ? 'கிளை' : 'Branch', value: branch || (isTa ? 'அனைத்து கிளைகள்' : 'All Branches') },
-    department && department !== 'All Departments' ? { label: isTa ? 'துறை' : 'Department', value: department } : null
+    { label: isTa ? 'கிளை' : 'Branch', value: branch || (isTa ? 'அனைத்து கிளைகள்' : 'All Branches') }
   ].filter(Boolean);
 
   const columns = [
@@ -2976,7 +2960,6 @@ export async function printSimpleDispatchReport({
       }
     },
     { header: isTa ? 'கிளை' : 'Branch', key: 'branchName', align: 'left', render: r => r.branchName || r.branch || '—' },
-    { header: isTa ? 'துறை' : 'Dept', key: 'department', align: 'left', render: r => r.department || r.departmentName || '—' },
     { header: isTa ? 'அளவு' : 'Qty', key: 'dispatchedQuantity', align: 'right', render: r => `${r.dispatchedQuantity ?? r.quantity ?? 0} ${cleanUnitName(r.unit || '')}` }
   ];
 
@@ -3748,7 +3731,7 @@ export async function printVendorEntryReportDirect(options = {}) {
     let customBodyHtml = '';
     if (safeGroups.length === 0) {
       customBodyHtml = `
-        <div style="padding: 12px 0; text-align: center; font-style: italic; font-size: 11.5px; font-weight: 700; color: #000000;">
+        <div style="padding: 12px 0; text-align: center; font-style: italic; font-size: 13px; font-weight: 700; color: #000000;">
           ${isTa ? 'பதிவுகள் எதுவும் இல்லை' : 'No records found matching filters'}
         </div>
       `;
@@ -3768,33 +3751,33 @@ export async function printVendorEntryReportDirect(options = {}) {
 
           return `
             <tr style="page-break-inside: avoid; break-inside: avoid; color: #000000;">
-              <td style="padding: 3px 2px; text-align: left; font-size: 11.5px; font-weight: 700; color: #000000; word-break: break-word;">${escapeHtml(itemName)}</td>
-              <td style="padding: 3px 2px; text-align: right; font-size: 11.5px; font-weight: 700; color: #000000; white-space: nowrap;">${escapeHtml(qtyStr)}</td>
-              <td style="padding: 3px 2px; text-align: right; font-size: 11.5px; font-weight: 700; color: #000000; white-space: nowrap;">${escapeHtml(rateStr)}</td>
-              <td style="padding: 3px 2px; text-align: right; font-size: 11.5px; font-weight: 800; color: #000000; white-space: nowrap;">${escapeHtml(totalStr)}</td>
+              <td style="padding: 3.5px 2px; text-align: left; font-size: 13px; font-weight: 700; color: #000000; word-break: break-word;">${escapeHtml(itemName)}</td>
+              <td style="padding: 3.5px 2px; text-align: right; font-size: 13px; font-weight: 700; color: #000000; white-space: nowrap;">${escapeHtml(qtyStr)}</td>
+              <td style="padding: 3.5px 2px; text-align: right; font-size: 13px; font-weight: 700; color: #000000; white-space: nowrap;">${escapeHtml(rateStr)}</td>
+              <td style="padding: 3.5px 2px; text-align: right; font-size: 13px; font-weight: 800; color: #000000; white-space: nowrap;">${escapeHtml(totalStr)}</td>
             </tr>
           `;
         }).join('');
 
         return `
           <div class="branch-section" style="margin: 6px 0 10px 0; page-break-inside: auto; break-inside: auto; page-break-before: auto; break-before: auto;">
-            <div class="branch-header" style="font-weight: 800; font-size: 12.5px; padding: 3px 0 4px 0; border-bottom: 1.5px solid #000000; text-transform: uppercase; color: #000000; page-break-after: avoid; break-after: avoid; page-break-inside: avoid; break-inside: avoid;">
+            <div class="branch-header" style="font-weight: 800; font-size: 14.5px; padding: 3px 0 4px 0; border-bottom: 1.5px solid #000000; text-transform: uppercase; color: #000000; page-break-after: avoid; break-after: avoid; page-break-inside: avoid; break-inside: avoid;">
               ▶ ${vName}
             </div>
             <table class="thermal-receipt-table" style="margin: 2px 0; width: 100%; border-collapse: collapse; page-break-inside: auto; break-inside: auto; page-break-before: avoid; break-before: avoid;">
               <thead style="display: table-header-group; page-break-after: avoid; break-after: avoid;">
                 <tr>
-                  <th style="padding: 4px 2px; text-align: left; font-size: 11px; font-weight: 800; color: #000000; border-top: 1.5px dashed #000000; border-bottom: 1.5px dashed #000000;">${isTa ? 'பொருள்' : 'Item'}</th>
-                  <th style="padding: 4px 2px; text-align: right; font-size: 11px; font-weight: 800; color: #000000; width: 60px; border-top: 1.5px dashed #000000; border-bottom: 1.5px dashed #000000;">${isTa ? 'அளவு' : 'Qty'}</th>
-                  <th style="padding: 4px 2px; text-align: right; font-size: 11px; font-weight: 800; color: #000000; width: 50px; border-top: 1.5px dashed #000000; border-bottom: 1.5px dashed #000000;">${isTa ? 'விலை' : 'Rate'}</th>
-                  <th style="padding: 4px 2px; text-align: right; font-size: 11px; font-weight: 800; color: #000000; width: 60px; border-top: 1.5px dashed #000000; border-bottom: 1.5px dashed #000000;">${isTa ? 'மொத்தம்' : 'Total'}</th>
+                  <th style="padding: 4px 2px; text-align: left; font-size: 12.5px; font-weight: 800; color: #000000; border-top: 1.5px dashed #000000; border-bottom: 1.5px dashed #000000;">${isTa ? 'பொருள்' : 'Item'}</th>
+                  <th style="padding: 4px 2px; text-align: right; font-size: 12.5px; font-weight: 800; color: #000000; width: 60px; border-top: 1.5px dashed #000000; border-bottom: 1.5px dashed #000000;">${isTa ? 'அளவு' : 'Qty'}</th>
+                  <th style="padding: 4px 2px; text-align: right; font-size: 12.5px; font-weight: 800; color: #000000; width: 50px; border-top: 1.5px dashed #000000; border-bottom: 1.5px dashed #000000;">${isTa ? 'விலை' : 'Rate'}</th>
+                  <th style="padding: 4px 2px; text-align: right; font-size: 12.5px; font-weight: 800; color: #000000; width: 60px; border-top: 1.5px dashed #000000; border-bottom: 1.5px dashed #000000;">${isTa ? 'மொத்தம்' : 'Total'}</th>
                 </tr>
               </thead>
               <tbody>
-                ${rowsHtml || `<tr><td colspan="4" style="text-align: center; font-style: italic; padding: 6px; font-weight: 700; color: #000000;">No items</td></tr>`}
+                ${rowsHtml || `<tr><td colspan="4" style="text-align: center; font-style: italic; padding: 6px; font-size: 13px; font-weight: 700; color: #000000;">No items</td></tr>`}
               </tbody>
             </table>
-            <div style="display: flex; justify-content: space-between; font-size: 12px; font-weight: 800; border-top: 1.5px dashed #000000; padding: 3px 0 5px 0; color: #000000;">
+            <div style="display: flex; justify-content: space-between; font-size: 13.5px; font-weight: 800; border-top: 1.5px dashed #000000; padding: 3px 0 5px 0; color: #000000;">
               <span>${isTa ? 'விற்பனையாளர் உபமொத்தம்' : 'Vendor Subtotal'} (${vSubtotalQty}):</span>
               <span>₹${vSubtotalAmount.toFixed(2)}</span>
             </div>
@@ -4225,112 +4208,21 @@ export function buildConsolidatedBranchReportThermalOptions(options = {}) {
     measureLabel = isTa ? 'இருப்பு அளவு' : 'Stock Qty';
   }
 
-  const subtitle = `${groupTypeLabel} ${viewMode === 'summary' ? (isTa ? 'சுருக்கம்' : 'Consolidated Summary') : (isTa ? 'விவரங்கள்' : 'Item Breakdown')}${departmentBreakdown ? (isTa ? ' • துறை வாரியாக' : ' • Dept Breakdown') : ''}`;
+  const subtitle = `${groupTypeLabel} ${viewMode === 'summary' ? (isTa ? 'சுருக்கம்' : 'Consolidated Summary') : (isTa ? 'விவரங்கள்' : 'Item Breakdown')}`;
 
   const metadata = [];
   if (branchFilter && branchFilter !== 'All Branches') {
     metadata.push({ label: isTa ? 'கிளை' : 'Branch', value: branchFilter });
   }
-  if (departmentBreakdown) {
-    metadata.push({ label: isTa ? 'பிரிவு' : 'View', value: isTa ? 'துறை வாரியானது' : 'Department-wise' });
-  }
 
   if (viewMode === 'summary') {
     const safeRows = Array.isArray(reportData.summaryRows) ? reportData.summaryRows : [];
-    const safeGroups = Array.isArray(reportData.detailsGroups) ? reportData.detailsGroups : [];
 
     const summaryRows = [
       { label: `${isTa ? 'மொத்த ' + groupTypeLabel + 'கள்:' : 'Total ' + groupTypeLabel + 's:'}`, value: totalGroups, isBold: true },
       { label: isTa ? 'மொத்த பொருட்கள்:' : 'Total Items:', value: overallTotalItems },
       { label: isTa ? 'ஒட்டுமொத்த அளவு:' : 'Total Quantity:', value: grandQtyFormatted, isTotal: true }
     ];
-
-    // Branch Request Summary with Department Breakdown ON: Group by Branch first, then departments
-    if (reportType === 'requests' && departmentBreakdown) {
-      let customBodyHtml = '';
-      if (safeGroups.length === 0) {
-        customBodyHtml = `
-          <div style="padding: 12px 0; text-align: center; font-style: italic; font-size: 11px;">
-            ${isTa ? 'பதிவுகள் எதுவும் இல்லை' : 'No records found matching filters'}
-          </div>
-        `;
-      } else {
-        customBodyHtml = safeGroups.map(g => {
-          const gName = escapeHtml(g.groupName || 'Unknown');
-          const gItems = Array.isArray(g.items) ? g.items : [];
-          const gSubtotalQty = escapeHtml(g.subtotalQuantityFormatted || '0');
-
-          // Group items in this branch by department
-          const deptMap = new Map();
-          gItems.forEach(it => {
-            const rawDept = (it.department && it.department !== 'All Departments') ? String(it.department).trim() : 'Unassigned';
-            if (!deptMap.has(rawDept)) deptMap.set(rawDept, {});
-            const uMap = deptMap.get(rawDept);
-            const u = cleanUnitName(it.unit || '');
-            const q = Number(it.requestedQuantity ?? it.totalQuantity ?? 0);
-            uMap[u] = Math.round(((uMap[u] || 0) + q) * 1000) / 1000;
-          });
-
-          let deptIdx = 1;
-          const deptRows = Array.from(deptMap.entries()).map(([deptName, uMap]) => {
-            const unitKeys = Object.keys(uMap);
-            const qtyStr = unitKeys.map(u => `${Number(uMap[u]).toLocaleString()} ${u}`).join(', ');
-            return `
-              <tr style="page-break-inside: avoid; break-inside: avoid; border-bottom: 1px dashed #dddddd;">
-                <td style="padding: 4px 2px; text-align: center; font-size: 10px; color: #555; width: 22px;">${deptIdx++}</td>
-                <td style="padding: 4px 2px; text-align: left; font-size: 11px; font-weight: 700; color: #000000;">
-                  🏷️ ${escapeHtml(deptName)}
-                </td>
-                <td style="padding: 4px 2px; text-align: right; font-size: 11px; font-weight: 800; color: #000000; white-space: nowrap;">
-                  ${escapeHtml(qtyStr)}
-                </td>
-              </tr>
-            `;
-          }).join('');
-
-          return `
-            <div class="branch-section" style="margin: 8px 0 12px 0; page-break-inside: auto; break-inside: auto;">
-              <div class="branch-header" style="font-weight: 800; font-size: 12px; padding: 3px 0 4px 0; border-bottom: 1.5px solid #000000; text-transform: uppercase; letter-spacing: 0.3px;">
-                🏢 ${gName}
-              </div>
-              <table class="thermal-receipt-table" style="width: 100%; border-collapse: collapse; margin: 2px 0; table-layout: fixed;">
-                <thead style="display: table-header-group;">
-                  <tr>
-                    <th style="padding: 3px 2px; text-align: center; font-size: 10px; border-bottom: 1px dashed #000; width: 22px;">#</th>
-                    <th style="padding: 3px 2px; text-align: left; font-size: 10px; border-bottom: 1px dashed #000; width: 55%;">${isTa ? 'துறை' : 'Department'}</th>
-                    <th style="padding: 3px 2px; text-align: right; font-size: 10px; width: 40%; border-bottom: 1px dashed #000;">${isTa ? 'மொத்த அளவு' : 'Total Quantity'}</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  ${deptRows || `<tr><td colspan="3" style="text-align: center; font-style: italic; padding: 6px;">${isTa ? 'பதிவுகள் இல்லை' : 'No items'}</td></tr>`}
-                </tbody>
-              </table>
-              <div class="branch-subtotal" style="display: flex; justify-content: space-between; align-items: center; font-size: 11px; font-weight: 800; border-top: 1px dashed #000000; padding: 3px 0 6px 0;">
-                <span>📌 ${gName} ${isTa ? 'கிளை துணை மொத்தம்' : 'Branch Subtotal'}:</span>
-                <span>${gSubtotalQty}</span>
-              </div>
-            </div>
-          `;
-        }).join('');
-      }
-
-      return {
-        organisationName: getAuthenticatedOrganisationName(options.organisationName || (isTa ? 'அன்னமித்ரா உணவு மேலாண்மை' : 'Annamithra Food Management')),
-        branchName: branchFilter !== 'All Branches' ? branchFilter : (isTa ? 'அனைத்து கிளைகள்' : 'All Branches'),
-        title: reportTitle,
-        subtitle,
-        dateLabel: dateRangeLabel,
-        metadata,
-        customBodyHtml,
-        summaryRows,
-        footerNotes: [
-          `*** ${isTa ? 'அறிக்கை சரிபார்க்கப்பட்டது' : 'REPORT VERIFIED'} ***`,
-          'Annamithra POS System',
-          isTa ? '*** அறிக்கை முடிவு ***' : '*** END OF REPORT ***'
-        ],
-        language
-      };
-    }
 
     let columns = [];
     if (reportType === 'requests') {
@@ -4381,13 +4273,13 @@ export function buildConsolidatedBranchReportThermalOptions(options = {}) {
       language
     };
   } else {
-    // Details View: Grouped by Branch heading with full item details
+    // Details View: Grouped by Branch heading with full item details (clean: no department sub-boxes or status tags)
     const safeGroups = Array.isArray(reportData.detailsGroups) ? reportData.detailsGroups : [];
 
     let customBodyHtml = '';
     if (safeGroups.length === 0) {
       customBodyHtml = `
-        <div style="padding: 12px 0; text-align: center; font-style: italic; font-size: 11px;">
+        <div style="padding: 12px 0; text-align: center; font-style: italic; font-size: 13px; font-weight: 700; color: #000000;">
           ${isTa ? 'பதிவுகள் எதுவும் இல்லை' : 'No records found matching filters'}
         </div>
       `;
@@ -4397,106 +4289,6 @@ export function buildConsolidatedBranchReportThermalOptions(options = {}) {
         const gItems = Array.isArray(g.items) ? g.items : [];
         const gSubtotalQty = escapeHtml(g.subtotalQuantityFormatted || '0');
 
-        if (reportType === 'requests' && departmentBreakdown) {
-          // ON: Group items by department into separate sections
-          const deptMap = new Map();
-          gItems.forEach(it => {
-            const rawDept = (it.department && it.department !== 'All Departments') ? String(it.department).trim() : 'Unassigned';
-            if (!deptMap.has(rawDept)) deptMap.set(rawDept, { items: [], unitMap: {} });
-            const dObj = deptMap.get(rawDept);
-            dObj.items.push(it);
-            const u = cleanUnitName(it.unit || '');
-            const q = Number(it.requestedQuantity ?? it.totalQuantity ?? 0);
-            dObj.unitMap[u] = Math.round(((dObj.unitMap[u] || 0) + q) * 1000) / 1000;
-          });
-
-          const deptSectionsHtml = Array.from(deptMap.entries()).map(([deptName, dObj]) => {
-            const unitKeys = Object.keys(dObj.unitMap);
-            const deptSubtotalQty = unitKeys.map(u => `${Number(dObj.unitMap[u]).toLocaleString()} ${u}`).join(', ');
-
-            const itemRowsHtml = dObj.items.map(it => {
-              const rawItemName = String(it.itemName || '—').trim();
-              const itemName = isTa ? translateItemName(rawItemName) : rawItemName;
-              const reqQty = Number(it.requestedQuantity ?? it.totalQuantity ?? 0);
-              const delQty = Number(it.deliveredQuantity || 0);
-              const balQty = Number(it.deliveryQuantity !== undefined ? it.deliveryQuantity : Math.max(0, reqQty - delQty));
-              const unitStr = cleanUnitName(it.unit || '');
-              const delDateStr = it.deliveryDate ? String(it.deliveryDate).slice(0, 10) : '';
-              const ackStatus = it.acknowledgementStatus || '';
-
-              let ackDisplay = '';
-              if (ackStatus === 'ACKNOWLEDGED' || ackStatus === 'COMPLETED') {
-                ackDisplay = `<span style="font-size: 8.5px; font-weight: 800; color: #166534;">✓ ${isTa ? 'பெறப்பட்டது' : 'Ack'}</span>`;
-              } else if (ackStatus === 'PARTIALLY_DELIVERED') {
-                ackDisplay = `<span style="font-size: 8.5px; font-weight: 800; color: #D97706;">⚡ ${isTa ? 'பகுதி' : 'Partial'}</span>`;
-              } else if (ackStatus === 'PENDING_DELIVERY') {
-                ackDisplay = `<span style="font-size: 8.5px; font-weight: 800; color: #DC2626;">⏳ ${isTa ? 'நிலுவை' : 'Pending'}</span>`;
-              } else if (ackStatus === 'PENDING_ACKNOWLEDGEMENT' || ackStatus === 'DISPATCHED') {
-                ackDisplay = `<span style="font-size: 8.5px; font-weight: 800; color: #2563EB;">📬 ${isTa ? 'ஒப்புதல்' : 'Sent'}</span>`;
-              } else if (ackStatus) {
-                ackDisplay = `<span style="font-size: 8px; font-weight: 600; color: #555;">${escapeHtml(ackStatus)}</span>`;
-              }
-
-              return `
-                <tr style="page-break-inside: avoid; break-inside: avoid; border-bottom: 1px dashed #dddddd;">
-                  <td style="padding: 4px 2px; text-align: left; vertical-align: top;">
-                    <div style="font-weight: 700; font-size: 11px; line-height: 1.25; color: #000000; word-break: break-word;">${escapeHtml(itemName)}</div>
-                    ${delDateStr ? `<div style="font-size: 8.5px; color: #6B7280; margin-top: 1.5px;">📅 ${isTa ? 'விநியோகம்' : 'Deliv'}: ${escapeHtml(delDateStr)}</div>` : ''}
-                  </td>
-                  <td style="padding: 4px 2px; text-align: right; vertical-align: top; white-space: nowrap;">
-                    <div style="font-weight: 800; font-size: 11px; color: #000000;">Req: ${reqQty.toLocaleString()}</div>
-                    ${delQty > 0 ? `<div style="font-size: 9px; color: #166534; font-weight: 600;">Del: ${delQty.toLocaleString()}</div>` : ''}
-                    <div style="font-size: 9px; color: #B45309; font-weight: 700;">Bal: ${balQty.toLocaleString()}</div>
-                  </td>
-                  <td style="padding: 4px 2px; text-align: center; vertical-align: top; white-space: nowrap;">
-                    <div style="font-weight: 700; font-size: 10.5px; color: #111827;">${escapeHtml(unitStr)}</div>
-                    ${ackDisplay ? `<div style="margin-top: 2px;">${ackDisplay}</div>` : ''}
-                  </td>
-                </tr>
-              `;
-            }).join('');
-
-            return `
-              <div class="department-sub-section" style="margin: 6px 0 8px 0; border: 1px solid #e5e7eb; border-radius: 4px; padding: 4px 6px; background: #fafafa; page-break-inside: auto; break-inside: auto;">
-                <div style="font-weight: 700; font-size: 11px; padding: 3px 6px; background: #f0ead6; border-left: 3px solid #07543D; display: flex; justify-content: space-between; align-items: center;">
-                  <span>🏷️ ${escapeHtml(deptName)}</span>
-                  <span style="font-size: 9.5px; font-weight: 600; color: #555;">${dObj.items.length} ${isTa ? 'பொருட்கள்' : 'Items'}</span>
-                </div>
-                <table class="thermal-receipt-table" style="width: 100%; border-collapse: collapse; margin: 2px 0; table-layout: fixed;">
-                  <thead style="display: table-header-group;">
-                    <tr>
-                      <th style="padding: 3px 2px; text-align: left; font-size: 9.5px; border-bottom: 1px dashed #000; width: 50%;">${isTa ? 'பொருள்' : 'Item'}</th>
-                      <th style="padding: 3px 2px; text-align: right; font-size: 9.5px; width: 28%; border-bottom: 1px dashed #000;">${isTa ? 'கோரிய/விநியோகம்' : 'Req / Deliv'}</th>
-                      <th style="padding: 3px 2px; text-align: center; font-size: 9.5px; width: 22%; border-bottom: 1px dashed #000;">${isTa ? 'அலகு/நிலை' : 'Unit/Status'}</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    ${itemRowsHtml || `<tr><td colspan="3" style="text-align: center; font-style: italic; padding: 4px;">${isTa ? 'பதிவுகள் இல்லை' : 'No items'}</td></tr>`}
-                  </tbody>
-                </table>
-                <div style="display: flex; justify-content: space-between; align-items: center; font-size: 10px; font-weight: 700; border-top: 1px dashed #888; padding: 3px 2px 2px 2px; color: #07543D;">
-                  <span>🏷️ ${escapeHtml(deptName)} ${isTa ? 'துறை துணை மொத்தம்' : 'Subtotal'}:</span>
-                  <span>${escapeHtml(deptSubtotalQty)}</span>
-                </div>
-              </div>
-            `;
-          }).join('');
-
-          return `
-            <div class="branch-section" style="margin: 8px 0 12px 0; page-break-inside: auto; break-inside: auto; page-break-before: auto; break-before: auto;">
-              <div class="branch-header" style="font-weight: 800; font-size: 12px; padding: 3px 0 4px 0; border-bottom: 1.5px solid #000000; text-transform: uppercase; letter-spacing: 0.3px;">
-                🏢 ${gName} <span style="font-size: 10px; font-weight: 600; opacity: 0.85;">(${g.totalItems || gItems.length} ${isTa ? 'பொருட்கள்' : 'Items'})</span>
-              </div>
-              ${deptSectionsHtml}
-              <div class="branch-subtotal" style="display: flex; justify-content: space-between; align-items: center; font-size: 11px; font-weight: 800; border-top: 1.5px solid #000000; padding: 4px 0 6px 0; margin-top: 4px;">
-                <span>📌 ${gName} ${isTa ? 'கிளை துணை மொத்தம்' : 'Branch Subtotal'}:</span>
-                <span>${gSubtotalQty}</span>
-              </div>
-            </div>
-          `;
-        }
-
-        // OFF (or non-requests): Single consolidated table per branch
         const rowsHtml = gItems.map(it => {
           const rawItemName = String(it.itemName || '—').trim();
           const itemName = isTa ? translateItemName(rawItemName) : rawItemName;
@@ -4504,71 +4296,54 @@ export function buildConsolidatedBranchReportThermalOptions(options = {}) {
           const delQty = Number(it.deliveredQuantity || 0);
           const balQty = Number(it.deliveryQuantity !== undefined ? it.deliveryQuantity : Math.max(0, reqQty - delQty));
           const unitStr = cleanUnitName(it.unit || '');
-          const deptStr = it.department ? String(it.department).trim() : '';
           const delDateStr = it.deliveryDate ? String(it.deliveryDate).slice(0, 10) : '';
-          const ackStatus = it.acknowledgementStatus || '';
 
           if (reportType === 'requests') {
-            let ackDisplay = '';
-            if (ackStatus === 'ACKNOWLEDGED' || ackStatus === 'COMPLETED') {
-              ackDisplay = `<span style="font-size: 9px; font-weight: 800; color: #000000;">[ ${isTa ? 'பெறப்பட்டது' : 'ACK'} ]</span>`;
-            } else if (ackStatus === 'PARTIALLY_DELIVERED') {
-              ackDisplay = `<span style="font-size: 9px; font-weight: 800; color: #000000;">[ ${isTa ? 'பகுதி' : 'PARTIAL'} ]</span>`;
-            } else if (ackStatus === 'PENDING_DELIVERY') {
-              ackDisplay = `<span style="font-size: 9px; font-weight: 800; color: #000000;">[ ${isTa ? 'நிலுவை' : 'PENDING'} ]</span>`;
-            } else if (ackStatus === 'PENDING_ACKNOWLEDGEMENT' || ackStatus === 'DISPATCHED') {
-              ackDisplay = `<span style="font-size: 9px; font-weight: 800; color: #000000;">[ ${isTa ? 'ஒப்புதல்' : 'SENT'} ]</span>`;
-            } else if (ackStatus) {
-              ackDisplay = `<span style="font-size: 9px; font-weight: 800; color: #000000;">[ ${escapeHtml(ackStatus)} ]</span>`;
-            }
-
             return `
-              <tr style="page-break-inside: avoid; break-inside: avoid; border-bottom: 1px dashed #000000; color: #000000;">
+              <tr style="page-break-inside: avoid; break-inside: avoid; border-bottom: 1.5px dashed #000000; color: #000000;">
                 <td style="padding: 4px 2px; text-align: left; vertical-align: top;">
-                  <div style="font-weight: 800; font-size: 11.5px; line-height: 1.25; color: #000000; word-break: break-word;">${escapeHtml(itemName)}</div>
-                  ${deptStr && deptStr !== 'All Departments' ? `<div style="font-size: 10px; font-weight: 700; color: #000000; margin-top: 1.5px; word-break: break-word;">[ ${escapeHtml(deptStr)} ]</div>` : ''}
-                  ${delDateStr ? `<div style="font-size: 9.5px; font-weight: 700; color: #000000; margin-top: 1.5px;">${isTa ? 'விநியோகம்' : 'Deliv'}: ${escapeHtml(delDateStr)}</div>` : ''}
+                  <div style="font-weight: 800; font-size: 13px; line-height: 1.25; color: #000000; word-break: break-word;">${escapeHtml(itemName)}</div>
+                  ${delDateStr ? `<div style="font-size: 11px; font-weight: 700; color: #000000; margin-top: 1.5px;">${isTa ? 'விநியோகம்' : 'Deliv'}: ${escapeHtml(delDateStr)}</div>` : ''}
                 </td>
                 <td style="padding: 4px 2px; text-align: right; vertical-align: top; white-space: nowrap;">
-                  <div style="font-weight: 800; font-size: 11.5px; color: #000000;">Req: ${reqQty.toLocaleString()}</div>
-                  ${delQty > 0 ? `<div style="font-size: 10px; color: #000000; font-weight: 800;">Del: ${delQty.toLocaleString()}</div>` : ''}
-                  <div style="font-size: 10px; color: #000000; font-weight: 800;">Bal: ${balQty.toLocaleString()}</div>
+                  <div style="font-weight: 800; font-size: 13px; color: #000000;">Req: ${reqQty.toLocaleString()}</div>
+                  ${delQty > 0 ? `<div style="font-size: 11.5px; color: #000000; font-weight: 800;">Del: ${delQty.toLocaleString()}</div>` : ''}
+                  <div style="font-size: 11.5px; color: #000000; font-weight: 800;">Bal: ${balQty.toLocaleString()}</div>
                 </td>
                 <td style="padding: 4px 2px; text-align: center; vertical-align: top; white-space: nowrap;">
-                  <div style="font-weight: 800; font-size: 11px; color: #000000;">${escapeHtml(unitStr)}</div>
-                  ${ackDisplay ? `<div style="margin-top: 2px;">${ackDisplay}</div>` : ''}
+                  <div style="font-weight: 800; font-size: 12.5px; color: #000000;">${escapeHtml(unitStr)}</div>
                 </td>
               </tr>
             `;
           }
 
           return `
-            <tr style="page-break-inside: avoid; break-inside: avoid; border-bottom: 1px dashed #000000; color: #000000;">
-              <td style="padding: 3.5px 2px; text-align: left; font-size: 11.5px; font-weight: 700; color: #000000; word-break: break-word;">${escapeHtml(itemName)}</td>
-              <td style="padding: 3.5px 2px; text-align: right; font-size: 11.5px; white-space: nowrap; font-weight: 800; color: #000000;">${escapeHtml(reqQty)}</td>
-              <td style="padding: 3.5px 2px; text-align: center; font-size: 11px; white-space: nowrap; font-weight: 700; color: #000000;">${escapeHtml(unitStr)}</td>
+            <tr style="page-break-inside: avoid; break-inside: avoid; border-bottom: 1.5px dashed #000000; color: #000000;">
+              <td style="padding: 3.5px 2px; text-align: left; font-size: 13px; font-weight: 700; color: #000000; word-break: break-word;">${escapeHtml(itemName)}</td>
+              <td style="padding: 3.5px 2px; text-align: right; font-size: 13px; white-space: nowrap; font-weight: 800; color: #000000;">${escapeHtml(reqQty)}</td>
+              <td style="padding: 3.5px 2px; text-align: center; font-size: 12.5px; white-space: nowrap; font-weight: 700; color: #000000;">${escapeHtml(unitStr)}</td>
             </tr>
           `;
         }).join('');
 
         return `
           <div class="branch-section" style="margin: 8px 0 12px 0; page-break-inside: auto; break-inside: auto; page-break-before: auto; break-before: auto;">
-            <div class="branch-header" style="font-weight: 800; font-size: 12.5px; padding: 4px 0; border-bottom: 1.5px solid #000000; text-transform: uppercase; letter-spacing: 0.3px; color: #000000; page-break-after: avoid; break-after: avoid; page-break-inside: avoid; break-inside: avoid;">
-              ▶ ${gName} <span style="font-size: 10.5px; font-weight: 700; color: #000000;">(${g.totalItems || gItems.length} ${isTa ? 'பொருட்கள்' : 'Items'})</span>
+            <div class="branch-header" style="font-weight: 800; font-size: 14.5px; padding: 4px 0; border-bottom: 1.5px solid #000000; text-transform: uppercase; letter-spacing: 0.3px; color: #000000; page-break-after: avoid; break-after: avoid; page-break-inside: avoid; break-inside: avoid;">
+              ▶ ${gName} <span style="font-size: 12px; font-weight: 700; color: #000000;">(${g.totalItems || gItems.length} ${isTa ? 'பொருட்கள்' : 'Items'})</span>
             </div>
             <table class="thermal-receipt-table" style="width: 100%; border-collapse: collapse; margin: 2px 0; table-layout: fixed; page-break-inside: auto; break-inside: auto; page-break-before: avoid; break-before: avoid;">
               <thead style="display: table-header-group; page-break-after: avoid; break-after: avoid;">
                 <tr>
-                  <th style="padding: 3.5px 2px; text-align: left; font-size: 10.5px; font-weight: 800; color: #000000; border-top: 1.5px dashed #000000; border-bottom: 1.5px dashed #000000; width: 50%;">${isTa ? 'பொருள் / துறை' : 'Item / Department'}</th>
-                  <th style="padding: 3.5px 2px; text-align: right; font-size: 10.5px; font-weight: 800; color: #000000; width: 28%; border-top: 1.5px dashed #000000; border-bottom: 1.5px dashed #000000;">${isTa ? 'கோரிய/விநியோகம்' : 'Req / Deliv'}</th>
-                  <th style="padding: 3.5px 2px; text-align: center; font-size: 10.5px; font-weight: 800; color: #000000; width: 22%; border-top: 1.5px dashed #000000; border-bottom: 1.5px dashed #000000;">${isTa ? 'அலகு/நிலை' : 'Unit/Status'}</th>
+                  <th style="padding: 3.5px 2px; text-align: left; font-size: 12.5px; font-weight: 800; color: #000000; border-top: 1.5px dashed #000000; border-bottom: 1.5px dashed #000000; width: 50%;">${isTa ? 'பொருள்' : 'Item'}</th>
+                  <th style="padding: 3.5px 2px; text-align: right; font-size: 12.5px; font-weight: 800; color: #000000; width: 28%; border-top: 1.5px dashed #000000; border-bottom: 1.5px dashed #000000;">${isTa ? 'கோரிய/விநியோகம்' : 'Req / Deliv'}</th>
+                  <th style="padding: 3.5px 2px; text-align: center; font-size: 12.5px; font-weight: 800; color: #000000; width: 22%; border-top: 1.5px dashed #000000; border-bottom: 1.5px dashed #000000;">${isTa ? 'அலகு' : 'Unit'}</th>
                 </tr>
               </thead>
               <tbody>
-                ${rowsHtml || `<tr><td colspan="3" style="text-align: center; font-style: italic; padding: 6px; font-weight: 700; color: #000000;">${isTa ? 'பதிவுகள் இல்லை' : 'No items'}</td></tr>`}
+                ${rowsHtml || `<tr><td colspan="3" style="text-align: center; font-style: italic; padding: 6px; font-size: 13px; font-weight: 700; color: #000000;">${isTa ? 'பதிவுகள் இல்லை' : 'No items'}</td></tr>`}
               </tbody>
             </table>
-            <div class="branch-subtotal" style="display: flex; justify-content: space-between; align-items: center; font-size: 12px; font-weight: 800; border-top: 1.5px dashed #000000; padding: 3px 0 6px 0; color: #000000; page-break-inside: avoid; break-inside: avoid;">
+            <div class="branch-subtotal" style="display: flex; justify-content: space-between; align-items: center; font-size: 14px; font-weight: 800; border-top: 1.5px dashed #000000; padding: 3px 0 6px 0; color: #000000; page-break-inside: avoid; break-inside: avoid;">
               <span>${gName} ${isTa ? 'துணை மொத்தம்' : 'Subtotal'}:</span>
               <span>${gSubtotalQty}</span>
             </div>

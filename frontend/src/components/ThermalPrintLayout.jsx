@@ -96,11 +96,11 @@ export function generateThermalReceiptHtml({
   // Metadata lines
   const metaHtml = (metadata || []).map(m => {
     if (typeof m === 'string') {
-      return `<div style="margin: 2px 0; font-size: 11.5px; font-weight: 700; color: #000000; word-break: break-word;">${escapeHtml(m)}</div>`;
+      return `<div style="margin: 2px 0; font-size: 13px; font-weight: 700; color: #000000; word-break: break-word;">${escapeHtml(m)}</div>`;
     }
     if (!m || !m.label) return '';
     return `
-      <div style="display: flex; justify-content: space-between; margin: 2px 0; font-size: 11.5px; color: #000000;">
+      <div style="display: flex; justify-content: space-between; margin: 2px 0; font-size: 13px; color: #000000;">
         <span style="font-weight: 700;">${escapeHtml(m.label)}:</span>
         <span style="font-weight: 800; text-align: right; margin-left: 8px;">${escapeHtml(m.value || '—')}</span>
       </div>
@@ -112,7 +112,7 @@ export function generateThermalReceiptHtml({
     const align = col.align || 'left';
     const widthStyle = col.width ? `width: ${col.width};` : '';
     return `
-      <th style="padding: 4px 2px; text-align: ${align}; ${widthStyle} font-size: 11.5px; font-weight: 800; text-transform: uppercase; color: #000000; border-top: 1.5px dashed #000000; border-bottom: 1.5px dashed #000000;">
+      <th style="padding: 4px 2px; text-align: ${align}; ${widthStyle} font-size: 13px; font-weight: 800; text-transform: uppercase; color: #000000; border-top: 1.5px dashed #000000; border-bottom: 1.5px dashed #000000;">
         ${escapeHtml(col.header)}
       </th>
     `;
@@ -124,7 +124,7 @@ export function generateThermalReceiptHtml({
     const colSpan = (columns || []).length || 1;
     tableRowsHtml = `
       <tr>
-        <td colspan="${colSpan}" style="padding: 10px 2px; text-align: center; font-style: italic; font-size: 11.5px; font-weight: 700; color: #000000;">
+        <td colspan="${colSpan}" style="padding: 10px 2px; text-align: center; font-style: italic; font-size: 13px; font-weight: 700; color: #000000;">
           ${isTa ? 'பதிவுகள் எதுவும் இல்லை' : 'No records found'}
         </td>
       </tr>
@@ -142,7 +142,7 @@ export function generateThermalReceiptHtml({
           cellVal = row[col.key] !== undefined && row[col.key] !== null ? row[col.key] : '—';
         }
         return `
-          <td style="padding: 3.5px 2px; text-align: ${align}; vertical-align: top; font-size: 11.5px; font-weight: 700; color: #000000; word-break: break-word;">
+          <td style="padding: 3.5px 2px; text-align: ${align}; vertical-align: top; font-size: 13px; font-weight: 700; color: #000000; word-break: break-word;">
             ${typeof cellVal === 'string' && cellVal.includes('<') ? cellVal : escapeHtml(cellVal)}
           </td>
         `;
@@ -162,8 +162,8 @@ export function generateThermalReceiptHtml({
     const isTotal = s.isTotal;
     const isBold = s.isBold || isTotal;
     const borderStyle = isTotal
-      ? 'border-top: 1.5px dashed #000000; border-bottom: 1.5px dashed #000000; padding: 4px 0; margin-top: 4px; font-size: 13.5px; font-weight: 800;'
-      : 'padding: 2.5px 0; font-size: 11.5px; font-weight: 700;';
+      ? 'border-top: 1.5px dashed #000000; border-bottom: 1.5px dashed #000000; padding: 4px 0; margin-top: 4px; font-size: 15.5px; font-weight: 800;'
+      : 'padding: 2.5px 0; font-size: 13px; font-weight: 700;';
     const fontWeight = isTotal ? 'font-weight: 800;' : (isBold ? 'font-weight: 800;' : 'font-weight: 700;');
 
     return `
@@ -181,7 +181,7 @@ export function generateThermalReceiptHtml({
     isTa ? '*** அறிக்கையின் முடிவு ***' : '*** END OF REPORT ***'
   ];
   const footerHtml = defaultFooters.map(f => `
-    <div style="margin: 2px 0; font-size: 11px; font-weight: 700; text-align: center; letter-spacing: 0.3px; color: #000000;">
+    <div style="margin: 2px 0; font-size: 12.5px; font-weight: 700; text-align: center; letter-spacing: 0.3px; color: #000000;">
       ${escapeHtml(f)}
     </div>
   `).join('');
@@ -219,7 +219,7 @@ export function generateThermalReceiptHtml({
             background: #ffffff !important;
             color: #000000 !important;
             font-family: 'Consolas', 'Menlo', 'Monaco', 'Courier New', 'Noto Sans Tamil', 'Inter', sans-serif, monospace;
-            font-size: 12px;
+            font-size: 13.5px;
             font-weight: 700;
             line-height: 1.4;
             -webkit-font-smoothing: antialiased;
@@ -258,12 +258,14 @@ export function generateThermalReceiptHtml({
             break-after: avoid !important;
             page-break-inside: avoid !important;
             break-inside: avoid !important;
+            font-size: 14.5px !important;
             font-weight: 800 !important;
             color: #000000 !important;
           }
           .branch-subtotal {
             page-break-inside: avoid !important;
             break-inside: avoid !important;
+            font-size: 14px !important;
             font-weight: 800 !important;
             color: #000000 !important;
           }
@@ -271,7 +273,7 @@ export function generateThermalReceiptHtml({
             width: 100%;
             border-collapse: collapse;
             margin: 3px 0;
-            font-size: 11.5px;
+            font-size: 13px;
             font-weight: 700;
             color: #000000 !important;
             page-break-inside: auto !important;
@@ -286,7 +288,7 @@ export function generateThermalReceiptHtml({
             border-top: 1.5px dashed #000000 !important;
             border-bottom: 1.5px dashed #000000 !important;
             color: #000000 !important;
-            font-size: 11.5px;
+            font-size: 13px;
             font-weight: 800;
             padding: 4px 2px;
             page-break-inside: avoid !important;
@@ -299,9 +301,9 @@ export function generateThermalReceiptHtml({
           }
           table.thermal-receipt-table td {
             color: #000000 !important;
-            font-size: 11.5px;
+            font-size: 13px;
             font-weight: 700;
-            padding: 3px 2px;
+            padding: 3.5px 2px;
           }
           @media screen {
             body {
@@ -338,11 +340,11 @@ export function generateThermalReceiptHtml({
         <div class="thermal-receipt-root">
           <!-- HEADER -->
           <div style="text-align: center; margin-bottom: 4px;">
-            <div style="font-size: 15px; font-weight: 800; letter-spacing: 0.5px; text-transform: uppercase; color: #000000;">
+            <div style="font-size: 17px; font-weight: 800; letter-spacing: 0.5px; text-transform: uppercase; color: #000000;">
               ${escapeHtml(resolvedOrgName)}
             </div>
             ${branchName ? `
-              <div style="font-size: 13px; font-weight: 800; margin-top: 2px; color: #000000;">
+              <div style="font-size: 14.5px; font-weight: 800; margin-top: 2px; color: #000000;">
                 ${escapeHtml(branchName)}
               </div>
             ` : ''}
@@ -352,18 +354,18 @@ export function generateThermalReceiptHtml({
 
           <!-- DOCUMENT TITLE -->
           <div style="text-align: center; margin: 4px 0;">
-            <div style="font-size: 14px; font-weight: 800; letter-spacing: 0.5px; text-transform: uppercase; color: #000000;">
+            <div style="font-size: 15.5px; font-weight: 800; letter-spacing: 0.5px; text-transform: uppercase; color: #000000;">
               ${escapeHtml(title)}
             </div>
             ${subtitle ? `
-              <div style="font-size: 11.5px; font-weight: 700; margin-top: 2px; color: #000000;">
+              <div style="font-size: 13px; font-weight: 700; margin-top: 2px; color: #000000;">
                 ${escapeHtml(subtitle)}
               </div>
             ` : ''}
           </div>
 
           <!-- DATE & TIMESTAMP -->
-          <div style="margin: 4px 0; font-size: 11.5px; font-weight: 700; color: #000000;">
+          <div style="margin: 4px 0; font-size: 13px; font-weight: 700; color: #000000;">
             ${dateLabel ? `
               <div style="display: flex; justify-content: space-between;">
                 <span style="font-weight: 700;">${isTa ? 'தேதி / காலம்' : 'Date / Period'}:</span>
@@ -570,7 +572,7 @@ export default function ThermalPrintLayout({
           background: '#ffffff',
           color: '#000000',
           fontFamily: "'Consolas', 'Menlo', 'Monaco', 'Courier New', 'Noto Sans Tamil', 'Inter', sans-serif, monospace",
-          fontSize: '12px',
+          fontSize: '13.5px',
           fontWeight: 700,
           lineHeight: '1.4',
           padding: '14px 10px',
@@ -580,11 +582,11 @@ export default function ThermalPrintLayout({
       >
         {/* Header */}
         <div style={{ textAlign: 'center', marginBottom: 6 }}>
-          <div style={{ fontSize: '15px', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.5px', color: '#000000' }}>
+          <div style={{ fontSize: '17px', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.5px', color: '#000000' }}>
             {finalOrgName}
           </div>
           {branchName && (
-            <div style={{ fontSize: '13px', fontWeight: 800, marginTop: 2, color: '#000000' }}>
+            <div style={{ fontSize: '14.5px', fontWeight: 800, marginTop: 2, color: '#000000' }}>
               {branchName}
             </div>
           )}
@@ -594,18 +596,18 @@ export default function ThermalPrintLayout({
 
         {/* Title */}
         <div style={{ textAlign: 'center', margin: '4px 0' }}>
-          <div style={{ fontSize: '14px', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.4px', color: '#000000' }}>
+          <div style={{ fontSize: '15.5px', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.4px', color: '#000000' }}>
             {title}
           </div>
           {subtitle && (
-            <div style={{ fontSize: '11.5px', fontWeight: 700, marginTop: 2, color: '#000000' }}>
+            <div style={{ fontSize: '13px', fontWeight: 700, marginTop: 2, color: '#000000' }}>
               {subtitle}
             </div>
           )}
         </div>
 
         {/* Date / Timestamp */}
-        <div style={{ margin: '4px 0', fontSize: '11.5px', fontWeight: 700, color: '#000000' }}>
+        <div style={{ margin: '4px 0', fontSize: '13px', fontWeight: 700, color: '#000000' }}>
           {dateLabel && (
             <div style={{ display: 'flex', justifyContent: 'space-between' }}>
               <span style={{ fontWeight: 700 }}>{isTa ? 'தேதி / காலம்' : 'Date / Period'}:</span>
@@ -622,7 +624,7 @@ export default function ThermalPrintLayout({
         {metadata && metadata.length > 0 && (
           <>
             <div style={{ borderTop: '1.5px dashed #000000', margin: '5px 0' }} />
-            <div style={{ margin: '4px 0', fontSize: '11.5px', fontWeight: 700, color: '#000000' }}>
+            <div style={{ margin: '4px 0', fontSize: '13px', fontWeight: 700, color: '#000000' }}>
               {metadata.map((m, idx) => {
                 if (typeof m === 'string') {
                   return <div key={idx} style={{ margin: '2px 0' }}>{m}</div>;
@@ -641,7 +643,7 @@ export default function ThermalPrintLayout({
         <div style={{ borderTop: '1.5px dashed #000000', margin: '5px 0' }} />
 
         {/* Table */}
-        <table style={{ width: '100%', borderCollapse: 'collapse', margin: '4px 0', fontSize: '11.5px', fontWeight: 700, color: '#000000' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', margin: '4px 0', fontSize: '13px', fontWeight: 700, color: '#000000' }}>
           <thead>
             <tr>
               {(columns || []).map((col, idx) => (
@@ -654,7 +656,7 @@ export default function ThermalPrintLayout({
                     borderTop: '1.5px dashed #000000',
                     borderBottom: '1.5px dashed #000000',
                     fontWeight: 800,
-                    fontSize: '11.5px',
+                    fontSize: '13px',
                     color: '#000000',
                     textTransform: 'uppercase'
                   }}
@@ -669,7 +671,7 @@ export default function ThermalPrintLayout({
               <tr>
                 <td
                   colSpan={(columns || []).length || 1}
-                  style={{ padding: '8px 2px', textAlign: 'center', fontStyle: 'italic', fontSize: '11.5px', fontWeight: 700, color: '#000000' }}
+                  style={{ padding: '8px 2px', textAlign: 'center', fontStyle: 'italic', fontSize: '13px', fontWeight: 700, color: '#000000' }}
                 >
                   {isTa ? 'பதிவுகள் எதுவும் இல்லை' : 'No records found'}
                 </td>
@@ -693,7 +695,7 @@ export default function ThermalPrintLayout({
                           padding: '3.5px 2px',
                           textAlign: col.align || 'left',
                           verticalAlign: 'top',
-                          fontSize: '11.5px',
+                          fontSize: '13px',
                           fontWeight: 700,
                           color: '#000000',
                           wordBreak: 'break-word'
@@ -724,7 +726,7 @@ export default function ThermalPrintLayout({
                     display: 'flex',
                     justifyContent: 'space-between',
                     padding: isTotal ? '4px 0' : '2.5px 0',
-                    fontSize: isTotal ? '13.5px' : '11.5px',
+                    fontSize: isTotal ? '15.5px' : '13px',
                     fontWeight: isTotal ? 800 : (isBold ? 800 : 700),
                     color: '#000000',
                     borderTop: isTotal ? '1.5px dashed #000000' : 'none',
@@ -742,7 +744,7 @@ export default function ThermalPrintLayout({
         )}
 
         {/* Footer Notes */}
-        <div style={{ marginTop: 6, textAlign: 'center', fontSize: '11px', fontWeight: 700, color: '#000000' }}>
+        <div style={{ marginTop: 6, textAlign: 'center', fontSize: '12.5px', fontWeight: 700, color: '#000000' }}>
           {(footerNotes && footerNotes.length > 0 ? footerNotes : [
             isTa ? '*** நன்றி ***' : '*** THANK YOU ***',
             'Annamithra Food Management',
